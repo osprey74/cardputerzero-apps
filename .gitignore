@@ -1,0 +1,85 @@
+# Rust
+target/
+**/*.rs.bk
+*.pdb
+Cargo.lock.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# czdev / LVGL build artifacts
+*.bin
+*.elf
+*.hex
+*.map
+*.img
+dist-cz/
+
+# Node (in case any web tooling is added)
+node_modules/
+.pnpm-store/
+package-lock.json.bak
+
+# Editor / IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.cursor/
+
+# OS — macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# OS — Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# OS — Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# Logs & secrets
+*.log
+.env
+.env.local
+.env.*.local
+secrets.toml
+credentials.json
+
+# Device-side test data
+gps_logs/
+captures/
+nfc_dumps/
+sub_dumps/
+
+# Claude / agent runtime
+.claude/local/
+.claude/sessions/
