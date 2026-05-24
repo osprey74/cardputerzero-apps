@@ -134,7 +134,7 @@ czdev run examples/hello_cz
 
 ## ライセンス
 
-ライセンス条項は設計段階を抜けた時点で確定する予定です。それまでは作者がすべての権利を留保します。
+[MIT License](./LICENSE) で公開しています。Copyright © 2026 osprey74 (Sohshi)。
 
 ---
 

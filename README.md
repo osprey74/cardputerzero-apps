@@ -134,7 +134,7 @@ Details and citations are in [HANDOFF §7](./HANDOFF_cardputerzero.md#7-日本�
 
 ## License
 
-License terms are to be determined once the project moves out of the design phase. Until then, all rights are reserved by the author.
+Released under the [MIT License](./LICENSE). Copyright © 2026 osprey74 (Sohshi).
 
 ---
 
