@@ -4,9 +4,9 @@
 
 [日本語版 README はこちら](./README.ja.md)
 
-This repository hosts seven planned applications for the CardputerZero, ranging from a GPS logger and LoRa Meshtastic node to NFC and Sub-GHz learning tools, an offline BSAF disaster-alert receiver, an edge AI assistant, and a Wi-Fi analyzer.
+This repository hosts 11 planned applications for the CardputerZero — from a GPS logger with sky-plot visualization to a Meshtastic LoRa node, an NFC/Sub-GHz security toolkit, an off-grid BSAF disaster-alert receiver, an SDR wideband receiver, and a LAN diagnostics tool.
 
-> **Status (2026-05-24): pre-hardware.** The CardputerZero is a Kickstarter project and the physical device has not yet shipped. This repository currently contains the design specification and skeleton structure. Implementation will begin once the hardware arrives and the open items in [HANDOFF §9](./HANDOFF_cardputerzero.md#9-既知の未確認事項todo) are verified on the device.
+> **Status (2026-06-07): pre-hardware.** The CardputerZero is a Kickstarter project and the physical device has not yet shipped. This repository currently contains the design specification and skeleton structure. Implementation will begin once the hardware arrives and the open items in [HANDOFF §9](./HANDOFF_cardputerzero.md#9-既知の未確認事項todo) are verified on the device.
 
 ---
 
@@ -24,35 +24,60 @@ This repository hosts seven planned applications for the CardputerZero, ranging 
 | Camera | Sony IMX219 8MP (standard edition only) |
 | OS | Raspberry Pi OS (Debian Linux) |
 | Launcher | LVGL-based GUI launcher |
+| AppStore | Debian `.deb` apt repository via [CardputerZeroRepository](https://github.com/m5stack/CardputerZeroRepository) |
 
-Full hardware spec sheet is in [HANDOFF §1](./HANDOFF_cardputerzero.md#1-ハードウェア概要).
+Full hardware spec is in [HANDOFF §1](./HANDOFF_cardputerzero.md#1-ハードウェア概要).
+
+### Cap Modules (interchangeable top slot)
+
+| | Cap A: Cap LoRa-1262 | Cap B: Hacker Cap |
+|---|---|---|
+| Radio | SX1262 (LoRa, 868–923 MHz) | CC1101 (Sub-GHz, 315/433/868/920 MHz) |
+| GNSS | AT6668 (GPS / QZSS / GLO / GAL / BDS) | — |
+| NFC | — | ST25R3916 (ISO 14443A/B, FeliCa, ISO 15693) |
+| Primary apps | App 01 / 02 / 05 | App 03 / 04 |
+
+Cap A and Cap B share the same top-slot connector and cannot be mounted simultaneously.
+
+### Companion Hardware (recommended add-ons)
+
+| Device | Role |
+|---|---|
+| [M5Stack C6L Meshtastic Unit](https://www.switch-science.com/products/10809) | Home-side LoRa gateway (Internet ↔ Meshtastic bridge, Wi-Fi 6 built-in) |
+| [M5Stack Chain Encoder × 2](https://www.switch-science.com/collections/m5stack/products/10919) | Daisy-chained rotary knobs (frequency tuning / list scrolling) |
+| [RTL-SDR Blog V4](https://www.rtl-sdr.com/rtl-sdr-blog-v4-dongle-initial-release/) | USB SDR dongle for 500 kHz – 1.75 GHz wideband reception |
 
 ---
 
 ## Planned Applications
 
-| ID | App | Priority | Primary Function |
-|---|---|---|---|
-| 01 | `gps-logger` | ★★★★★ | GPX track logger using the AT6668 GNSS chip on Cap LoRa 1262 |
-| 02 | `lora-mesh-node` | ★★★★☆ | Meshtastic-compatible off-grid messaging node (SX1262) |
-| 03 | `nfc-toolkit` | ★★★★☆ | NFC card learning tool (ST25R3916, ISO 14443A/B, FeliCa, ISO 15693) |
-| 04 | `subghz-sniffer` | ★★★☆☆ | Sub-GHz signal analyzer (CC1101, receive-only in Japan) |
-| 05 | `bsaf-client` | ★★★★☆ | Off-grid receiver for [BSAF v1](https://github.com/osprey74/bsaf-protocol) disaster alerts |
-| 06 | `edge-ai` | ★★★☆☆ | Offline LLM assistant (quantized 1B-parameter models) |
-| 07 | `wifi-analyzer` | ★★★☆☆ | Wi-Fi environment scanner and analyzer |
+| ID | App | Priority | Hardware | Primary Function |
+|---|---|---|---|---|
+| 01 | `gps-logger` | ★★★★★ | Cap A | GPX track logger + sky plot view of visible GNSS satellites |
+| 02 | `lora-mesh-node` | ★★★★☆ | Cap A + C6L gateway | Meshtastic-compatible off-grid messaging node |
+| 03 | `nfc-toolkit` | ★★★★☆ | Cap B | NFC card learning tool (ISO 14443A/B, FeliCa, ISO 15693) |
+| 04 | `subghz-sniffer` | ★★★☆☆ | Cap B | Sub-GHz signal analyzer (receive-only in Japan) |
+| 05 | `bsaf-client` | ★★★★☆ | Cap A + Wi-Fi | Two-channel ([BSAF v1](https://github.com/osprey74/bsaf-protocol)) disaster alert receiver (MQTT primary, LoRa fallback) |
+| 06 | `edge-ai` | ★★★☆☆ | Built-in | Offline LLM assistant (quantized 1B-parameter models) |
+| 07 | `wifi-analyzer` | ★★★☆☆ | Built-in | Wi-Fi environment scanner and analyzer |
+| 08 | `nfc-checkpoint` | ★★★☆☆ | Cap A + Cap B | NFC tag + GPS waypoint checkpoint logger |
+| 09 | `nfc-lora-auth` | ★★☆☆☆ | Cap A + Cap B | Off-grid badge auth PoC (NFC scan → LoRa relay) |
+| 10 | `sdr-receiver` | ★★★★☆ | RTL-SDR V4 | Wideband SDR receiver + integrated spectrum monitor (FM / ADS-B / AIS / NOAA APT / rtl_433) |
+| 11 | `lan-scanner` | ★★★★☆ | Built-in | Pocket-sized network diagnostics tool (nmap / arp-scan, Wi-Fi + Ethernet) |
 
-Each app's feature checklist lives in [HANDOFF §3](./HANDOFF_cardputerzero.md#3-アプリ開発仕様).
+Each app's full feature checklist is in [HANDOFF §3](./HANDOFF_cardputerzero.md#3-アプリ開発仕様).
 
 ---
 
 ## Tech Stack
 
 - **Language**: Rust (primary), Python (sidecars and tooling)
-- **UI Framework**: [LVGL](https://lvgl.io/) (Light and Versatile Graphics Library) via [CardputerZero-AppBuilder](https://github.com/m5stack/CardputerZero-AppBuilder) (`czdev` CLI)
+- **UI Framework**: [LVGL](https://lvgl.io/) via [CardputerZero-AppBuilder](https://github.com/m5stack/CardputerZero-AppBuilder) (`czdev` CLI)
 - **Target Triple**: `aarch64-unknown-linux-gnu`
 - **Emulator**: `czdev run` (SDL2-based, reproduces the 320×170 LCD on a development machine)
 - **Deployment**: SSH + `scp` to `pi@cardputerzero.local`
-- **App Distribution**: PR-based registration to [cardputerzero.github.io](https://cardputerzero.github.io)
+- **App Distribution**: `czdev upload` to the official Debian apt repository at [m5stack/CardputerZeroRepository](https://github.com/m5stack/CardputerZeroRepository) — end users install via `apt install`
+- **Remote Development**: Tailscale VPN ↔ home Mac Mini for running full Claude models off-device (the 512MB RAM is too small for local LLM hosting)
 
 ---
 
@@ -63,20 +88,30 @@ cardputerzero-apps/
 ├── CLAUDE.md
 ├── HANDOFF_cardputerzero.md   # Primary design specification
 ├── apps/
-│   ├── gps-logger/            # App 01
-│   ├── lora-mesh-node/        # App 02
-│   ├── nfc-toolkit/           # App 03
-│   ├── subghz-sniffer/        # App 04
-│   ├── bsaf-client/           # App 05
-│   ├── edge-ai/               # App 06
-│   └── wifi-analyzer/         # App 07
+│   ├── gps-logger/            # App 01 [Cap A]
+│   ├── lora-mesh-node/        # App 02 [Cap A]
+│   ├── nfc-toolkit/           # App 03 [Cap B]
+│   ├── subghz-sniffer/        # App 04 [Cap B]
+│   ├── bsaf-client/           # App 05 [Cap A + Wi-Fi]
+│   ├── edge-ai/               # App 06 [built-in]
+│   ├── wifi-analyzer/         # App 07 [built-in]
+│   ├── nfc-checkpoint/        # App 08 [Cap A + Cap B alternating]
+│   ├── nfc-lora-auth/         # App 09 [Cap A + Cap B alternating]
+│   ├── sdr-receiver/          # App 10 [RTL-SDR USB]
+│   └── lan-scanner/           # App 11 [built-in Wi-Fi / Ethernet]
 ├── shared/
-│   ├── lora_sx1262/           # SX1262 LoRa driver
-│   ├── gnss_at6668/           # AT6668 GNSS driver
+│   ├── lora_sx1262/           # SX1262 LoRa driver [Cap A]
+│   ├── gnss_at6668/           # AT6668 GNSS driver [Cap A]
+│   ├── nfc_st25r3916/         # ST25R3916 NFC driver [Cap B]
+│   ├── rf_cc1101/             # CC1101 Sub-GHz driver [Cap B]
+│   ├── input_encoder/         # Chain Encoder shared input driver [Grove UART]
 │   └── ui_theme/              # Shared LVGL theme
 └── scripts/
-    ├── setup_device.sh        # (planned) initial device setup
-    └── deploy_all.sh          # (planned) bulk deploy helper
+    ├── setup_device.sh        # initial device setup
+    ├── setup_rtlsdr.sh        # RTL-SDR V4 driver setup (App 10)
+    ├── swap_cap_a.sh          # Cap A device path helper
+    ├── swap_cap_b.sh          # Cap B device path helper
+    └── deploy_all.sh          # bulk deploy helper
 ```
 
 ---
@@ -85,7 +120,9 @@ cardputerzero-apps/
 
 > ⚠️ Implementation has not started. The steps below describe the planned development workflow once the hardware arrives.
 
-### Development Machine (macOS or Windows 11)
+### Development Machine
+
+This project officially supports macOS, Linux, and **Windows 11 via MSYS2 MINGW64** (per AppBuilder's `DESKTOP_DEV.md`).
 
 ```bash
 # 1. Install Rust toolchain
@@ -93,9 +130,10 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup target add aarch64-unknown-linux-gnu
 
 # 2. Install SDL2 for the czdev emulator
-#    macOS:
-brew install sdl2 sdl2_image sdl2_mixer
-#    Windows 11: use WSL2 (Ubuntu) and run the apt commands inside it
+#    macOS:        brew install sdl2 sdl2_image sdl2_mixer
+#    Linux:        sudo apt install libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev
+#    Windows 11:   pacman -S mingw-w64-x86_64-SDL2 mingw-w64-x86_64-SDL2_image mingw-w64-x86_64-SDL2_mixer
+#                  (run inside the MSYS2 MINGW64 shell)
 
 # 3. Clone and build CardputerZero-AppBuilder
 git clone --recursive https://github.com/m5stack/CardputerZero-AppBuilder.git
@@ -113,12 +151,14 @@ Full setup including device-side initialization (gpsd, SPI, UART enablement) is 
 
 ## Japanese Regulatory Notes
 
-All radio-frequency features ship with deliberate constraints for Japanese law compliance. In particular:
+All radio-frequency features ship with deliberate constraints for Japanese law compliance:
 
-- **LoRa transmission**: 920MHz band only, on certified (技適-approved) modules
+- **LoRa transmission**: 920MHz band only, output clamped to ≤ +13dBm (= 20mW) in firmware, on 技適-certified modules
 - **Sub-GHz**: CC1101 used for receive only; no transmission without proper certification
 - **NFC**: card emulation and UID writing restricted to user-owned cards for educational use
 - **Wi-Fi analysis**: targets restricted to user-owned access points
+- **LAN scanning**: only on networks where the operator has administrative authorization (per ISMS protocols)
+- **SDR reception**: receive-only; rebroadcasting received content is prohibited under Radio Law §59
 
 Details and citations are in [HANDOFF §7](./HANDOFF_cardputerzero.md#7-日本国内の法令技術基準).
 
@@ -127,8 +167,9 @@ Details and citations are in [HANDOFF §7](./HANDOFF_cardputerzero.md#7-日本�
 ## Ecosystem Integration
 
 - **[Rindo](https://github.com/osprey74/Rindo-iOS)** — GPX exports from `gps-logger` (App 01) are designed to be imported into the Rindo cycling navigation app
+- **[Michi-Navi](https://github.com/osprey74/michi-navi)** — `nfc-checkpoint` (App 08) is designed to integrate with the Hokkaido roadside-station stamp rally
 - **[bsaf-protocol](https://github.com/osprey74/bsaf-protocol)** — `bsaf-client` (App 05) conforms to the BSAF v1 specification
-- **bsaf-jma-bot** — App 05 subscribes to the BSAF MQTT feed when Wi-Fi is available, falling back to LoRa otherwise
+- **bsaf-jma-bot** — App 05 subscribes to a BSAF MQTT feed when Wi-Fi is available, falling back to LoRa via the C6L gateway otherwise
 
 ---
 
@@ -143,8 +184,9 @@ Released under the [MIT License](./LICENSE). Copyright © 2026 osprey74 (Sohshi)
 - **Kickstarter**: https://www.kickstarter.com/projects/m5stack/cardputerzero
 - **M5Stack Official Store**: https://shop.m5stack.com/pages/m5-cardputerzero
 - **CardputerZero-AppBuilder**: https://github.com/m5stack/CardputerZero-AppBuilder
-- **App Store Hub**: https://cardputerzero.github.io
-- **Cap LoRa 1262 Module**: https://shop.m5stack.com/products/cap-lora-1262-for-cardputer-adv-sx1262-atgm336h
+- **AppStore (apt repository)**: https://github.com/m5stack/CardputerZeroRepository
+- **Cap LoRa-1262 (Cap A)**: https://docs.m5stack.com/ja/cap/Cap_LoRa-1262
+- **Hacker Cap / Cap CC1101 (Cap B)**: https://docs.m5stack.com/en/cap/Cap_CC1101
 
 ---
 

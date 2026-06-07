@@ -13,7 +13,7 @@ M5Stack CardputerZero 向けに開発するアプリ群のモノレポ。Rust (c
 - **LCD**: 1.9" ST7789V2 / 320×170 px
 - **OS**: Raspberry Pi OS (Debian Linux ベース)
 - **Launcher**: LVGL ベース GUI Launcher
-- **AppStore**: https://cardputerzero.github.io
+- **AppStore**: https://github.com/m5stack/CardputerZeroRepository （公式 Debian apt リポジトリ・`.deb` 配布）
 
 ## アプリ一覧（予定）
 
@@ -67,9 +67,11 @@ cardputerzero-apps/
 ### Windows 11 開発機
 
 - 作業パス: `g:\dev\cardputerzero-apps\`
-- シェル: PowerShell 7 (pwsh) を標準、Git Bash / WSL2 併用可
-- SDL2 等 Linux 系ツールチェーンは **WSL2 (Ubuntu)** または **MSYS2** 経由で導入
-- クロスコンパイル: WSL2 上で `rustup target add aarch64-unknown-linux-gnu` 推奨
+- シェル: PowerShell 7 (pwsh) を標準、ビルド時は **MSYS2 MINGW64** シェルを使用
+- **AppBuilder は MSYS2 MINGW64 で公式サポート対象**（AppBuilder の `DESKTOP_DEV.md §4` 参照）
+- SDL2 等のツールチェーンは `pacman` で `mingw-w64-x86_64-SDL2` 系を導入
+- クロスコンパイル: MSYS2 上で `rustup target add aarch64-unknown-linux-gnu`
+- WSL2 (Ubuntu) も使用可だが、SDL2 エミュレータの表示には WSLg / X サーバが必要なため MSYS2 ネイティブが安定
 
 ### macOS 開発機
 
