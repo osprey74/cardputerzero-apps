@@ -30,6 +30,7 @@
 | 2026-06-11 | App 13 PoC 整備: 事前検証用 Python スクリプト [`apps/tester/tests/ina226_terminal_check.py`](apps/tester/tests/ina226_terminal_check.py) を新規作成（PaHUB CH0 選択 + INA226 初期化 + V/I/P 連続読み出し + Mfg ID/Die ID 検証）。§3 App 13 に「動作確認手順」サブセクション追加（4 ステップでの段階的検証手順を明記）。§11 Phase 1.5 完了基準を 3 条件に細分化 |
 | 2026-06-13 | App 13 INA226-10A の VH3.96-4P 端子台を**着脱式（プラガブル）ネジ式 cage clamp** タイプと確定（総司確認）。§3 App 13 ユニット仕様表・§9.1 確認済み項目・§10 購入リストに反映。1kΩ 治具製作要件に**用途別端子台モジュール化**運用案を追加 |
 | 2026-06-13 | App 13 §3 接続パターンに「**プラガブル端子台によるモジュール運用**」「**結線の本質理解（補足解説）**」サブセクションを追加。INA226 ハイサイド方式の概念、INPUT/OUTPUT 端子名の意味、VBUS ピンが shunt 出力側にあるためパターン 2 が OUTPUT 側受けとなる根拠、信号線を経由させない原則を明文化 |
+| 2026-06-13 | **EXT 2.54-14P ヘッダの完全ピンマップを §1.2 に追加**（公式ドキュメント画像より確定）。Pin 4=GND, Pin 6=5V OUT, Pin 8=G2/SDA, Pin 10=G3/SCL, Pin 12=G15/RX, Pin 14=G14/TX。§3 App 13 パターン 3 の給電経路を Pin 6 / Pin 4 として確定。§9.1 関連 TODO を確認済み (`[x]`) に移行。§8 関連リンクに公式ドキュメント URL を追記 |
 
 ---
 
@@ -62,11 +63,35 @@
 | ポート | 仕様 | 主な用途 |
 |--------|------|----------|
 | Grove | HY2.0-4P (I2C / UART 切替) | GNSS, センサー類 |
-| SPI | 2.54mm ヘッダー | SX1262 LoRa, CC1101 |
-| I2C | 2.54mm ヘッダー | NFC (ST25R3916), IMU |
-| UART | 2.54mm ヘッダー | GNSS NMEA, シリアル通信 |
-| GPIO | 2.54mm ヘッダー | 汎用 |
+| **EXT 2.54-14P** | **2.54mm 2 列 14 ピンヘッダ（本体上部）** | **SPI / I2C / UART / GPIO / 5V / GND をすべて集約** |
 | CSI | カメラコネクタ | IMX219 |
+
+#### EXT 2.54-14P ピンマップ（公式ドキュメント画像より確定・2026-06-13）
+
+本体上部の 2.54mm 2 列 14 ピンヘッダ。SPI/I2C/UART/電源すべてが集約されており、
+App 13 (テスター) では本ヘッダ 1 つから 5V 給電・GND・(必要なら) I2C・UART
+すべてを取り出せる。
+
+| Pin | 信号 | 主な用途 / 備考 |
+| --- | --- | --- |
+| 1 | G25 | GPIO |
+| **2** | **5V IN** | 外部給電入力 |
+| 3 | G23 | GPIO |
+| **4** | **GND** | グランド（App 13 パターン 3 の戻り経路） |
+| 5 | G22 | GPIO |
+| **6** | **5V OUT** | 5V 出力（App 13 パターン 3 の給電経路、1kΩ 経由で PIN1 へ） |
+| 7 | G11 / CLK | SPI クロック |
+| 8 | **G2 / SDA** | **I2C データ**（PaHUB → INA226 通信用、ただし通常は Grove ポート経由を推奨） |
+| 9 | G10 / MO | SPI MOSI |
+| 10 | **G3 / SCL** | **I2C クロック** |
+| 11 | G9 / MI | SPI MISO |
+| 12 | **G15 / RX** | **UART 受信**（Chain Encoder デイジーチェーン入力） |
+| 13 | G7 / CS0 | SPI チップセレクト |
+| 14 | **G14 / TX** | **UART 送信**（Chain Encoder デイジーチェーン出力） |
+
+- ピン番号は左から「上段 → 下段 → 上段 → 下段 …」の交互順
+- 出典: [CardputerZero 公式ドキュメント (M5Stack 公式)](https://docs.m5stack.com/ja/CardputerZero)
+- ヘッダ右側には microSD スロット（Raspberry Pi OS 書き込み済み標準版）が配置
 
 #### Grove (HY2.0-4P) 配色規約
 
@@ -1704,19 +1729,33 @@ PIN1 (INPUT +) と PIN2 (INPUT -) は未接続・浮き
 ##### パターン 3: 導通チェック（電流リミッタ必須）
 
 ```
-[CZ 5V]─→ [外付 1kΩ]──→ [PIN1 INPUT +]
-                              │
-                        R10 → FUSE → 5mΩ shunt
-                              │
-                        [PIN4 OUTPUT +] ──→ [テスト線] ─┐
-                                                         │
-[CZ GND]←─ [PIN2 INPUT -] ── 内部直結 ── [PIN3 OUTPUT -]←┘
+[CZ EXT Pin 6 (5V OUT)]─→ [外付 1kΩ]──→ [PIN1 INPUT +]
+                                              │
+                                        R10 → FUSE → 5mΩ shunt
+                                              │
+                                        [PIN4 OUTPUT +] ──→ [赤プローブ] ──→ [DUT +]
+                                                                                │
+                                                                            被測定物
+                                                                                │
+                                        [PIN3 OUTPUT -] ←── [黒プローブ] ←── [DUT -]
+                                              │
+                                        内部直結
+                                              │
+[CZ EXT Pin 4 (GND)] ←──────────────── [PIN2 INPUT -]
 ```
 
-- **電流制限抵抗（1kΩ 程度）を必ず CZ 5V と PIN1 の間に直列に入れる**
+> EXT 2.54-14P ヘッダの **Pin 6 (5V OUT)** と **Pin 4 (GND)** から給電を取る。
+> 詳細ピンマップは §1.2 「EXT 2.54-14P ピンマップ」参照。
+
+- **電流制限抵抗（1kΩ 程度）を必ず CZ 5V (EXT Pin 6) と PIN1 の間に直列に入れる**
 - 線が断線していなければ約 3.3mA 程度が流れる → 「OK」判定
 - 流れなければ「NG」判定（INA226 が 0A 近傍を報告）
 - リターン経路は PIN3 (OUTPUT -) または PIN2 (INPUT -) のどちらでも可（内部直結のため等価）
+- 解釈 A 採用時の推奨配線（プラガブル端子台 C モジュール内）:
+  - **PIN1** ← 1kΩ ← 赤 IC グラバー → CZ EXT **Pin 6 (5V OUT)**
+  - **PIN2** ← 黒 IC グラバー → CZ EXT **Pin 4 (GND)**
+  - **PIN3** ← 黒 IC グラバー → DUT - 側（被測定物の戻り端）
+  - **PIN4** → 赤 IC グラバー → DUT + 側（被測定物の入力端）
 - アプリ側モード: 導通チェックモード（I 監視、閾値超過でブザー or LED）
 - ⚠️ リミッタなしで CZ 5V を直接 PIN1 にかけると、内蔵 5mΩ shunt にいきなり数 A 流れ、PTC ヒューズが作動する可能性
 - ⚠️ 導通治具を作るなら **1kΩ 抵抗付きの専用ケーブル**を別途用意（プローブクリップ + 1kΩ 直列構造）
@@ -1761,11 +1800,11 @@ VH3.96-4P 端子台は基板から脱着可能なため、結線パターン別�
   └────────┘  └────────┘  └────────┘
 ```
 
-| モジュール | 用途 | 内蔵部品 | 推奨先端 |
-| --- | --- | --- | --- |
-| 端子台 A | パターン 1 (V/I/W 同時測定) | なし | ワニ口クリップ × 4 or バナナプラグ |
-| 端子台 B | パターン 2 (電圧プローブ) | なし | IC グラバー × 2 (赤/黒) |
-| 端子台 C | パターン 3 (導通チェック) | 赤側 (PIN1 ライン) に **1kΩ + 熱収縮チューブ** 内蔵 | IC グラバー × 2 (赤/黒) |
+| モジュール | 用途 | 内蔵部品 | 推奨先端 | 結線 |
+| --- | --- | --- | --- | --- |
+| 端子台 A | パターン 1 (V/I/W 同時測定) | なし | ワニ口クリップ × 4 | PIN1 ～ PIN4 に赤黒のワニ口クリップを2対 |
+| 端子台 B | パターン 2 (電圧プローブ) | なし | IC グラバー × 2 (赤/黒) | PIN3、PIN4 に赤黒のICグラバー1対 |
+| 端子台 C | パターン 3 (導通チェック) | 赤側 (PIN1 ライン) に **1kΩ + 熱収縮チューブ** 内蔵 | 2.54mm ジャンパ線 赤黒 1 対、IC グラバー赤黒 1 対 | **PIN1 から EXT Pin 6 (5V OUT) へ** 1kΩ の抵抗を間に挟んだ赤ジャンパ線を 接続<br />**PIN2 から EXT Pin 4 (GND) へ** 黒ジャンパ線を接続<br />**PIN3** に黒 IC グラバーを接続し被測定物のマイナス側へ、**PIN4** に赤 IC グラバーを接続し被測定物のプラス側へ |
 
 - VH3.96-4P プラガブル端子台は単体で 1 個 ¥100〜200 程度で入手可能
 - 追加 ¥500 程度で 3 用途分のモジュールが揃う
@@ -2217,6 +2256,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 |----------|-----|
 | Kickstarter | https://www.kickstarter.com/projects/m5stack/cardputerzero |
 | M5Stack 公式ストア | https://shop.m5stack.com/pages/m5-cardputerzero |
+| **CardputerZero 公式ドキュメント (ja) — EXT 2.54-14P ピン配出典** | [docs.m5stack.com/ja/CardputerZero](https://docs.m5stack.com/ja/CardputerZero) |
 | AppBuilder GitHub | https://github.com/m5stack/CardputerZero-AppBuilder |
 | AppStore (公式 apt リポジトリ) | https://github.com/m5stack/CardputerZeroRepository |
 | Cap LoRa 1262 公式ドキュメント (Cap A) | https://docs.m5stack.com/ja/cap/Cap_LoRa-1262 |
@@ -2288,7 +2328,8 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 
 #### その他
 
-- [ ] CardputerZero の Grove ポートの物理ピンアサイン (公式ドキュメント待ち)
+- [x] **CardputerZero EXT 2.54-14P ヘッダのピン配確認済み**（2026-06-13、公式ドキュメント画像）: Pin 4=GND / Pin 6=5V OUT / Pin 8=G2/SDA / Pin 10=G3/SCL / Pin 12=G15/RX / Pin 14=G14/TX。詳細は §1.2「EXT 2.54-14P ピンマップ」参照
+- [ ] Grove (HY2.0-4P) コネクタ側の SDA/SCL ピン番号は EXT Pin 8/10 (G2/G3) と共通か独立かの実機確認
 - [ ] M5Stack C6L Meshtastic Unit の日本向け技適番号確認（同上）
 - [ ] **[App 10]** RTL-SDR V4 と CardputerZero USB-A ポートの給電能力確認 (USB バスパワー 500mA 要件)
 - [ ] **[App 10]** RTL-SDR アンテナと Cap LoRa-1262 SMA アンテナの共用可否 (RP-SMA 変換アダプタ)
@@ -2301,7 +2342,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 13]** INA226-10A の I2C アドレス（0x41 固定）と PaHUB v2.1 のアドレス（0x70～0x77、DIP スイッチ）の組合せ確認
 - [ ] **[App 13]** Rust `ina226` crate の `linux-embedded-hal` 対応確認 / 非対応の場合は自作レジスタ操作 or Python `smbus2` 実装に切替
 - [ ] **[App 13]** PaHUB v2.1 (PCA9548A) のチャネル切替プロトコル実装（制御レジスタ 1byte 書込）
-- [ ] **[App 13]** CardputerZero 2.54mm UART ヘッダの公式ピン配・電圧レベル（3.3V or 5V）・使用可能 UART デバイス名（`/dev/ttyAMA0` 等）の確認
+- [x] **[App 13]** CardputerZero 2.54mm UART ヘッダのピン配確認済み（2026-06-13）: EXT 2.54-14P の **Pin 12 (G15/RX) / Pin 14 (G14/TX)**。電圧レベル（3.3V/5V）・使用可能 UART デバイス名（`/dev/ttyAMA0` 等）は実機検証で確定すること
 - [ ] **[App 13]** Chain Encoder 用 HY2.0-4P → 2.54mm ピンソケット変換ハーネスの製作（Grove ケーブル切断 or ジャンパーワイヤー）
 - [ ] **[App 13]** PaHUB CH0 経由で INA226-10A から V/I/P 読み取り PoC（実機到着後）
 - [ ] **[App 13]** INA226-10A 絶縁機能（B0505S + ADuM1250）の実利用方法調査（DUT GND 完全分離給電の動作確認、絶縁耐圧の実測）
