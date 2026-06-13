@@ -31,6 +31,7 @@
 | 2026-06-13 | App 13 INA226-10A の VH3.96-4P 端子台を**着脱式（プラガブル）ネジ式 cage clamp** タイプと確定（総司確認）。§3 App 13 ユニット仕様表・§9.1 確認済み項目・§10 購入リストに反映。1kΩ 治具製作要件に**用途別端子台モジュール化**運用案を追加 |
 | 2026-06-13 | App 13 §3 接続パターンに「**プラガブル端子台によるモジュール運用**」「**結線の本質理解（補足解説）**」サブセクションを追加。INA226 ハイサイド方式の概念、INPUT/OUTPUT 端子名の意味、VBUS ピンが shunt 出力側にあるためパターン 2 が OUTPUT 側受けとなる根拠、信号線を経由させない原則を明文化 |
 | 2026-06-13 | **EXT 2.54-14P ヘッダの完全ピンマップを §1.2 に追加**（公式ドキュメント画像より確定）。Pin 4=GND, Pin 6=5V OUT, Pin 8=G2/SDA, Pin 10=G3/SCL, Pin 12=G15/RX, Pin 14=G14/TX。§3 App 13 パターン 3 の給電経路を Pin 6 / Pin 4 として確定。§9.1 関連 TODO を確認済み (`[x]`) に移行。§8 関連リンクに公式ドキュメント URL を追記 |
+| 2026-06-13 | **App 14 (QR コードリーダー / アナライザー `qr-toolkit`) 追加**。標準版搭載 IMX219 8MP CSI カメラ + `picamera2` + `pyzbar` + Google Safe Browsing API 構成。総司様作 QR 構造学習ウェブアプリ [osprey74.com/qr-anatomy.html](https://osprey74.com/qr-anatomy.html) をネイティブ移植する「ナレッジモード」（バージョン・モジュール数・ECC・8 種マスクパターン・データ領域可視化）を仕様化 |
 
 ---
 
@@ -2019,6 +2020,215 @@ sudo python3 tests/ina226_terminal_check.py
 
 ---
 
+### App 14: QR コードリーダー / アナライザー (`qr-toolkit`)
+
+**優先度**: ★★★★☆
+**必要ハードウェア**: 本体内蔵 Sony IMX219 8MP CSI カメラ（**標準版限定**）— 追加モジュール不要
+
+#### 概要
+
+CardputerZero 標準版に搭載されている IMX219 8MP CSI カメラを活用し、
+QR コードの読み取り・種別判定・構造解析を行う総合ツール。
+**業務での現場確認用途・セキュリティ学習・QR 仕様学習** の 3 用途を一体化させる。
+
+`libcamera` + `pyzbar` (zbar バインディング) でリアルタイムデコードし、
+LCD 320×170 にファインダー画面 + デコード結果を表示。
+ナレッジモードでは QR の内部構造（バージョン・誤り訂正レベル・マスクパターン・
+データ領域）をビジュアル化して学習用途に活用する。
+
+> ⚠️ 本アプリは **CardputerZero 標準版限定** （Lite 版はカメラ非搭載）。
+
+#### 想定ユースケース
+
+| シーン | 機能 | カテゴリ |
+| --- | --- | --- |
+| 業務現場で QR を読み取って内容確認 | リアルタイムデコード + 種別判定 | 業務 |
+| 不審な QR コードの安全性を事前確認 | URL 安全性チェック (Google Safe Browsing) | セキュリティ |
+| Wi-Fi QR からの自動接続 | Wi-Fi QR デコード + `nmcli` 接続 | 業務 |
+| 出先で読み取った URL を作業 PC へ転送 | Tailscale 経由 Mac Mini への送信 | 業務 |
+| QR コードの内部構造を学習 | ナレッジモード (バージョン・マスク・誤り訂正の可視化) | 教育 |
+| 名刺の vCard を読み取って保存 | vCard デコード + microSD 保存 | 業務 |
+| QR の仕様を実機で実験 | テキスト入力 → リアルタイム QR 生成 + 構造解説 | 教育 |
+
+#### 機能一覧
+
+**基本デコード機能**
+
+- [ ] カメラプレビュー (LCD 320×170 にライブ映像表示)
+- [ ] リアルタイム QR コード自動検出 (`pyzbar` 連続スキャン)
+- [ ] シャッターモード (手動撮影 + デコード)
+- [ ] 複数 QR コード同時検出
+- [ ] 検出失敗時のヒント表示 (照明・距離・角度のガイダンス)
+
+**種別判定 (QR ペイロード形式)**
+
+- [ ] URL (`http://`, `https://`)
+- [ ] Wi-Fi QR (`WIFI:T:WPA;S:SSID;P:password;;`)
+- [ ] vCard (連絡先)
+- [ ] mailto (メール送信先)
+- [ ] tel (電話番号)
+- [ ] geo (位置情報・Michi-Navi 連携候補)
+- [ ] SMS
+- [ ] イベント (`BEGIN:VEVENT`)
+- [ ] プレーンテキスト
+
+**セキュリティ機能**
+
+- [ ] URL 安全性チェック (Google Safe Browsing API v4)
+- [ ] 短縮 URL の展開 (HEAD リクエストで Location ヘッダ追跡)
+- [ ] 不審ドメイン警告 (ドメイン年齢・SSL 証明書チェック)
+- [ ] 危険判定時の LCD 赤色アラート + 開封確認ダイアログ
+
+**ナレッジモード (QR 構造可視化)**
+
+- [ ] QR バージョン表示 (1〜40)
+- [ ] モジュール数 (21×21 〜 177×177)
+- [ ] 誤り訂正レベル表示 (L=7% / M=15% / Q=25% / H=30%)
+- [ ] 8 種マスクパターン (0〜7) の可視化・切替
+- [ ] エンコードモード判定 (数字 / 英数字 / バイナリ / 漢字)
+- [ ] データ領域・予約領域のカラー塗り分け
+- [ ] ファインダーパターン / アライメントパターン / タイミングパターンのハイライト
+- [ ] 文字マッピング表示 (デコードされた文字列が QR のどのデータ領域に対応するか)
+- [ ] LCD 上でカラーオーバーレイ、HDMI 接続時はフルスクリーン詳細表示
+
+**外部連携機能**
+
+- [ ] Wi-Fi QR → `nmcli connection add` による自動接続
+- [ ] URL → Tailscale 経由 Mac Mini ブラウザでオープン (SSH `open` コマンド)
+- [ ] vCard → microSD `/mnt/sdcard/qr_contacts/` へ保存
+- [ ] geo → Michi-Navi へ座標エクスポート (App 01 と同じ GeoJSON 形式)
+- [ ] デコード結果を JSON ログとして保存 (`/mnt/sdcard/qr_logs/`)
+
+**生成機能 (ナレッジ用)**
+
+- [ ] テキスト入力からの QR コード生成 (`qrcode` Python ライブラリ)
+- [ ] 誤り訂正レベル L/M/Q/H 切替プレビュー
+- [ ] マスクパターン 0〜7 切替プレビュー
+- [ ] 生成 QR を microSD に PNG 保存
+
+**物理入力 (Chain Encoder 連携)**
+
+- [ ] ノブA 回転: モード切替 (デコード → 種別 → 安全性 → ナレッジ → 生成 → ログ)
+- [ ] ノブA 押下: シャッター撮影 / 検出 QR の確定
+- [ ] ノブB 回転: ナレッジモード時のマスクパターン切替 (0〜7)、生成モード時は ECC レベル切替
+- [ ] ノブB 押下: 検出結果を microSD へログ保存
+- [ ] LED フィードバック (`LedSet`): 緑=安全 / 黄=未確認 / 赤=危険検出 / 青=ログ保存中
+
+#### 技術スタック
+
+| レイヤー | 採用技術 |
+|----------|----------|
+| カメラ制御 | `picamera2` (libcamera ベース・Python 公式) |
+| QR デコード | `pyzbar` (zbar バインディング) |
+| QR 生成 | `qrcode` (Python) または `qrcodegen` (Rust) |
+| 画像処理 | `opencv-python` (前処理・歪み補正・ROI 抽出) |
+| URL 安全性 | Google Safe Browsing API v4 / `requests` |
+| Wi-Fi 接続 | `nmcli` (NetworkManager) |
+| UI フレームワーク | LVGL (czdev) |
+| ナレッジ可視化 | LVGL Canvas + 自作 QR モジュールパーサー |
+| ストレージ | `/mnt/sdcard/qr_logs/` (JSON) / `qr_contacts/` (vCard) / `qr_generated/` (PNG) |
+
+```python
+# カメラ初期化とデコードのコア処理 (Python)
+from picamera2 import Picamera2
+from pyzbar.pyzbar import decode
+import cv2
+
+picam = Picamera2()
+picam.configure(picam.create_preview_configuration(main={"size": (640, 480)}))
+picam.start()
+
+while True:
+    frame = picam.capture_array()
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    codes = decode(gray)
+    for code in codes:
+        payload = code.data.decode("utf-8")
+        kind    = classify_payload(payload)   # URL / Wi-Fi / vCard / ...
+        print(f"Type: {code.type} / Kind: {kind} / Data: {payload}")
+```
+
+```bash
+# Wi-Fi QR 自動接続例 (デコード結果が WIFI:T:WPA;S:MyAP;P:pass;; だった場合)
+nmcli device wifi connect "MyAP" password "pass"
+
+# Tailscale 経由 Mac Mini のブラウザでデコード URL を開く
+ssh mac-mini "open '<decoded_url>'"
+```
+
+#### UI レイアウト (LCD 320×170)
+
+##### デコードモード
+
+```
+┌────────────────────────────┬──────┐
+│                            │ TYPE │
+│   カメラプレビュー         │ URL  │
+│   (200×170)                │ ──── │
+│   検出 QR を緑枠でハイライト│ v 7  │
+│                            │ ECC: │
+│                            │ M    │
+│                            │ ──── │
+│                            │ SAFE │ ← Safe Browsing 結果
+└────────────────────────────┴──────┘
+```
+
+##### ナレッジモード（osprey74 ウェブ版相当）
+
+```
+┌────────────────────────────┬──────┐
+│                            │ v 7  │
+│   QR 構造ビジュアル        │ 45×45│
+│   (200×170)                │ ECC: │
+│   ・ファインダー = 赤      │ M    │
+│   ・アライメント = 黄      │ MODE:│
+│   ・タイミング   = 青      │ Byte │
+│   ・データ領域   = グレー  │ MASK:│
+│   ・マスクパターン重畳     │ 3/8  │
+└────────────────────────────┴──────┘
+```
+
+ノブB でマスクパターンを 0〜7 切替し、QR の見え方の変化を学習可能。
+HDMI 接続時は 1080p で詳細描画（osprey74 ウェブ版に近い情報密度を実現）。
+
+#### ナレッジモード設計（osprey74 ウェブ版の組込）
+
+総司様作の QR 構造学習ウェブアプリ
+[osprey74.com/qr-anatomy.html](https://osprey74.com/qr-anatomy.html)
+の主要機能を CardputerZero ネイティブアプリへ移植する。
+
+| ウェブアプリ機能 | アプリへの移植方針 |
+| --- | --- |
+| テキスト入力 → QR 生成 | キーボード入力 → `qrcode` (Python) でリアルタイム生成 |
+| 誤り訂正レベル L/M/Q/H 切替 | ノブB ロータリーで切替 |
+| QR コード表示 / 構造表示 / 文字マッピング 切替 | ノブA でタブ切替 |
+| 8 種マスクパターン可視化 | ノブB で 0〜7 切替 + 重畳表示 |
+| データ領域・予約領域のカラー区別 | LVGL Canvas のレイヤー塗り |
+| バージョン / モジュール数 / ECC / モード表示 | 右サイドバーに常時表示 |
+| エクスポート機能 | microSD への PNG 保存 |
+
+#### エコシステム連携
+
+- **Michi-Navi**: geo QR（観光案内・道の駅 QR 等）の位置情報を Michi-Navi へ転送
+- **Rindo (りんどう)**: GPX 経由ではなく geo QR を読み取って即座にルート登録
+- **App 03 (`nfc-toolkit`)**: 同じセキュリティ学習枠として並列運用（NFC は近接通信、QR は光学）
+- **App 11 (`lan-scanner`)**: 業務用途の現場ツール枠（QR で機材タグ読取 + LAN スキャン）
+
+#### ⚠️ 法的・倫理的注意事項
+
+```text
+・他者所有の QR コード（決済 QR・他人の vCard 等）の解析は本アプリの対象外
+・QR 決済 (PayPay / d 払い等) のリバースエンジニアリングは利用規約に抵触する
+  可能性があるため、本アプリでは扱わない方針
+・読み取った個人情報を含む QR (vCard 等) は外部送信・第三者共有を行わない
+・読み取った URL は Safe Browsing API で危険判定したうえで、ユーザの明示的
+  操作なしには自動アクセスしない
+・Google Safe Browsing API の利用は無料枠の範囲内で個人利用とする
+・業務利用時は所属組織の情報セキュリティポリシーに従うこと
+```
+
+---
+
 ## 4. Launcher 登録仕様
 
 ### 4.1 アプリメタデータ形式 (AppStore)
@@ -2079,7 +2289,8 @@ osprey74/cardputerzero-apps/
 │   ├── nfc-lora-auth/          # App 09 [Cap A + Cap B 交互] PoC
 │   ├── sdr-receiver/           # App 10 [RTL-SDR USB] (旧 App 12 統合済み)
 │   ├── lan-scanner/            # App 11 [本体 Wi-Fi / 有線 LAN]
-│   └── tester/                 # App 13 [Grove I2C INA226]
+│   ├── tester/                 # App 13 [Grove I2C INA226]
+│   └── qr-toolkit/             # App 14 [本体 IMX219 カメラ・標準版限定]
 ├── shared/
 │   ├── lora_sx1262/            # SX1262 共通ドライバ [Cap A]
 │   ├── gnss_at6668/            # AT6668 共通ドライバ [Cap A]
@@ -2088,6 +2299,7 @@ osprey74/cardputerzero-apps/
 │   ├── input_encoder/          # Chain Encoder 共通入力ドライバ [2.54mm UART]
 │   ├── ina226/                 # INA226-10A 共通ドライバ [Grove I2C / PaHUB CH0]
 │   ├── pahub/                  # PCA9548A I2C MUX 共通ドライバ (PaHUB v2.1)
+│   ├── camera_imx219/          # IMX219 共通カメラドライバ [picamera2 ラッパー]
 │   └── ui_theme/               # 共通 UI テーマ (osprey74 カラー)
 └── scripts/
     ├── setup_device.sh         # デバイス初期セットアップ
@@ -2288,6 +2500,11 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | Hackster.io レビュー | https://www.hackster.io/news/m5stack-unveils-the-cardputerzero-... |
 | BSAF プロトコル | https://github.com/osprey74/bsaf-protocol |
 | Rindo (りんどう) | HANDOFF_cycling-nav.md 参照 |
+| QR Anatomy（osprey74 自作 QR 構造学習ウェブアプリ / App 14 ナレッジモード参照元） | [osprey74.com/qr-anatomy.html](https://osprey74.com/qr-anatomy.html) |
+| picamera2 (Raspberry Pi 公式カメラライブラリ / App 14) | [github.com/raspberrypi/picamera2](https://github.com/raspberrypi/picamera2) |
+| pyzbar (Python QR/バーコードデコーダ / App 14) | [github.com/NaturalHistoryMuseum/pyzbar](https://github.com/NaturalHistoryMuseum/pyzbar) |
+| Google Safe Browsing API v4 (App 14 セキュリティ機能) | [developers.google.com/safe-browsing/v4](https://developers.google.com/safe-browsing/v4) |
+| Sony IMX219 データシート | [datasheetspdf.com/IMX219](https://www.sony-semicon.com/en/products/IS/camera/imx219.html) |
 
 ---
 
@@ -2351,6 +2568,18 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 13]** **用途別プローブ端子台モジュールの製作**: パターン 1（4 端子直列挿入）/ パターン 2（PIN3・PIN4 のみの電圧プローブ）/ パターン 3（PIN1 に 1kΩ 内蔵の導通治具）の 3 枚を VH3.96-4P プラガブル端子台にそれぞれ固定し、本体側に差し替えるだけで結線パターン切替が完結する運用
 - [ ] **[App 13]** ガイダンス UI（結線パターン切替案内）の LVGL 実装方針（ミニアイコン素材の作成 or テキスト表示）
 
+#### カメラ（App 14）
+
+- [ ] **[App 14]** IMX219 が CardputerZero 標準版で `libcamera-hello` / `picamera2` から認識されるか実機確認
+- [ ] **[App 14]** `pyzbar` の aarch64 (RPi OS Bookworm) でのビルド・動作確認
+- [ ] **[App 14]** `picamera2` のフレームレート計測（LCD プレビュー 30fps を目標）
+- [ ] **[App 14]** カメラ + LVGL Canvas のメモリ占有調査（512MB RAM 制約下での動作確認）
+- [ ] **[App 14]** Google Safe Browsing API v4 のキー取得・無料枠（1 日 10,000 URL）の動作確認
+- [ ] **[App 14]** Wi-Fi QR の `WIFI:T:WPA;S:...;P:...;;` パース → `nmcli connection add` 自動生成スクリプトの検証
+- [ ] **[App 14]** ナレッジモードの QR モジュールパーサー実装（`qrcode` ライブラリ内部からマスクパターン・データ領域情報を抽出）
+- [ ] **[App 14]** osprey74 ウェブ版 ([qr-anatomy.html](https://osprey74.com/qr-anatomy.html)) からの機能移植優先度確定（テキスト→生成 / マスク 0-7 切替 / 文字マッピング の 3 機能を最優先）
+- [ ] **[App 14]** `shared/camera_imx219/` 共通カメラドライバの API 設計（picamera2 のラッパー、将来 App 06 Edge AI の画像認識でも転用想定）
+
 #### 入力デバイス拡張（Chain Encoder）
 
 - [ ] **[UART]** CardputerZero の 2.54mm UART ヘッダのピン配・電圧レベル・デバイス名確認（HANDOFF 2026-06-11 改訂で Chain Encoder の経路を Grove → 2.54mm UART に変更）
@@ -2401,6 +2630,10 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
     - 多ノブ識別: デイジーチェーン上の連番 (`idx = 0, 1, 2, ...`)
     - 非同期通知 (LVGL イベントループへのコールバック登録)
     - 将来別バックエンド（I2C 系エンコーダ等）を追加できる拡張余地を残す抽象化
+- [ ] `shared/camera_imx219/` 共通カメラドライバの API 設計（App 14 で使用、将来 App 06 Edge AI / App 08 NFC×GPS チェックポイントの画像保存等に転用想定）
+  - バックエンド: `picamera2` (libcamera) Python ラッパー
+  - 抽象 API: `capture_frame()` / `start_preview(callback)` / `stop_preview()` / `set_resolution(w, h)`
+  - LVGL Canvas への直接描画パスと、numpy ndarray 取得パスの両方をサポート
 - [ ] BSAF パケットの de-duplication ロジック設計（MQTT / LoRa 二系統受信時）
 - [ ] Cap A / Cap B 交換時のデバイスパス再検出ヘルパー (`scripts/swap_cap_*.sh`)
 
@@ -2486,12 +2719,25 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | **Phase 6** | Cap B 入手後 | App 03 / 04 (NFC / Sub-GHz) 実装 | nfcpy で自己所有 Suica の UID 読取 + rtl_433 で温湿度センサーデコード |
 | **Phase 7** | 業務利用前 | App 11 (LAN Scanner) 実装 + ISMS 規程との整合性確認 | 自宅 LAN を nmap でスキャンし JSON 保存 |
 | **Phase 1.5** | Phase 1 と並行可 | App 13 (テスター) 実装 + `shared/ina226/` + `shared/pahub/` 確立、Chain Encoder 用 2.54mm UART 変換ハーネス製作 | (a) `tests/ina226_terminal_check.py` のステップ 1～4 全完了で端子動作確認、(b) PaHUB CH0 経由で INA226-10A から電圧/電流/電力をリアルタイム表示、(c) Chain Encoder × 2 が 2.54mm UART ヘッダで認識 |
+| **Phase 1.6** | Phase 1 と並行可 | App 14 (QR コードリーダー / アナライザー) 実装 + `shared/camera_imx219/` 確立 + osprey74 ウェブ版ナレッジモード移植 | (a) `pyzbar` で IMX219 のリアルタイム QR デコード成功、(b) Wi-Fi QR から `nmcli` 自動接続 PoC 完了、(c) ナレッジモードでバージョン/ECC/マスクパターン 0-7 切替の可視化が動作 |
 | **Phase 8** | 任意 | App 06 / 07 / 08 / 09 実装 | 個別に完了 |
 | **Phase 9** | 各 App 完成時 | `czdev upload` で CardputerZeroRepository に投稿 | 公式 AppStore で `apt install` 可能になる |
 
 > App 13 はハードウェア依存が Grove I2C のみで Cap A/B 非依存のため、
 > Phase 1 のハードウェア検証期間中に並行実装する「電子工作補助ツール」枠とする。
 > 完成すれば以降の Phase で他アプリのデバッグにも使える。
+>
+> App 14 もハードウェア依存が本体内蔵 IMX219 カメラのみで Cap A/B 非依存のため、
+> Phase 1.5 と並行して進められる「日常利用ツール」枠。標準版限定のため Lite 版では動作しない。
+
+### 11.1 法令・スキル別 Phase 配置の考え方
+
+| Phase 群 | カテゴリ | 法令要求事項 |
+| --- | --- | --- |
+| Phase 1.5 / 1.6 / 2 / 3 | 個人利用・受信専用・電子工作 | なし（合法） |
+| Phase 4 / 5 | LoRa 送信あり | 技適番号確認・出力 13dBm 以下制限 |
+| Phase 6 | NFC / Sub-GHz | 自己所有デバイス限定・通信傍受法に留意 |
+| Phase 7 | LAN スキャン | ISMS 規程・管理権限のあるネットワーク限定 |
 
 ### Phase 0 の具体的アクション
 
