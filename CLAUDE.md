@@ -26,6 +26,7 @@ M5Stack CardputerZero 向けに開発するアプリ群のモノレポ。Rust (c
 | 05 | `bsaf-client` | ★★★★☆ | BSAF v1 防災アラート受信 |
 | 06 | `edge-ai` | ★★★☆☆ | 軽量 LLM オフラインアシスタント |
 | 07 | `wifi-analyzer` | ★★★☆☆ | Wi-Fi 環境解析 |
+| 13 | `tester` | ★★★★☆ | INA226 DC 電圧/電流テスター (Grove I2C) |
 
 ## 想定リポジトリ構成
 
