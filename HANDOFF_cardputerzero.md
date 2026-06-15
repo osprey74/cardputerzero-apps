@@ -32,6 +32,7 @@
 | 2026-06-13 | App 13 §3 接続パターンに「**プラガブル端子台によるモジュール運用**」「**結線の本質理解（補足解説）**」サブセクションを追加。INA226 ハイサイド方式の概念、INPUT/OUTPUT 端子名の意味、VBUS ピンが shunt 出力側にあるためパターン 2 が OUTPUT 側受けとなる根拠、信号線を経由させない原則を明文化 |
 | 2026-06-13 | **EXT 2.54-14P ヘッダの完全ピンマップを §1.2 に追加**（公式ドキュメント画像より確定）。Pin 4=GND, Pin 6=5V OUT, Pin 8=G2/SDA, Pin 10=G3/SCL, Pin 12=G15/RX, Pin 14=G14/TX。§3 App 13 パターン 3 の給電経路を Pin 6 / Pin 4 として確定。§9.1 関連 TODO を確認済み (`[x]`) に移行。§8 関連リンクに公式ドキュメント URL を追記 |
 | 2026-06-13 | **App 14 (QR コードリーダー / アナライザー `qr-toolkit`) 追加**。標準版搭載 IMX219 8MP CSI カメラ + `picamera2` + `pyzbar` + Google Safe Browsing API 構成。総司様作 QR 構造学習ウェブアプリ [osprey74.com/qr-anatomy.html](https://osprey74.com/qr-anatomy.html) をネイティブ移植する「ナレッジモード」（バージョン・モジュール数・ECC・8 種マスクパターン・データ領域可視化）を仕様化 |
+| 2026-06-13 | **App 15 (非接触温度計 `ncir-thermometer`) 追加**。M5Stack NCIR Unit (Melexis MLX90614 / Grove I2C) を PaHUB v2.1 CH1 経由で接続。業務（機材点検 / CPU・GPU サーマル）と個人（料理補助）の 3 用途に絞ったプリセット温度・閾値判定・ログ機能を仕様化。`shared/mlx90614/` 共通ドライバ新設 |
 
 ---
 
@@ -2229,6 +2230,159 @@ HDMI 接続時は 1080p で詳細描画（osprey74 ウェブ版に近い情報�
 
 ---
 
+### App 15: 非接触温度計 (`ncir-thermometer`)
+
+**優先度**: ★★★☆☆
+**必要ハードウェア**:
+
+- [M5Stack 非接触温度センサユニット (NCIR / MLX90614)](https://www.switch-science.com/products/5220) — Grove HY2.0-4P 接続
+- [PaHUB v2.1](https://www.switch-science.com/products/10192) — App 13 と共有（CH1 を本アプリに割当）
+
+#### 概要
+
+Melexis **MLX90614** を搭載した M5Stack NCIR ユニットを使い、対象物の表面温度を
+非接触で測定する簡易温度計アプリ。**業務用機材の発熱点検・PC/GPU サーマルチェック・
+料理補助** を主な用途とする。App 13 (テスター) で予定している PaHUB v2.1 の
+**CH1** に挿すだけで I2C バスを共有でき、ハードウェア追加負担はセンサーユニット
+本体のみ。
+
+#### 想定ユースケース（採用機能）
+
+| シーン | 機能 | カテゴリ |
+| --- | --- | --- |
+| サーバラック・配電盤の接点温度上昇早期発見 | 単点温度 + 高温アラート閾値 | 業務（機材点検） |
+| 業務 PC・自宅 PC の CPU/GPU 発熱モニタ | サーマルプリセット（CPU 75℃ / GPU 80℃ で警告） | 業務（サーマル） |
+| 料理中のフライパン油温・オーブン表面温度確認 | プリセット温度（油 180℃ / 湯 100℃）と比較表示 | 個人（料理補助） |
+
+> 体温測定・医療用途は本アプリの対象外（後述「法的注意事項」参照）。
+
+#### MLX90614 仕様（Switch Science / Melexis データシートより）
+
+| 項目 | 仕様 |
+| --- | --- |
+| センサ IC | Melexis **MLX90614** |
+| バス | I2C（Grove HY2.0-4P） |
+| I2C アドレス | **0x5A**（デフォルト、データシート準拠・実機確認要） |
+| 検出範囲 | **-70℃ ～ +380℃**（物体温度） |
+| 精度 | ±0.5℃（室温） |
+| 視野角 (FOV) | 90°（広角タイプ） |
+| 動作環境温度 | -40 ～ +125℃ |
+| 取得値 | **物体温度 (T_obj)** + **環境温度 (T_amb)** の 2 系統 |
+
+#### 機能一覧
+
+**基本測定モード**
+
+- [ ] 物体温度 (T_obj) リアルタイム表示（デカ文字）
+- [ ] 環境温度 (T_amb) サブ表示（小文字、参考値）
+- [ ] 単位切替 (℃ / ℉)
+- [ ] Min / Max / 平均 保持（手動リセット可）
+- [ ] 数値の安定化（移動平均ウィンドウ可変）
+
+**プリセット・閾値判定モード**
+
+- [ ] **業務プリセット**: CPU 70/80/90℃, GPU 75/85℃, サーバ機器 60/70℃ 等
+- [ ] **料理プリセット**: 油揚げ 180℃, 焼く 200℃, 湯 100℃, 冷蔵 5℃ 等
+- [ ] **カスタム閾値**: ユーザ定義の上限・下限値を保存（複数プリセット）
+- [ ] 閾値超過時の LCD 赤表示 + アラート音（任意）
+- [ ] 正常範囲時の緑表示
+
+**ログ・履歴モード**
+
+- [ ] 直近 30 秒 / 5 分 / 30 分の温度推移グラフ（LCD 折れ線、横軸スライディング）
+- [ ] CSV 保存 (`/mnt/sdcard/ncir_logs/YYYYMMDD_HHMM.csv`)
+- [ ] 複数測定点の比較（チェックポイント保存、最大 8 点）
+
+**物理入力 (Chain Encoder 連携)**
+
+- [ ] ノブA 回転: モード切替（単点 → プリセット → ログ → 比較）
+- [ ] ノブA 押下: 測定値のチェックポイント保存（比較モード時）
+- [ ] ノブB 回転: プリセット選択（CPU / GPU / 油 / 湯 等）または閾値調整
+- [ ] ノブB 押下: Min/Max/平均 リセット
+- [ ] LED フィードバック（`LedSet`）: 緑=正常 / 黄=注意 / 赤=閾値超過 / 青=ログ中
+
+#### 技術スタック
+
+| レイヤー | 採用技術 |
+| --- | --- |
+| I2C ドライバ | Linux `i2c-dev` (`/dev/i2c-1`) |
+| Python 側 | `smbus2` + 自作 MLX90614 レジスタアクセス（`0x07` = T_obj, `0x06` = T_amb） |
+| Rust 側 | `mlx9061x` crate (`embedded-hal` 経由) |
+| PaHUB 制御 | `shared/pahub/` 共通ドライバ（CH1 enable） |
+| UI フレームワーク | LVGL (czdev) |
+| ログ形式 | CSV (`timestamp_ms, t_obj_c, t_amb_c, preset_name`) |
+| ストレージ | `/mnt/sdcard/ncir_logs/` |
+
+```python
+# Python サンプル (smbus2 経由・PaHUB CH1 enable 想定)
+import smbus2
+
+I2C_BUS = 1
+PAHUB_ADDR = 0x70
+MLX_ADDR = 0x5A
+REG_T_OBJ = 0x07
+REG_T_AMB = 0x06
+
+bus = smbus2.SMBus(I2C_BUS)
+bus.write_byte(PAHUB_ADDR, 0x02)  # CH1 enable
+
+raw = bus.read_word_data(MLX_ADDR, REG_T_OBJ)
+t_obj_k = raw * 0.02            # K (ケルビン)
+t_obj_c = t_obj_k - 273.15      # ℃
+print(f"Object: {t_obj_c:.2f}℃")
+```
+
+#### UI レイアウト (LCD 320×170)
+
+##### 単点測定モード
+
+```
+┌──────────────────────────────────┐
+│  ●●●                              │
+│   55.2 ℃         ← T_obj（デカ文字）│
+│                                  │
+│  環境: 23.1 ℃    ← T_amb（小文字） │
+│  Min: 24.5  Max: 78.2  Avg: 51.3 │
+│                                  │
+│ [単点][プリセット][ログ][比較]    │ ← Chain Encoder ノブA
+└──────────────────────────────────┘
+```
+
+##### プリセットモード（CPU 例）
+
+```
+┌──────────────────────────────────┐
+│  CPU 温度監視 (閾値: 80℃)        │
+│                                  │
+│        72.8 ℃    ← 緑表示（正常）│
+│        ▒▒▒▒▒▒▒░░░░░  91%        │
+│                                  │
+│  ピーク: 78.4 ℃  到達回数: 0     │
+└──────────────────────────────────┘
+```
+
+#### エコシステム連携
+
+- **App 13 (`tester`)**: PaHUB v2.1 を共有（CH0=INA226 / CH1=MLX90614）。
+  電圧/電流測定と温度測定を同時表示する **「電子工作モニタ」モード** の将来統合候補
+- **`shared/pahub/`**: App 13 と共通の I2C MUX 制御ドライバ
+- **`shared/mlx90614/`**: 本アプリ用 MLX90614 ドライバ（将来 App 06 Edge AI の
+  サーマル推論など、他アプリでの転用余地）
+
+#### ⚠️ 法的・倫理的注意事項
+
+```text
+・本アプリは「物体表面温度」の測定用途であり、医療機器ではない
+・体温測定 (人体への使用) は薬機法・医薬部外品認可の対象となるため、
+  本アプリの対象外とする
+・UI 上に「物体温度測定用途・医療用ではない」旨を常時表示
+・業務用機材の点検結果は機密情報として扱い、外部漏洩を行わない
+・料理用途では食品衛生・火傷リスクに十分注意（センサ自体は接触しないが、
+  測定対象物が高温の場合がある）
+```
+
+---
+
 ## 4. Launcher 登録仕様
 
 ### 4.1 アプリメタデータ形式 (AppStore)
@@ -2290,7 +2444,8 @@ osprey74/cardputerzero-apps/
 │   ├── sdr-receiver/           # App 10 [RTL-SDR USB] (旧 App 12 統合済み)
 │   ├── lan-scanner/            # App 11 [本体 Wi-Fi / 有線 LAN]
 │   ├── tester/                 # App 13 [Grove I2C INA226]
-│   └── qr-toolkit/             # App 14 [本体 IMX219 カメラ・標準版限定]
+│   ├── qr-toolkit/             # App 14 [本体 IMX219 カメラ・標準版限定]
+│   └── ncir-thermometer/       # App 15 [Grove I2C MLX90614 / PaHUB CH1]
 ├── shared/
 │   ├── lora_sx1262/            # SX1262 共通ドライバ [Cap A]
 │   ├── gnss_at6668/            # AT6668 共通ドライバ [Cap A]
@@ -2300,6 +2455,7 @@ osprey74/cardputerzero-apps/
 │   ├── ina226/                 # INA226-10A 共通ドライバ [Grove I2C / PaHUB CH0]
 │   ├── pahub/                  # PCA9548A I2C MUX 共通ドライバ (PaHUB v2.1)
 │   ├── camera_imx219/          # IMX219 共通カメラドライバ [picamera2 ラッパー]
+│   ├── mlx90614/               # MLX90614 共通ドライバ [Grove I2C / PaHUB CH1]
 │   └── ui_theme/               # 共通 UI テーマ (osprey74 カラー)
 └── scripts/
     ├── setup_device.sh         # デバイス初期セットアップ
@@ -2505,6 +2661,9 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | pyzbar (Python QR/バーコードデコーダ / App 14) | [github.com/NaturalHistoryMuseum/pyzbar](https://github.com/NaturalHistoryMuseum/pyzbar) |
 | Google Safe Browsing API v4 (App 14 セキュリティ機能) | [developers.google.com/safe-browsing/v4](https://developers.google.com/safe-browsing/v4) |
 | Sony IMX219 データシート | [datasheetspdf.com/IMX219](https://www.sony-semicon.com/en/products/IS/camera/imx219.html) |
+| M5Stack NCIR Unit (MLX90614 / App 15) — Switch Science | [switch-science.com/products/5220](https://www.switch-science.com/products/5220) |
+| M5Stack NCIR Unit 公式ドキュメント | [docs.m5stack.com/en/unit/ncir](https://docs.m5stack.com/en/unit/ncir) |
+| Melexis MLX90614 公式ページ・データシート | [melexis.com/en/product/MLX90614](https://www.melexis.com/en/product/MLX90614/Digital-Plug-Play-Infrared-Thermometer-TO-Can) |
 
 ---
 
@@ -2580,6 +2739,17 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 14]** osprey74 ウェブ版 ([qr-anatomy.html](https://osprey74.com/qr-anatomy.html)) からの機能移植優先度確定（テキスト→生成 / マスク 0-7 切替 / 文字マッピング の 3 機能を最優先）
 - [ ] **[App 14]** `shared/camera_imx219/` 共通カメラドライバの API 設計（picamera2 のラッパー、将来 App 06 Edge AI の画像認識でも転用想定）
 
+#### I2C センサ拡張（App 15）
+
+- [ ] **[App 15]** M5Stack NCIR Unit (MLX90614) を Switch Science で発注（在庫確認済み・¥3,729）
+- [ ] **[App 15]** PaHUB v2.1 CH1 への配線確定（CH0 = INA226 と並列運用）
+- [ ] **[App 15]** MLX90614 の実機 I2C アドレス確認（デフォルト 0x5A・実機での確認要）
+- [ ] **[App 15]** Python `smbus2` ベースで T_obj / T_amb 読み出し PoC（PaHUB CH1 enable → MLX90614 0x07/0x06 読出）
+- [ ] **[App 15]** Rust `mlx9061x` crate の `linux-embedded-hal` 対応確認 / 非対応の場合は自作レジスタ操作 or Python に切替
+- [ ] **[App 15]** PaHUB CH0 (INA226) + CH1 (MLX90614) の同時 enable 運用確認（アドレス衝突なしのため成立するはず）
+- [ ] **[App 15]** プリセット温度の妥当性確認（CPU/GPU 警告閾値 / 料理温度の実用範囲）
+- [ ] **[App 15]** UI 上の「医療用ではない」注意表記の常時表示位置確定（LCD 上端 or プリセット切替時のガイダンス）
+
 #### 入力デバイス拡張（Chain Encoder）
 
 - [ ] **[UART]** CardputerZero の 2.54mm UART ヘッダのピン配・電圧レベル・デバイス名確認（HANDOFF 2026-06-11 改訂で Chain Encoder の経路を Grove → 2.54mm UART に変更）
@@ -2634,6 +2804,10 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
   - バックエンド: `picamera2` (libcamera) Python ラッパー
   - 抽象 API: `capture_frame()` / `start_preview(callback)` / `stop_preview()` / `set_resolution(w, h)`
   - LVGL Canvas への直接描画パスと、numpy ndarray 取得パスの両方をサポート
+- [ ] `shared/mlx90614/` 共通ドライバの API 設計（App 15 で使用、将来 App 06 Edge AI のサーマル推論などに転用想定）
+  - バックエンド: `smbus2` (Python) / `mlx9061x` crate (Rust)
+  - 抽象 API: `read_object_temp() -> ℃` / `read_ambient_temp() -> ℃` / `set_emissivity(0.0-1.0)`
+  - PaHUB v2.1 経由のチャネル選択を呼び出し側に依存させる（`shared/pahub/` と分離）
 - [ ] BSAF パケットの de-duplication ロジック設計（MQTT / LoRa 二系統受信時）
 - [ ] Cap A / Cap B 交換時のデバイスパス再検出ヘルパー (`scripts/swap_cap_*.sh`)
 
@@ -2663,7 +2837,8 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | 13g | リード線 AWG22 単線 赤・黒 | 各 50cm | ¥300 | ¥300 | App 13 プローブケーブル本体 |
 | 13h | 棒端子（フェルール）AWG22 用 + 簡易圧着工具 | 1 セット | ¥2,000 | ¥2,000 | App 13 端子台への線端処理（撚り線使用時推奨） |
 | 13i | VH3.96-4P プラガブル端子台 単体（**用途別モジュール化用**） | 2〜3 個 | ¥150 | ¥450 | App 13 結線パターン別プローブの常時固定用（INA226-10A 付属品と同形状、別途入手） |
-| | **必須小計** | | | **約 ¥22,750 + Cap B 価格** | |
+| 15a | [M5Stack NCIR Unit (MLX90614)](https://www.switch-science.com/products/5220) | 1 | ¥3,729 | ¥3,729 | App 15 非接触温度計（PaHUB CH1 経由で App 13 と並列運用） |
+| | **必須小計** | | | **約 ¥26,500 + Cap B 価格** | |
 
 ### 推奨（あると便利）
 
@@ -2720,6 +2895,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | **Phase 7** | 業務利用前 | App 11 (LAN Scanner) 実装 + ISMS 規程との整合性確認 | 自宅 LAN を nmap でスキャンし JSON 保存 |
 | **Phase 1.5** | Phase 1 と並行可 | App 13 (テスター) 実装 + `shared/ina226/` + `shared/pahub/` 確立、Chain Encoder 用 2.54mm UART 変換ハーネス製作 | (a) `tests/ina226_terminal_check.py` のステップ 1～4 全完了で端子動作確認、(b) PaHUB CH0 経由で INA226-10A から電圧/電流/電力をリアルタイム表示、(c) Chain Encoder × 2 が 2.54mm UART ヘッダで認識 |
 | **Phase 1.6** | Phase 1 と並行可 | App 14 (QR コードリーダー / アナライザー) 実装 + `shared/camera_imx219/` 確立 + osprey74 ウェブ版ナレッジモード移植 | (a) `pyzbar` で IMX219 のリアルタイム QR デコード成功、(b) Wi-Fi QR から `nmcli` 自動接続 PoC 完了、(c) ナレッジモードでバージョン/ECC/マスクパターン 0-7 切替の可視化が動作 |
+| **Phase 1.7** | Phase 1.5 完了後または並行 | App 15 (非接触温度計) 実装 + `shared/mlx90614/` 確立 + PaHUB CH1 経由運用 | (a) MLX90614 から T_obj/T_amb のリアルタイム読出成功、(b) CPU/GPU/料理プリセットでの閾値判定動作、(c) PaHUB CH0 (INA226) と CH1 (MLX90614) の同時運用確認 |
 | **Phase 8** | 任意 | App 06 / 07 / 08 / 09 実装 | 個別に完了 |
 | **Phase 9** | 各 App 完成時 | `czdev upload` で CardputerZeroRepository に投稿 | 公式 AppStore で `apt install` 可能になる |
 
@@ -2729,12 +2905,16 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 >
 > App 14 もハードウェア依存が本体内蔵 IMX219 カメラのみで Cap A/B 非依存のため、
 > Phase 1.5 と並行して進められる「日常利用ツール」枠。標準版限定のため Lite 版では動作しない。
+>
+> App 15 は App 13 と同じ PaHUB v2.1 を経由するため、Phase 1.5 で確立した
+> `shared/pahub/` ドライバの再利用が前提。Cap A/B 非依存・カメラ非依存のため
+> Lite 版でも動作する。
 
 ### 11.1 法令・スキル別 Phase 配置の考え方
 
 | Phase 群 | カテゴリ | 法令要求事項 |
 | --- | --- | --- |
-| Phase 1.5 / 1.6 / 2 / 3 | 個人利用・受信専用・電子工作 | なし（合法） |
+| Phase 1.5 / 1.6 / 1.7 / 2 / 3 | 個人利用・受信専用・電子工作 | なし（合法） |
 | Phase 4 / 5 | LoRa 送信あり | 技適番号確認・出力 13dBm 以下制限 |
 | Phase 6 | NFC / Sub-GHz | 自己所有デバイス限定・通信傍受法に留意 |
 | Phase 7 | LAN スキャン | ISMS 規程・管理権限のあるネットワーク限定 |
