@@ -37,6 +37,8 @@
 | 2026-06-13 | **BCL ログモードの確定値を反映**: BCL_LogBook の `notebookId` = `019ecfdf-7134-7428-aa52-4aa6eaa18d3f`、Mac Mini Tailscale 固定 IP = `100.108.134.69`、初回受信ノート（ラジオ NIKKEI 第1）の `noteId` = `019ecfe3-f686-7612-93d0-3685b7e9057d`。設定ファイル `~/.config/cardputerzero/bcl_config.yaml` の構造を仕様化。Python サンプルに MagicDNS フォールバックロジック (`resolve_ssh_target()`) を追加 |
 | 2026-06-13 | **BCL ログモードの実機検証 4 回で UpNote x-callback-url 仕様を確定**: (1) `note/new` の正しいパラメータは **`notebook`（名前指定）** であり `notebookId` ではない、(2) `tag` パラメータは公式ドキュメント未記載だが**実機で必須**、(3) **`tag` は URL 末尾に配置**しないと title/text が文字化け、(4) 本文中の `#BCL` のみではタグ自動認識されない、(5) 連続投稿時の確認ダイアログなし。Python サンプルを `list of tuples` 版に刷新 |
 | 2026-06-13 | **BCL ログモードの全仕様確定（運用方針 A〜⑤ 全パラメータ決定）**: 1 受信 1 ノート方式・案 ③（録音は Mac Mini に scp 転送して永続保存・CZ 側削除）・アンテナはプリセット選択方式・SFI は NOAA SWPC から 1 時間キャッシュ・App 01 GPS 連携で受信地点座標取得。Markdown テンプレート最終確定（機材 + 受信記録 + 録音ファイル Mac Mini パス記載）。既知局 DB 初期 15 局（日本短波・北海道中波・国際短波局）登録。UI フロー設計確定（ノブA でフロー進行、ノブB で SINPO 値） |
+| 2026-06-13 | **App 13 パターン 3 給電経路を EXT Pin 4/6 → PaHUB CH5 に変更**（総司様ご指摘より）。当初設計では EXT 2.54-14P の Pin 4 (GND) / Pin 6 (5V OUT) から端子台 C への給電を想定していたが、これらは Chain Encoder #1 の電源ピンとして占有されており物理的にバッティングするため、PaHUB v2.1 の空きチャネル CH5 から Grove ケーブル経由で 5V/GND を取り出す方式に変更。結線図ポンチ画・配線サマリー表・パターン 3 結線図・用途別端子台モジュール表を更新。§9.1 に「PaHUB の電源スルー配線確認」TODO を追加 |
+| 2026-06-13 | **PaHUB v2.1 の電源スルー配線を公式回路図で確認・確定**。[公式回路図 PNG](https://static-cdn.m5stack.com/resource/docs/products/unit/Unit-PaHub2.1/img-103440a9-d7e4-4aab-b784-825aa9b35614.png) を直接読解し、各 Grove 出力ポート J1〜J6 の VCC/GND が全 CH 共通バスとしてスルー配線されていること、入力 J7 の 5V がそのまま CH0〜CH5 の Pin 3 へ届くことを確認。HT7533 LDO で生成される 3.3V は PCA9548A 内部 + SDA/SCL プルアップ専用で Grove ポートには出力されない。§9.1 該当 TODO を ✅ 確認済みに移行。§8 に PaHUB 公式ドキュメント・回路図 PNG・PCA9548A データシート URL を追加。App 13 パターン 3 結線図の注記から「※要実機確認」を確定情報に格上げ |
 
 ---
 
@@ -898,13 +900,13 @@ NFC でバッジ認証 → LoRa で管理ノードへ結果を中継する、イ
 ### App 10: SDR 広帯域受信 (`sdr-receiver`)
 
 **優先度**: ★★★★☆  
-**必要ハードウェア**: RTL-SDR V4 ドングル (USB-A ポートへ接続、M5Stack 純正品不要)
+**必要ハードウェア**: RTL-SDR V4 ドングル (USB-C ポートへ接続、M5Stack 純正品不要)
 
 #### 概要
 
 Cap LoRa-1262 (868-923 MHz) と Cap CC1101 (315/433/868/915 MHz) は特定バンドの
 狭帯域トランシーバーであり、アマチュア無線受信機のような広帯域受信には対応しない。
-CardputerZero の USB-A ポートに **RTL-SDR V4 ドングル** を接続することで、
+CardputerZero の USB-C ポートに **RTL-SDR V4 ドングル** を接続することで、
 500 kHz〜1.75 GHz の全帯域をカバーするソフトウェア無線受信環境を構築できる。
 Raspberry Pi OS は librtlsdr を標準サポートしており、追加ドライバ不要で動作する。
 
@@ -923,7 +925,7 @@ Raspberry Pi OS は librtlsdr を標準サポートしており、追加ドラ�
 
 ```
 CardputerZero
-  └── USB-A ポート
+  └── USB-C ポート
        └── RTL-SDR V4 ドングル (SMA-F コネクタ)
             ├── RP-SMA → SMA 変換アダプタ (Cap のアンテナ共用可)
             ├── 付属ディスコーンアンテナ (広帯域受信)
@@ -2011,48 +2013,44 @@ CardputerZero ↔ PaHUB ↔ INA226-10A、および Chain Encoder × 2 を含む
 全体の接続構成。Grove ポートは I2C モード固定で運用し、UART デバイス
 （Chain Encoder）は本体の 2.54mm UART ヘッダで配線する。
 
-```
+```text
 ┌────────────────────────────────────────────────────────────────────┐
 │                  CardputerZero (Raspberry Pi CM0)                  │
 │                                                                    │
-│   [Grove HY2.0-4P]         [2.54mm UART]        [2.54mm I2C]       │
-│    (I2C mode 固定)          ヘッダ               ヘッダ            │
-│       │                       │                    │               │
-└───────┼───────────────────────┼────────────────────┼───────────────┘
-        │ I2C                   │ UART               └─ (予備)
-        │ SDA/SCL/5V/GND        │ TX/RX/5V/GND
-        ▼                       │
-┌──────────────────────────┐    │
-│   PaHUB v2.1             │    │
-│   PCA9548A I2C MUX 6ch   │    │
-│   Addr: 0x70~0x77 (DIP)  │    │
-├──┬──┬──┬──┬──┬──┬────────┤    │
-│CH│CH│CH│CH│CH│CH│        │    │
-│0 │1 │2 │3 │4 │5 │        │    │
-└┬─┴┬─┴┬─┴┬─┴┬─┴┬─┘        │    │
- │  │  │  │  │  │               │
- │  │  │  │  │  └ (空き)        │
- │  │  │  │  └─── (空き)        │
- │  │  │  └────── (空き)        │
- │  │  └───────── (空き / 将来 BMP280 気圧)
- │  └──────────── (空き / 将来 SHT40 温湿度)
- ▼ CH0                           │
-┌──────────────────────────────┐  ▼
-│  INA226-10A                  │  ┌─────────────────────────┐
-│  絶縁型 ±10A / 30V           │  │ Chain Encoder #1        │
-│  I2C addr: 0x41 (固定)       │  │ (ノブA: モード切替)     │
-│  5mΩ shunt + PTC fuse        │  │ AB相 + ボタン + WS2812  │
-│  CA-IS3020S + B0505S 絶縁    │  │ Grove IN ◀──────────────┘ (UART)
-└─┬───────┬───────┬───────┬────┘  │ Grove OUT ─┐
-  PIN1    PIN2    PIN3    PIN4     └────────────┼──────────────┘
- INPUT+  INPUT-  OUTPUT- OUTPUT+                │ daisy chain
-   │       │       │       │                    ▼
-   │       │       │       │            ┌─────────────────────────┐
-   │       │       │       │            │ Chain Encoder #2        │
-   │       │  内部 │       │            │ (ノブB: 閾値・レンジ)   │
-   │       └─直結─┘       │             │ 終端 (OUT は未使用)     │
-   │                       │             └─────────────────────────┘
-   ▼                       ▼
+│   [Grove HY2.0-4P]         [EXT 2.54-14P]                          │
+│    (I2C mode 固定)          ヘッダ                                 │
+│       │                       │                                    │
+└───────┼───────────────────────┼────────────────────────────────────┘
+        │ I2C                   │ Pin 4 (GND) / Pin 6 (5V) / Pin 12 (RX) / Pin 14 (TX)
+        │ SDA/SCL/5V/GND        │ ─ HY2.0-4P 変換ハーネス
+        ▼                       ▼
+┌──────────────────────────┐  ┌─────────────────────────┐
+│   PaHUB v2.1             │  │ Chain Encoder #1        │
+│   PCA9548A I2C MUX 6ch   │  │ (ノブA: モード切替)     │
+│   Addr: 0x70~0x77 (DIP)  │  │ Grove IN  ◀─────────────┤
+│   ※電源は全 CH 共通バス │  │ Grove OUT ─┐            │
+├──┬──┬──┬──┬──┬──┬────────┤  └────────────┼────────────┘
+│CH│CH│CH│CH│CH│CH│        │               │ daisy chain
+│0 │1 │2 │3 │4 │5 │        │               ▼
+└┬─┴┬─┴┬─┴┬─┴┬─┴┬─┘        │       ┌─────────────────────────┐
+ │  │  │  │  │  │                  │ Chain Encoder #2        │
+ │  │  │  │  │  └ (端子台 C 給電) ←─┤ (ノブB: 閾値・レンジ)   │
+ │  │  │  │  └─── (空き)            │ 終端 (OUT は未使用)     │
+ │  │  │  └────── (空き)            └─────────────────────────┘
+ │  │  └───────── (空き)
+ │  └──────────── CH1 → MLX90614 (App 15 NCIR)
+ ▼ CH0
+┌──────────────────────────────┐
+│  INA226-10A                  │      ↑↑
+│  絶縁型 ±10A / 30V           │      ││ パターン 3 用
+│  I2C addr: 0x41 (固定)       │      ││ 端子台 C 給電
+│  5mΩ shunt + PTC fuse        │      ││ (5V/GND のみ)
+│  CA-IS3020S + B0505S 絶縁    │      ││
+└─┬───────┬───────┬───────┬────┘      ││
+  PIN1    PIN2    PIN3    PIN4 ◀──────┘│
+ INPUT+  INPUT-  OUTPUT- OUTPUT+       │
+   │       │       │       │           │
+   ▼       ▼       ▼       ▼           │
 ┌────────────────────────────────────────┐
 │  被測定回路 (DUT)                       │
 │  ブレッドボード / センサーモジュール /  │
@@ -2076,8 +2074,10 @@ CardputerZero ↔ PaHUB ↔ INA226-10A、および Chain Encoder × 2 を含む
 |--------|------|--------|------|
 | CZ Grove (I2C) | HY2.0-4P ケーブル | PaHUB v2.1 IN | I2C バス本線 |
 | PaHUB CH0 | HY2.0-4P ケーブル | INA226-10A | 電圧/電流測定 |
-| PaHUB CH1〜5 | (将来追加) | 各種 I2C センサ | 拡張枠 |
-| CZ 2.54mm UART | ジャンパーワイヤー | Chain Encoder #1 IN | 物理 UI 入力 |
+| PaHUB CH1 | HY2.0-4P ケーブル | MLX90614 (App 15 NCIR) | 非接触温度測定 |
+| **PaHUB CH5** | **HY2.0-4P ケーブル（黄白は未使用）** | **パターン 3 端子台 C** | **5V/GND 給電（Chain Encoder と EXT Pin 4/6 競合を回避）** |
+| PaHUB CH2〜CH4 | (将来追加) | 各種 I2C センサ | 拡張枠 |
+| CZ EXT 2.54-14P (Pin 4/6/12/14) | HY2.0-4P 変換ハーネス | Chain Encoder #1 IN | 物理 UI 入力（5V/GND + UART） |
 | Chain Encoder #1 OUT | HY2.0-4P ケーブル | Chain Encoder #2 IN | デイジーチェーン |
 | INA226-10A PIN1 (INPUT +) | 端子台 | DUT 電源 +側 | ハイサイド電流測定（入力 +）|
 | INA226-10A PIN2 (INPUT -) | 端子台 | DUT 電源 -側 | リターン経路（入力 -、PIN3 と内部直結）|
@@ -2221,35 +2221,43 @@ PIN1 (INPUT +) と PIN2 (INPUT -) は未接続・浮き
 ##### パターン 3: 導通チェック（電流リミッタ必須）
 
 ```
-[CZ EXT Pin 6 (5V OUT)]─→ [外付 1kΩ]──→ [PIN1 INPUT +]
-                                              │
-                                        R10 → FUSE → 5mΩ shunt
-                                              │
-                                        [PIN4 OUTPUT +] ──→ [赤プローブ] ──→ [DUT +]
-                                                                                │
-                                                                            被測定物
-                                                                                │
-                                        [PIN3 OUTPUT -] ←── [黒プローブ] ←── [DUT -]
-                                              │
-                                        内部直結
-                                              │
-[CZ EXT Pin 4 (GND)] ←──────────────── [PIN2 INPUT -]
+[PaHUB v2.1 CH5 (空き)] ─ Grove ケーブル ┬─ 5V → [外付 1kΩ] → [PIN1 INPUT +]
+                                          │                          │
+                                          │                    R10 → FUSE → 5mΩ shunt
+                                          │                          │
+                                          │                    [PIN4 OUTPUT +] ──→ [赤プローブ] ──→ [DUT +]
+                                          │                                                            │
+                                          │                                                        被測定物
+                                          │                                                            │
+                                          │                    [PIN3 OUTPUT -] ←── [黒プローブ] ←── [DUT -]
+                                          │                          │
+                                          │                    内部直結
+                                          │                          │
+                                          └─ GND ────────────── [PIN2 INPUT -]
 ```
 
-> EXT 2.54-14P ヘッダの **Pin 6 (5V OUT)** と **Pin 4 (GND)** から給電を取る。
-> 詳細ピンマップは §1.2 「EXT 2.54-14P ピンマップ」参照。
+> ⚠️ **設計改訂（2026-06-13）**: 当初は EXT 2.54-14P の Pin 4 (GND) / Pin 6 (5V OUT)
+> から給電を取る設計だったが、これらは **Chain Encoder #1 の電源ピン**として
+> 既に占有されており物理的にバッティングするため、**PaHUB v2.1 の空きチャネル
+> （CH5 等）から Grove ケーブル経由で 5V/GND を取り出す方式に変更**した。
+>
+> ✅ **PaHUB v2.1 公式回路図にて電源スルー配線を確認済み**（2026-06-13）。
+> 各 Grove 出力ポート J1〜J6 の VCC/GND は全 CH 共通バスとしてスルー配線、
+> 入力 J7 の 5V がそのまま CH0〜CH5 の Pin 3 へ届く構造。
+> HT7533 LDO で生成する 3.3V は PCA9548A 内部用のみで Grove ポートには出力されない。
 
-- **電流制限抵抗（1kΩ 程度）を必ず CZ 5V (EXT Pin 6) と PIN1 の間に直列に入れる**
+- **電流制限抵抗（1kΩ 程度）を必ず PaHUB CH5 5V と PIN1 の間に直列に入れる**
 - 線が断線していなければ約 3.3mA 程度が流れる → 「OK」判定
 - 流れなければ「NG」判定（INA226 が 0A 近傍を報告）
 - リターン経路は PIN3 (OUTPUT -) または PIN2 (INPUT -) のどちらでも可（内部直結のため等価）
 - 解釈 A 採用時の推奨配線（プラガブル端子台 C モジュール内）:
-  - **PIN1** ← 1kΩ ← 赤 IC グラバー → CZ EXT **Pin 6 (5V OUT)**
-  - **PIN2** ← 黒 IC グラバー → CZ EXT **Pin 4 (GND)**
+  - **PIN1** ← 1kΩ ← 赤線 → **PaHUB CH5 の 5V（Grove ピン 2 赤）**
+  - **PIN2** ← 黒線 → **PaHUB CH5 の GND（Grove ピン 1 黒）**
   - **PIN3** ← 黒 IC グラバー → DUT - 側（被測定物の戻り端）
   - **PIN4** → 赤 IC グラバー → DUT + 側（被測定物の入力端）
+  - ⚠️ PaHUB CH5 の SDA/SCL（黄/白）は未使用、Grove ケーブルを切断改造するか切断不要なら未接続のまま放置
 - アプリ側モード: 導通チェックモード（I 監視、閾値超過でブザー or LED）
-- ⚠️ リミッタなしで CZ 5V を直接 PIN1 にかけると、内蔵 5mΩ shunt にいきなり数 A 流れ、PTC ヒューズが作動する可能性
+- ⚠️ リミッタなしで 5V を直接 PIN1 にかけると、内蔵 5mΩ shunt にいきなり数 A 流れ、PTC ヒューズが作動する可能性
 - ⚠️ 導通治具を作るなら **1kΩ 抵抗付きの専用ケーブル**を別途用意（プローブクリップ + 1kΩ 直列構造）
 
 ##### 用途とポートの対応表
@@ -2296,7 +2304,7 @@ VH3.96-4P 端子台は基板から脱着可能なため、結線パターン別�
 | --- | --- | --- | --- | --- |
 | 端子台 A | パターン 1 (V/I/W 同時測定) | なし | ワニ口クリップ × 4 | PIN1 ～ PIN4 に赤黒のワニ口クリップを2対 |
 | 端子台 B | パターン 2 (電圧プローブ) | なし | IC グラバー × 2 (赤/黒) | PIN3、PIN4 に赤黒のICグラバー1対 |
-| 端子台 C | パターン 3 (導通チェック) | 赤側 (PIN1 ライン) に **1kΩ + 熱収縮チューブ** 内蔵 | 2.54mm ジャンパ線 赤黒 1 対、IC グラバー赤黒 1 対 | **PIN1 から EXT Pin 6 (5V OUT) へ** 1kΩ の抵抗を間に挟んだ赤ジャンパ線を 接続<br />**PIN2 から EXT Pin 4 (GND) へ** 黒ジャンパ線を接続<br />**PIN3** に黒 IC グラバーを接続し被測定物のマイナス側へ、**PIN4** に赤 IC グラバーを接続し被測定物のプラス側へ |
+| 端子台 C | パターン 3 (導通チェック) | 赤側 (PIN1 ライン) に **1kΩ + 熱収縮チューブ** 内蔵 | Grove ケーブル赤黒、IC グラバー赤黒 1 対 | **PIN1 から PaHUB CH5 の 5V（Grove ピン 2 赤）へ** 1kΩ を間に挟んだ赤線で接続<br />**PIN2 から PaHUB CH5 の GND（Grove ピン 1 黒）へ** 黒線で接続<br />**PIN3** に黒 IC グラバーを接続し被測定物のマイナス側へ、**PIN4** に赤 IC グラバーを接続し被測定物のプラス側へ<br />⚠️ EXT Pin 4/6 は Chain Encoder #1 に占有されているため使用不可 |
 
 - VH3.96-4P プラガブル端子台は単体で 1 個 ¥100〜200 程度で入手可能
 - 追加 ¥500 程度で 3 用途分のモジュールが揃う
@@ -3138,6 +3146,9 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | INA226 IC データシート (TI) | https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1171/INA226.pdf |
 | M5Stack Unit INA226-10A 国内代理店 | https://www.switch-science.com/products/10735 |
 | M5Stack PaHUB v2.1 (Port A I2C 拡張ハブ / App 13) | https://www.switch-science.com/products/10192 |
+| M5Stack PaHUB v2.1 公式ドキュメント | [docs.m5stack.com/en/unit/Unit-PaHub v2.1](https://docs.m5stack.com/en/unit/Unit-PaHub%20v2.1) |
+| M5Stack PaHUB v2.1 公式回路図 PNG（電源スルー配線確認・App 13 パターン 3 CH5 給電根拠） | [static-cdn.m5stack.com/.../img-103440a9-....png](https://static-cdn.m5stack.com/resource/docs/products/unit/Unit-PaHub2.1/img-103440a9-d7e4-4aab-b784-825aa9b35614.png) |
+| PCA9548A データシート（PaHUB 搭載 I2C MUX IC） | [m5stack.oss-cn-shenzhen.aliyuncs.com/.../pca9548a.pdf](https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/docs/datasheet/unit/pahub2/pca9548a.pdf) |
 | RTL-SDR Blog V4 (推奨ドングル) | https://www.rtl-sdr.com/rtl-sdr-blog-v4-dongle-initial-release/ |
 | dump1090-fa (ADS-B) | https://github.com/flightaware/dump1090 |
 | GQRX SDR (スペクトラムアナライザー) | https://gqrx.dk |
@@ -3228,6 +3239,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 13]** **パターン 2（PIN1 INPUT + 浮き）運用時の電流値挙動の実機検証**（PTC ヒューズ経由の浮き状態で IC が 0A 近傍を返すか、ノイズで揺れるか）
 - [ ] **[App 13]** **パターン 3（導通チェック）の外付け 1kΩ 制限抵抗治具**の設計・製作（PIN1 側に 1kΩ 直列のプローブケーブル、プラガブル端子台に固定して用途別モジュールとして運用）
 - [ ] **[App 13]** **用途別プローブ端子台モジュールの製作**: パターン 1（4 端子直列挿入）/ パターン 2（PIN3・PIN4 のみの電圧プローブ）/ パターン 3（PIN1 に 1kΩ 内蔵の導通治具）の 3 枚を VH3.96-4P プラガブル端子台にそれぞれ固定し、本体側に差し替えるだけで結線パターン切替が完結する運用
+- [x] **[App 13]** **PaHUB v2.1 の電源スルー配線確認済み**（2026-06-13、[公式回路図 PNG](https://static-cdn.m5stack.com/resource/docs/products/unit/Unit-PaHub2.1/img-103440a9-d7e4-4aab-b784-825aa9b35614.png) 直接確認）: 各 Grove 出力ポート J1〜J6 の VCC/GND は全 CH 共通バスとしてスルー配線、入力 J7 の 5V がそのまま CH0〜CH5 の Pin 3 へ届く構造。HT7533 LDO で生成する 3.3V は PCA9548A 内部用のみで Grove ポートには出力されない。**CH5 を端子台 C 給電専用ポートとして使用する設計が確定**
 - [ ] **[App 13]** ガイダンス UI（結線パターン切替案内）の LVGL 実装方針（ミニアイコン素材の作成 or テキスト表示）
 
 #### カメラ（App 14）
