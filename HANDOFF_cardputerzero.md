@@ -33,6 +33,10 @@
 | 2026-06-13 | **EXT 2.54-14P ヘッダの完全ピンマップを §1.2 に追加**（公式ドキュメント画像より確定）。Pin 4=GND, Pin 6=5V OUT, Pin 8=G2/SDA, Pin 10=G3/SCL, Pin 12=G15/RX, Pin 14=G14/TX。§3 App 13 パターン 3 の給電経路を Pin 6 / Pin 4 として確定。§9.1 関連 TODO を確認済み (`[x]`) に移行。§8 関連リンクに公式ドキュメント URL を追記 |
 | 2026-06-13 | **App 14 (QR コードリーダー / アナライザー `qr-toolkit`) 追加**。標準版搭載 IMX219 8MP CSI カメラ + `picamera2` + `pyzbar` + Google Safe Browsing API 構成。総司様作 QR 構造学習ウェブアプリ [osprey74.com/qr-anatomy.html](https://osprey74.com/qr-anatomy.html) をネイティブ移植する「ナレッジモード」（バージョン・モジュール数・ECC・8 種マスクパターン・データ領域可視化）を仕様化 |
 | 2026-06-13 | **App 15 (非接触温度計 `ncir-thermometer`) 追加**。M5Stack NCIR Unit (Melexis MLX90614 / Grove I2C) を PaHUB v2.1 CH1 経由で接続。業務（機材点検 / CPU・GPU サーマル）と個人（料理補助）の 3 用途に絞ったプリセット温度・閾値判定・ログ機能を仕様化。`shared/mlx90614/` 共通ドライバ新設 |
+| 2026-06-13 | **App 10 に BCL ログモード（UpNote 連携）追加**。総司様が RTL-SDR V4 + 15m ロングワイヤーで短波放送受信を開始（最初の特定局: ラジオ NIKKEI 第1）。UpNote 公式 API は不在のため、`x-callback-url` URL スキーム経由で Tailscale 接続中の Mac Mini で `open` コマンドを実行し UpNote.app に `BCL_LogBook` ノートブックへの自動投稿を実現。オフライン耐性のため microSD への一旦保存 → 接続復帰時の一括同期方式を採用。既知局データベース (`data/bcl_stations.yaml`) を内蔵 |
+| 2026-06-13 | **BCL ログモードの確定値を反映**: BCL_LogBook の `notebookId` = `019ecfdf-7134-7428-aa52-4aa6eaa18d3f`、Mac Mini Tailscale 固定 IP = `100.108.134.69`、初回受信ノート（ラジオ NIKKEI 第1）の `noteId` = `019ecfe3-f686-7612-93d0-3685b7e9057d`。設定ファイル `~/.config/cardputerzero/bcl_config.yaml` の構造を仕様化。Python サンプルに MagicDNS フォールバックロジック (`resolve_ssh_target()`) を追加 |
+| 2026-06-13 | **BCL ログモードの実機検証 4 回で UpNote x-callback-url 仕様を確定**: (1) `note/new` の正しいパラメータは **`notebook`（名前指定）** であり `notebookId` ではない、(2) `tag` パラメータは公式ドキュメント未記載だが**実機で必須**、(3) **`tag` は URL 末尾に配置**しないと title/text が文字化け、(4) 本文中の `#BCL` のみではタグ自動認識されない、(5) 連続投稿時の確認ダイアログなし。Python サンプルを `list of tuples` 版に刷新 |
+| 2026-06-13 | **BCL ログモードの全仕様確定（運用方針 A〜⑤ 全パラメータ決定）**: 1 受信 1 ノート方式・案 ③（録音は Mac Mini に scp 転送して永続保存・CZ 側削除）・アンテナはプリセット選択方式・SFI は NOAA SWPC から 1 時間キャッシュ・App 01 GPS 連携で受信地点座標取得。Markdown テンプレート最終確定（機材 + 受信記録 + 録音ファイル Mac Mini パス記載）。既知局 DB 初期 15 局（日本短波・北海道中波・国際短波局）登録。UI フロー設計確定（ノブA でフロー進行、ノブB で SINPO 値） |
 
 ---
 
@@ -1259,6 +1263,492 @@ while True:
 | 両ノブ同時押下 | モニターモード終了 |
 | 46 キー | コマンド入力・録音開始/停止 |
 
+#### BCL ログモード（UpNote 連携）
+
+短波放送 (BCL: Broadcasting Listening) 趣味のための受信記録モード。
+RTL-SDR で受信中の放送局情報・SINPO レポート・受信状況をその場で記録し、
+**Tailscale 経由で自宅 Mac Mini の UpNote アプリへ 1 受信 1 ノートとして
+リアルタイム自動投稿**する。録音した音声ファイルは Mac Mini に転送・永続保存。
+オフライン時は microSD に蓄積し、次回 Tailscale 接続時に未送信分を一括同期する。
+
+##### 運用方針（2026-06-13 確定）
+
+| 項目 | 確定方針 |
+| --- | --- |
+| ノート粒度 | **1 受信 1 ノート**・リアルタイム投稿（案 B） |
+| ノートタイトル | `YYYY-MM-DD HH:MM — 局名 (周波数 kHz)` |
+| アンテナ選択 | アプリ起動時のみ選択、以降は記憶（明示変更で切替） |
+| 「内容」入力 | 空欄のまま `ノブA 押下` で次へ進める（シンプル運用） |
+| 音声録音 | BCL ログ作成時に自動 60 秒録音 → 投稿時に Mac Mini へ scp 転送 → CZ 側削除（案 ③） |
+| 録音転送失敗時 | 即時諦めて `_pending/` 蓄積、次回モード起動時に再試行 |
+| 録音ファイル命名 | `YYYY-MM-DD_HHMMSS_<freq>kHz_<station_slug>.mp3`（秒精度で衝突回避） |
+| SFI / K-index 取得 | 起動時 + 1 時間ごとキャッシュ（NOAA SWPC） |
+| オフライン伝搬条件 | キャッシュ済み最新値を使用（取得時刻併記） |
+| BCL ログモード起動 | App 10 内のモード切替方式 |
+
+##### 背景・きっかけ
+
+総司様が **RTL-SDR V4 + 15m ロングワイヤーアンテナ + Mac Mini + GQRX** で
+短波放送受信を始められ、最初の特定局として **ラジオ NIKKEI 第1** を受信
+（2026-06-13）。BCL 趣味として継続するため、受信記録を **UpNote の
+`BCL_LogBook` ノートブック**に簡便に投稿する仕組みを App 10 に組み込む。
+
+##### アーキテクチャ
+
+UpNote には **公式 REST API は存在しない**が、**`x-callback-url` 経由の
+URL スキーム**が公式サポートされており（[公式ドキュメント](https://help.getupnote.com/resources/x-callback-url-endpoints)
+参照）、これを活用してノート自動作成を実現する。
+
+URL スキーム (`upnote://`) は **OS の URL ハンドラ機構**に依存するため、
+CardputerZero (Linux) からは直接呼び出せず、**Mac Mini (macOS) 経由が必須**。
+本プロジェクトの Tailscale 連携 (§2.5) を活用する。
+
+```
+[CardputerZero (フィールド)]
+   ① 受信開始 → 60 秒自動録音
+       └─ 一時保存: /mnt/sdcard/bcl_recordings/<filename>.mp3
+   ② ユーザがログ入力（局名 / SINPO / QSL / 内容）
+   ③ NOAA SWPC キャッシュから SFI/K-index 取得
+   ④ App 01 GPS から受信地点座標取得（可能なら）
+   ⑤ Tailscale 接続中?
+       ├─ YES → scp で Mac Mini へ録音転送
+       │         └─ /Users/so4330/BCL_Recordings/<filename>.mp3
+       │         └─ 転送成功時 microSD 側削除
+       │         └─ UpNote へ note/new 投稿
+       │              └─ ノート本文に Mac Mini 内パス記載
+       │
+       └─ NO  → /mnt/sdcard/bcl_logs/_pending/ に蓄積
+                 録音は microSD に保持（接続復帰時に転送）
+```
+
+##### UpNote x-callback-url パラメータ仕様（実機検証で確定）
+
+| パラメータ | 用途 | 本機能での値 |
+| --- | --- | --- |
+| `title` | ノートタイトル | `YYYY-MM-DD HH:MM — 局名 (周波数 kHz)` |
+| `text` | ノート本文（Markdown） | 後述テンプレート |
+| `notebook` | 投稿先ノートブック**名** | `BCL_LogBook` |
+| `markdown` | Markdown 解釈フラグ | `true` |
+| `tag` | タグ | `BCL` |
+
+> ⚠️ **実装上の重要な制約（実機検証 v3-v4 で確定）**: `tag` パラメータは **必ず
+> URL の末尾**に配置する必要がある。これより前に置くと、`title` と `text` の
+> URL デコードが機能せず本文が文字化けする（UpNote 側の挙動）。Python では
+> `dict` ではなく **`list of tuples`** で `params` を構築し、`("tag", "BCL")` を
+> 末尾に置くこと。
+>
+> ⚠️ **公式ドキュメント未記載だが実機で必須なパラメータ**: `tag` パラメータは
+> 公式 `note/new` テンプレートには記載がないが、**指定しないとタグ自動認識が
+> 動作しない**（本文中に `#BCL` を書いてもタグ化されないことを 2026-06-13 v4-B で検証済み）。
+
+##### 機材情報の取得方針
+
+| 項目 | 取得方法 |
+| --- | --- |
+| **受信機** | 設定ファイルから固定取得（`RTL-SDR Blog V4 + GQRX`） |
+| **アンテナ** | プリセット選択方式（電気的判別不可なため手動選択、Chain Encoder で切替） |
+| **受信地点** | App 01 GPS 連携 or 設定ファイルの `default_location` |
+| **SFI / K-index / A-index** | NOAA SWPC API (`services.swpc.noaa.gov/text/wwv.txt`) から取得・1 時間キャッシュ |
+
+##### 自動入力 / 手動入力 / 後入力 の分類
+
+| 分類 | 項目 | 取得元 |
+| --- | --- | --- |
+| **自動入力** | 受信機 / 受信地点 / 伝搬条件 / 周波数 / 時刻 / モード / バンド | 設定 / App 01 / NOAA SWPC / SDR 状態 / RTC |
+| **アプリ側選択** | アンテナ / QSL 状況 | プリセットから Chain Encoder で選択 |
+| **CardputerZero 入力** | 局名（DB 候補補完）/ SINPO / 内容（任意） | 46 キー + Chain Encoder |
+| **UpNote 側で後入力** | 言語 / 番組 / 混信状況 | 空欄で送信、Mac で追記 |
+| **既知局 DB から自動補完** | 国 / 地域 / 送信所 / 出力 | 局名選択時に DB 参照 |
+
+##### Markdown テンプレート（UpNote ノート本文・確定版）
+
+```markdown
+## 機材
+- **受信機**: RTL-SDR Blog V4 + GQRX
+- **アンテナ**: 15m ロングワイヤー
+- **受信地点**: 札幌市 (43.0618, 141.3545)
+- **伝搬条件**: SFI 142 / K-index 2 / A-index 8 (取得: 2026-06-15 14:30 UTC)
+
+## 受信記録
+- **周波数**: 3925 kHz (75m バンド / 短波)
+- **時刻**: 2026-06-15 14:32:11 JST
+- **モード**: AM
+- **局名**: ラジオ NIKKEI 第1
+- **国 / 地域**: 日本
+- **言語**: 日本語
+- **送信所 / 出力**: 千葉県長柄町 / 50 kW
+- **SINPO**: 45433
+- **番組**:
+- **混信状況**:
+- **QSL**: 未送付
+- **録音ファイル**: /Users/so4330/BCL_Recordings/2026-06-15_143211_3925kHz_radio_nikkei_1.mp3
+- **内容**:
+
+#BCL
+```
+
+##### UI フロー設計
+
+```text
+[BCL ログモード進入]
+  ① 周波数・モード・時刻は SDR 状態 + RTC から自動取得（画面表示）
+        ↓
+  ② 局名候補リスト（既知局 DB から周波数近傍局を抽出）
+        ノブA で選択 / 押下で確定
+        DB に該当なしなら 46 キーで新規入力
+        ↓
+  ③ SINPO 入力（S を 5/4/3/2/1 で選択、ノブB / I,N,P,O も順次）
+        ↓
+  ④ QSL 状況選択（プリセット: 未送付 / 送付済 / 受領済 / 不要）
+        ↓
+  ⑤ 「内容」入力エリア（任意）
+        テキスト入力、46 キー入力
+        空欄のまま ノブA 押下で次へ
+        ↓
+  ⑥ 確認画面（タイトル + テンプレートサマリ表示）
+        ↓
+  ⑦ NOAA SFI キャッシュ取得 + GPS 座標取得 + Markdown 生成
+        ↓
+  ⑧ Tailscale 接続中?
+        YES → 録音 scp 転送 → CZ 側録音削除 → UpNote 投稿
+        NO  → _pending/ 蓄積（録音は保持）
+```
+
+##### Python 実装サンプル（確定版）
+
+```python
+import urllib.parse
+import subprocess
+from datetime import datetime
+from pathlib import Path
+
+BCL_LOGBOOK_NAME    = "BCL_LogBook"
+BCL_TAG             = "BCL"
+SSH_TARGET_PRIMARY  = "mac-mini"        # Tailscale MagicDNS
+SSH_TARGET_FALLBACK = "100.108.134.69"  # Mac Mini Tailscale 固定 IP
+LOCAL_REC_DIR       = Path("/mnt/sdcard/bcl_recordings")
+REMOTE_REC_DIR      = "/Users/so4330/BCL_Recordings"
+LOG_DIR             = Path("/mnt/sdcard/bcl_logs")
+PENDING_DIR         = LOG_DIR / "_pending"
+
+def resolve_ssh_target() -> str:
+    """MagicDNS が解決できれば優先、失敗時は Tailscale 固定 IP を使用"""
+    try:
+        subprocess.run(
+            ["ping", "-c", "1", "-W", "1", SSH_TARGET_PRIMARY],
+            check=True, capture_output=True, timeout=2,
+        )
+        return SSH_TARGET_PRIMARY
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return SSH_TARGET_FALLBACK
+
+def recording_filename(now: datetime, freq_khz: float, station: str) -> str:
+    """秒精度・局名 slug 付きでファイル名衝突を回避"""
+    slug = station.replace(" ", "_").lower()
+    return f"{now:%Y-%m-%d_%H%M%S}_{int(freq_khz)}kHz_{slug}.mp3"
+
+def transfer_recording(local_path: Path, ssh_target: str) -> str | None:
+    """microSD → Mac Mini へ scp 転送。成功時は Mac Mini 側パスを返す
+    Q-β: 失敗時は即時諦めて None を返す（リトライしない）"""
+    remote_path = f"{REMOTE_REC_DIR}/{local_path.name}"
+    try:
+        subprocess.run(
+            ["scp", str(local_path), f"{ssh_target}:{remote_path}"],
+            check=True, timeout=30,
+        )
+        local_path.unlink(missing_ok=True)   # 転送成功 → CZ 側削除
+        return remote_path
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+
+def build_upnote_url(*, title: str, body: str) -> str:
+    # ⚠️ tag は必ず末尾配置 (UpNote URL パーサーの挙動)
+    # list of tuples で順序を保証する
+    params = [
+        ("title",    title),
+        ("text",     body),
+        ("notebook", BCL_LOGBOOK_NAME),
+        ("markdown", "true"),
+        ("tag",      BCL_TAG),        # ★必ず末尾
+    ]
+    qs = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
+    return f"upnote://x-callback-url/note/new?{qs}"
+
+def send_to_upnote(url: str, ssh_target: str) -> bool:
+    try:
+        subprocess.run(
+            ["ssh", ssh_target, "open", url],
+            check=True, timeout=10,
+        )
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+```
+
+##### 設定ファイル全体像（確定版）
+
+確定値は CardputerZero 側の設定ファイルに集約。コード本体は値を環境変数 or
+YAML 経由で読み込む構成とし、引っ越し・端末追加時の修正範囲を最小化する。
+
+```yaml
+# ~/.config/cardputerzero/bcl_config.yaml
+
+mac_mini:
+  hostname: mac-mini              # Tailscale MagicDNS
+  ip:       100.108.134.69        # Tailscale 固定 IP（MagicDNS 不通時フォールバック）
+  user:     so4330
+
+upnote:
+  notebook: BCL_LogBook           # note/new は名前指定（notebookId ではない）
+  tag:      BCL                   # URL 末尾配置必須
+
+bcl:
+  default_receiver: RTL-SDR Blog V4 + GQRX
+  default_location:
+    name: 札幌市
+    lat:  43.0618
+    lng:  141.3545
+
+  # アンテナプリセット（起動時のみ選択、以降は current_antenna に記憶）
+  antennas:
+    - id: longwire_15m
+      name: 15m ロングワイヤー
+      notes: 屋外、北西方向
+    - id: dipole_7mhz
+      name: 7MHz ダイポール
+      notes: 自作、給電点 3m
+    - id: active_loop
+      name: アクティブループ
+      notes: MLA-30+ ループ、室内設置
+    - id: whip
+      name: 付属ホイップ
+      notes: ドングル直付
+  current_antenna: longwire_15m   # 最後に選択したものを記憶
+
+  qsl_status_options:
+    - 未送付
+    - 送付済
+    - 受領済
+    - 不要
+
+  recording:
+    enabled: true
+    local_dir:                    /mnt/sdcard/bcl_recordings
+    remote_dir:                   /Users/so4330/BCL_Recordings
+    format:                       mp3
+    bitrate:                      64k
+    duration_sec:                 60
+    transfer_method:              scp
+    cleanup_local_after_transfer: true     # 転送成功時に CZ 側削除
+    retry_on_failure:             false    # Q-β: 即時諦めて _pending/ へ
+
+  propagation:
+    enabled:       true
+    source:        https://services.swpc.noaa.gov/text/wwv.txt
+    cache_ttl_min: 60                      # 1 時間キャッシュ
+    offline_use_cache: true                # Q5: オフライン時もキャッシュ使用
+
+storage:
+  log_dir:     /mnt/sdcard/bcl_logs
+  pending_dir: /mnt/sdcard/bcl_logs/_pending
+```
+
+##### 既知局データベース（初期 15 局・確定版）
+
+短波・中波の主要局を内蔵 YAML で持ち、Chain Encoder で局名候補を
+スクロール選択できるようにする。各局には初回受信ノートへのダイレクトリンクも
+保持し、過去の記録への素早いアクセスを可能とする。
+
+```yaml
+# data/bcl_stations.yaml (初期版)
+stations:
+  # ─── 日本国内（短波）───────────────────────────────
+  - name: ラジオ NIKKEI 第1
+    country: 日本
+    languages: [日本語]
+    transmitter_site: 千葉県長柄町
+    power_kw: 50
+    frequencies:
+      - { freq_khz: 3925, band: 75m, active_time: 夜間 }
+      - { freq_khz: 6055, band: 49m, active_time: 昼間 }
+    first_reception:
+      date: 2026-06-13
+      location: 札幌市
+      antenna: 15m ロングワイヤー
+      receiver: RTL-SDR Blog V4 + GQRX
+      upnote_link: upnote://x-callback-url/openNote?noteId=019ecfe3-f686-7612-93d0-3685b7e9057d
+      note: 総司様の BCL 趣味初日の特定局（記念すべき 1 局目）
+
+  - name: ラジオ NIKKEI 第2
+    country: 日本
+    languages: [日本語]
+    transmitter_site: 千葉県長柄町
+    power_kw: 50
+    frequencies:
+      - { freq_khz: 3945, band: 75m }
+      - { freq_khz: 6115, band: 49m }
+
+  - name: NHK ワールド・ラジオ日本
+    country: 日本
+    languages: [日本語, 英語, 多言語]
+    transmitter_site: 茨城県八俣
+    power_kw: 300
+    frequencies:
+      - { freq_khz: 5910,  band: 49m }
+      - { freq_khz: 6045,  band: 49m }
+      - { freq_khz: 9560,  band: 31m }
+      - { freq_khz: 11945, band: 25m }
+      - { freq_khz: 15445, band: 19m }
+
+  # ─── 北海道地区（中波）─────────────────────────────
+  - name: NHK 札幌 第1
+    country: 日本
+    languages: [日本語]
+    frequencies: [{ freq_khz: 567, band: 中波 }]
+  - name: NHK 札幌 第2
+    country: 日本
+    languages: [日本語]
+    frequencies: [{ freq_khz: 747, band: 中波 }]
+  - name: HBC ラジオ（北海道放送）
+    country: 日本
+    languages: [日本語]
+    frequencies: [{ freq_khz: 1287, band: 中波 }]
+  - name: STV ラジオ（札幌テレビ放送）
+    country: 日本
+    languages: [日本語]
+    frequencies: [{ freq_khz: 1440, band: 中波 }]
+
+  # ─── 国際短波局（アジア）──────────────────────────
+  - name: KBS World Radio
+    country: 韓国
+    languages: [日本語, 韓国語, 英語]
+    transmitter_site: 韓国・華城
+    frequencies:
+      - { freq_khz: 7235, band: 41m }
+      - { freq_khz: 9580, band: 31m }
+      - { freq_khz: 9745, band: 31m }
+  - name: 中国国際放送 (CRI)
+    country: 中国
+    languages: [日本語, 中国語, 多言語]
+    frequencies:
+      - { freq_khz: 7325,  band: 41m }
+      - { freq_khz: 9410,  band: 31m }
+      - { freq_khz: 11650, band: 25m }
+  - name: Radio Taiwan International
+    country: 台湾
+    languages: [日本語, 中国語, 英語]
+    frequencies:
+      - { freq_khz: 9740,  band: 31m }
+      - { freq_khz: 11550, band: 25m }
+  - name: 朝鮮の声 (Voice of Korea)
+    country: 北朝鮮
+    languages: [日本語, 朝鮮語, 多言語]
+    frequencies:
+      - { freq_khz: 7235,  band: 41m }
+      - { freq_khz: 9445,  band: 31m }
+      - { freq_khz: 11680, band: 25m }
+
+  # ─── 国際短波局（欧米）────────────────────────────
+  - name: BBC World Service
+    country: イギリス
+    languages: [英語]
+    frequencies:
+      - { freq_khz: 5970,  band: 49m }
+      - { freq_khz: 9410,  band: 31m }
+      - { freq_khz: 11945, band: 25m }
+      - { freq_khz: 15400, band: 19m }
+  - name: Voice of America (VOA)
+    country: アメリカ
+    languages: [英語, 多言語]
+    frequencies:
+      - { freq_khz: 7480,  band: 41m }
+      - { freq_khz: 9760,  band: 31m }
+      - { freq_khz: 15580, band: 19m }
+  - name: Radio Romania International
+    country: ルーマニア
+    languages: [日本語, 英語, ルーマニア語, 多言語]
+    transmitter_site: ルーマニア・ティギナ
+    frequencies:
+      - { freq_khz: 7330, band: 41m }
+      - { freq_khz: 9540, band: 31m }
+  - name: Radio Free Asia
+    country: アメリカ（対アジア向け）
+    languages: [中国語, 朝鮮語, ビルマ語等]
+    frequencies:
+      - { freq_khz: 9355,  band: 31m }
+      - { freq_khz: 11750, band: 25m }
+```
+
+> ⚠️ 各局の周波数・送信所・出力は 2026 年時点の推測情報を含みます。BCL では
+> 国際短波局の周波数は季節（A/B 季節シーズン）で変動するため、実機受信時に
+> 都度修正していく運用とします。
+
+##### BCL ログモード機能一覧
+
+**自動取得・キャッシュ**
+
+- [ ] 現在の SDR 中心周波数・モード・時刻の自動取得
+- [ ] バンド自動判定（中波 / 短波 / FM / 業務無線等）
+- [ ] NOAA SWPC API から SFI / K-index / A-index 取得（起動時 + 1 時間ごとキャッシュ）
+- [ ] App 01 GPS 連携で受信地点座標自動取得（連携不可時は設定ファイル `default_location` 使用）
+- [ ] 既知局 DB から国 / 言語 / 送信所 / 出力の自動補完
+
+**ユーザ入力**
+
+- [ ] アプリ起動時にアンテナプリセット選択 → 以降は記憶
+- [ ] Chain Encoder ノブで局名候補スクロール（DB 候補補完）
+- [ ] SINPO 入力 UI（S 値を 5/4/3/2/1 で選択）
+- [ ] QSL 状況プリセット選択（未送付 / 送付済 / 受領済 / 不要）
+- [ ] 「内容」自由入力（46 キー、空欄も可）
+- [ ] 既知局 DB に該当なしの場合の新規局手動登録
+
+**録音機能（案 ③）**
+
+- [ ] BCL モード進入時に自動 60 秒録音開始（mp3 64kbps）
+- [ ] ファイル名: `YYYY-MM-DD_HHMMSS_<freq>kHz_<station_slug>.mp3`（秒精度で衝突回避）
+- [ ] 投稿時に Tailscale 経由 Mac Mini へ scp 転送
+- [ ] 転送成功時に microSD 側を自動削除
+- [ ] 転送失敗時は即時諦めて `_pending/` 蓄積（リトライしない）
+- [ ] UpNote ノート本文に Mac Mini 内パスを記載（`/Users/so4330/BCL_Recordings/...`）
+
+**投稿・同期**
+
+- [ ] Markdown 生成 → microSD `/mnt/sdcard/bcl_logs/` 保存
+- [ ] Tailscale 接続中なら `note/new` 経由で UpNote へリアルタイム投稿
+- [ ] オフライン時は `_pending/` 蓄積
+- [ ] 接続復帰時に未送信分一括同期（録音転送 + UpNote 投稿）
+
+**UI フィードバック**
+
+- [ ] LED フィードバック（緑=成功 / 黄=オフライン保存 / 赤=失敗）
+- [ ] Chain Encoder のモード切替（統合モニター ⇔ BCL ログ）
+
+##### 物理入力（Chain Encoder 連携）
+
+| 入力 | アクション |
+| --- | --- |
+| ノブA 回転 | 局名候補スクロール（既知局 DB + 受信中周波数で自動絞込） |
+| ノブA 押下 | フロー進行（局名確定 → SINPO → QSL → 内容 → 確認 → 投稿） |
+| ノブB 回転 | SINPO 値切替（S→I→N→P→O 順、ノブで 5→4→3→2→1） |
+| ノブB 押下 | モード切替（統合モニター ⇔ BCL ログ） |
+| 両ノブ同時押下 | 未送信 `_pending/` の一括再送 |
+| 46 キー | 局名手動入力 / 「内容」フリーテキスト入力 |
+
+##### 事前準備事項（進捗）
+
+| 項目 | 状態 | 備考 |
+| --- | --- | --- |
+| `BCL_LogBook` の `notebook` 名（`note/new` は名前指定） | ✅ 確定（2026-06-13） | `BCL_LogBook`（公式テンプレートに合わせ修正、`notebookId` は別アクション用） |
+| Mac Mini Tailscale 固定 IP | ✅ 確定（2026-06-13） | `100.108.134.69` / MagicDNS 名 `mac-mini` |
+| 初回受信ノートリンク | ✅ 確定（2026-06-13） | `noteId=019ecfe3-f686-7612-93d0-3685b7e9057d` を `data/bcl_stations.yaml` に紐付け |
+| `text` パラメータの Markdown 動作 | ✅ 検証済み（2026-06-13） | `markdown=true` 指定時に Markdown 装飾が正しくレンダリングされる |
+| `tag` パラメータの URL 末尾配置必須 | ✅ 検証済み（2026-06-13） | 末尾以外に置くと title/text が文字化け（UpNote 側の挙動） |
+| 連続投稿時の UpNote 挙動 | ✅ 検証済み（2026-06-13） | 確認ダイアログなし、自動でノート作成（連続投稿可能） |
+| Mac Mini 側 `BCL_Recordings/` フォルダ | ✅ 作成済み（2026-06-13） | `/Users/so4330/BCL_Recordings/` |
+| Mac Mini SSH 鍵設定 | ⏳ 未検証 | CardputerZero → Mac Mini が鍵認証でパスフレーズなしで `ssh open ...` / `scp ...` 実行可能 |
+| `rtl_fm` での録音 + mp3 変換パイプライン | ⏳ 未検証 | `rtl_fm` → `lame` or `ffmpeg` のチェーン確立要 |
+| NOAA SWPC `wwv.txt` パース処理 | ⏳ 未検証 | 取得 → 正規表現で SFI/K/A 抽出 → キャッシュ JSON 保存 |
+
 #### Cap との役割分担
 
 | シナリオ | RTL-SDR | Cap CC1101 | Cap LoRa-1262 |
@@ -2441,7 +2931,16 @@ osprey74/cardputerzero-apps/
 │   ├── wifi-analyzer/          # App 07 [本体]
 │   ├── nfc-checkpoint/         # App 08 [Cap A + Cap B 交互]
 │   ├── nfc-lora-auth/          # App 09 [Cap A + Cap B 交互] PoC
-│   ├── sdr-receiver/           # App 10 [RTL-SDR USB] (旧 App 12 統合済み)
+│   ├── sdr-receiver/           # App 10 [RTL-SDR USB] (旧 App 12 統合済み・BCL ログモード内蔵)
+│   │   ├── bcl_log/            # BCL ログモード関連
+│   │   │   ├── upnote_sender.py    # x-callback-url 構築 + Tailscale SSH 送信
+│   │   │   ├── recorder.py         # rtl_fm → mp3 録音 + scp 転送
+│   │   │   ├── propagation.py      # NOAA SWPC SFI/K-index 取得・キャッシュ
+│   │   │   ├── antenna_selector.py # アンテナプリセット選択 UI
+│   │   │   ├── pending_sync.py     # 未送信 _pending/ の一括再送
+│   │   │   └── stations_db.py      # 既知局データベース読込・補完
+│   │   └── data/
+│   │       └── bcl_stations.yaml   # 既知局データベース（15 局初期登録）
 │   ├── lan-scanner/            # App 11 [本体 Wi-Fi / 有線 LAN]
 │   ├── tester/                 # App 13 [Grove I2C INA226]
 │   ├── qr-toolkit/             # App 14 [本体 IMX219 カメラ・標準版限定]
@@ -2664,6 +3163,10 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | M5Stack NCIR Unit (MLX90614 / App 15) — Switch Science | [switch-science.com/products/5220](https://www.switch-science.com/products/5220) |
 | M5Stack NCIR Unit 公式ドキュメント | [docs.m5stack.com/en/unit/ncir](https://docs.m5stack.com/en/unit/ncir) |
 | Melexis MLX90614 公式ページ・データシート | [melexis.com/en/product/MLX90614](https://www.melexis.com/en/product/MLX90614/Digital-Plug-Play-Infrared-Thermometer-TO-Can) |
+| UpNote x-callback-url エンドポイント仕様（App 10 BCL ログモード） | [help.getupnote.com/resources/x-callback-url-endpoints](https://help.getupnote.com/resources/x-callback-url-endpoints) |
+| x-callback-url 規格仕様 | [x-callback-url.com](http://x-callback-url.com/) |
+| NOAA SWPC 宇宙天気予測センター WWV 短波伝搬データ（App 10 BCL ログモードの SFI/K-index 取得元） | [services.swpc.noaa.gov/text/wwv.txt](https://services.swpc.noaa.gov/text/wwv.txt) |
+| NOAA SWPC ホームページ | [swpc.noaa.gov](https://www.swpc.noaa.gov/) |
 
 ---
 
@@ -2770,6 +3273,24 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [x] **[App 10]** V4 USB-C 専用ドライバ手順確定 (rtlsdrblog リポジトリ + DVB ブラックリスト)
 - [ ] **[App 10]** GQRX / SDR++ の RPi CM0 (BCM2837) でのパフォーマンス検証
 - [ ] **[App 10]** dump1090-fa の ARM 向けビルド確認
+
+#### BCL ログモード（App 10 / UpNote 連携）
+
+- [x] **[App 10 BCL]** UpNote Mac 版で `BCL_LogBook` ノートブック作成完了（2026-06-13、ただし `note/new` は名前指定の `notebook` パラメータを使用、`notebookId` は他アクション専用）
+- [x] **[App 10 BCL]** `text` パラメータの Markdown 解釈動作 検証済み（2026-06-13、`markdown=true` で正常レンダリング）
+- [x] **[App 10 BCL]** `tag` パラメータの URL 配置位置確定（2026-06-13、URL 末尾必須）
+- [x] **[App 10 BCL]** 連続投稿時の UpNote 確認ダイアログ確認（2026-06-13、ダイアログなしで連続投稿可能）
+- [x] **[App 10 BCL]** 既知局データベース `data/bcl_stations.yaml` 初期 15 局登録（2026-06-13）
+- [ ] **[App 10 BCL]** Mac Mini に CardputerZero から SSH 鍵認証 + `open` / `scp` 実行可能な設定
+- [ ] **[App 10 BCL]** `rtl_fm` → `lame`/`ffmpeg` での 60 秒 mp3 録音パイプライン確立
+- [ ] **[App 10 BCL]** 録音ファイルの scp 転送 → CZ 側自動削除のフロー実装
+- [ ] **[App 10 BCL]** NOAA SWPC `wwv.txt` のパース処理実装（正規表現で SFI/K/A 抽出 + JSON キャッシュ）
+- [ ] **[App 10 BCL]** アンテナプリセット選択 UI 実装（起動時のみ、`current_antenna` 記憶）
+- [ ] **[App 10 BCL]** App 01 GPS 連携で受信地点座標自動取得（連携 IPC 設計含む）
+- [ ] **[App 10 BCL]** QSL 状況プリセット切替 UI 実装（4 状態）
+- [ ] **[App 10 BCL]** 「内容」自由入力 UI 実装（46 キー、空欄も可）
+- [ ] **[App 10 BCL]** `_pending/` ディレクトリの一括再送スクリプトの設計（接続復帰検知の方法含む）
+- [ ] **[App 10 BCL]** 既知局 DB 拡充（受信実績に応じてユーザが追加するワークフロー）
 - [ ] **[2.6]** fcitx5-mozc + 46 キーレイアウトでの IME 切替動作検証
 - [ ] **[2.6]** LVGL アプリ内日本語入力の実装方針確定 (簡易ローマ字 / fcitx5 IPC / Mac 委譲のいずれか)
 
@@ -2889,6 +3410,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | **Phase 1** | KS 到着〜2週間 | ハードウェア検証 (§9.1)・Grove ピンアサイン確定・技適番号確認・czdev エミュレータ動作 | §9.1 ハードウェアチェックリストの 80% 消化 |
 | **Phase 2** | Phase 1 完了後〜1ヶ月 | App 01 (GPS ロガー) 実装 + 共通ドライバ `gnss_at6668` / `input_encoder` 確立 | App 01 が microSD に GPX 記録できる |
 | **Phase 3** | Phase 2 完了後〜1ヶ月 | App 10 (SDR 受信) 実装 + `setup_rtlsdr.sh` 完成 + 統合モニター UI | RTL-SDR V4 で FM ラジオ受信 + GQRX 表示 |
+| **Phase 3.5** | Phase 3 完了後〜2 週間 | App 10 BCL ログモード（UpNote 連携・1 受信 1 ノート・録音 scp 転送・SFI 自動取得）実装 | (a) UpNote x-callback-url で `BCL_LogBook` にリアルタイム投稿成功（タイトル + Markdown + #BCL タグ）、(b) 60 秒録音 → scp 転送 → CZ 側削除のフロー動作、(c) NOAA SWPC SFI/K-index 自動取得・キャッシュ動作、(d) アンテナプリセット選択 + 既知局 DB 自動補完動作、(e) オフライン保存→接続復帰時の自動同期動作 |
 | **Phase 4** | Phase 3 完了後〜2ヶ月 | App 02 (LoRa Meshtastic) + C6L ゲートウェイ連携 + bsaf-jma-bot MQTT publish 機能追加 (外部プロジェクト) | 自宅 C6L → 外出先 CardputerZero で Meshtastic メッセージ到達 |
 | **Phase 5** | Phase 4 完了後〜2ヶ月 | App 05 (BSAF 二系統受信) 実装 | Bluesky 投稿 → MQTT → LoRa → CardputerZero LCD 表示 |
 | **Phase 6** | Cap B 入手後 | App 03 / 04 (NFC / Sub-GHz) 実装 | nfcpy で自己所有 Suica の UID 読取 + rtl_433 で温湿度センサーデコード |
@@ -2914,7 +3436,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 
 | Phase 群 | カテゴリ | 法令要求事項 |
 | --- | --- | --- |
-| Phase 1.5 / 1.6 / 1.7 / 2 / 3 | 個人利用・受信専用・電子工作 | なし（合法） |
+| Phase 1.5 / 1.6 / 1.7 / 2 / 3 / 3.5 | 個人利用・受信専用・電子工作 | なし（合法） |
 | Phase 4 / 5 | LoRa 送信あり | 技適番号確認・出力 13dBm 以下制限 |
 | Phase 6 | NFC / Sub-GHz | 自己所有デバイス限定・通信傍受法に留意 |
 | Phase 7 | LAN スキャン | ISMS 規程・管理権限のあるネットワーク限定 |
