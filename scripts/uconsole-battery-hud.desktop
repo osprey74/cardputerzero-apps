@@ -2,7 +2,7 @@
 Type=Application
 Name=uConsole Battery HUD
 Comment=Accurate battery indicator HUD for uConsole (OCV-corrected)
-Exec=/usr/local/bin/uconsole_battery_hud
+Exec=/usr/local/bin/uconsole_battery_hud --position bottom-left
 Icon=battery
 Terminal=false
 Categories=System;Monitor;
