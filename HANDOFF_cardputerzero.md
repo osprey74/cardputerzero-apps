@@ -39,6 +39,7 @@
 | 2026-06-13 | **BCL ログモードの全仕様確定（運用方針 A〜⑤ 全パラメータ決定）**: 1 受信 1 ノート方式・案 ③（録音は Mac Mini に scp 転送して永続保存・CZ 側削除）・アンテナはプリセット選択方式・SFI は NOAA SWPC から 1 時間キャッシュ・App 01 GPS 連携で受信地点座標取得。Markdown テンプレート最終確定（機材 + 受信記録 + 録音ファイル Mac Mini パス記載）。既知局 DB 初期 15 局（日本短波・北海道中波・国際短波局）登録。UI フロー設計確定（ノブA でフロー進行、ノブB で SINPO 値） |
 | 2026-06-13 | **App 13 パターン 3 給電経路を EXT Pin 4/6 → PaHUB CH5 に変更**（総司様ご指摘より）。当初設計では EXT 2.54-14P の Pin 4 (GND) / Pin 6 (5V OUT) から端子台 C への給電を想定していたが、これらは Chain Encoder #1 の電源ピンとして占有されており物理的にバッティングするため、PaHUB v2.1 の空きチャネル CH5 から Grove ケーブル経由で 5V/GND を取り出す方式に変更。結線図ポンチ画・配線サマリー表・パターン 3 結線図・用途別端子台モジュール表を更新。§9.1 に「PaHUB の電源スルー配線確認」TODO を追加 |
 | 2026-06-13 | **PaHUB v2.1 の電源スルー配線を公式回路図で確認・確定**。[公式回路図 PNG](https://static-cdn.m5stack.com/resource/docs/products/unit/Unit-PaHub2.1/img-103440a9-d7e4-4aab-b784-825aa9b35614.png) を直接読解し、各 Grove 出力ポート J1〜J6 の VCC/GND が全 CH 共通バスとしてスルー配線されていること、入力 J7 の 5V がそのまま CH0〜CH5 の Pin 3 へ届くことを確認。HT7533 LDO で生成される 3.3V は PCA9548A 内部 + SDA/SCL プルアップ専用で Grove ポートには出力されない。§9.1 該当 TODO を ✅ 確認済みに移行。§8 に PaHUB 公式ドキュメント・回路図 PNG・PCA9548A データシート URL を追加。App 13 パターン 3 結線図の注記から「※要実機確認」を確定情報に格上げ |
+| 2026-06-17 | **App 10 BCL ログモードを ClockworkPi uConsole (CM4) で先行構築・実機 e2e 検証成功**。サブプロジェクト [`apps/sdr-receiver/bcl_log/`](apps/sdr-receiver/bcl_log/) を新設（Python 3.9 / `feat/app10-bcl-uconsole` ブランチ）。CardputerZero 実機到着前に UpNote x-callback-url 連携・Tailscale 経由 Mac Mini SSH ディスパッチ・既知局 DB 検索・`_pending/` キュー・Markdown 本文生成を機種非依存ロジックとして実装。Win 開発機 → uConsole (`100.85.21.75`) → Mac Mini (`100.108.134.69`) → UpNote.app への全経路 e2e ノート投稿に成功（タイトル / 本文 / タグ / ノートブック指定すべて期待通り）。実機検証で判明した不具合 1 件を修正: **リモート zsh が URL 内 `&` をシェル区切りとして解釈**するため、`upnote.dispatch()` で `shlex.quote()` によるリモートコマンド側エスケープを必須化。CZ 用 LVGL UI は実機到着後に同モジュールを共通コアとして再利用予定。録音 (rtl_fm) / NOAA SWPC / GPS 連携は uConsole 版では未実装（手動運用） |
 
 ---
 
@@ -3303,6 +3304,30 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 10 BCL]** 「内容」自由入力 UI 実装（46 キー、空欄も可）
 - [ ] **[App 10 BCL]** `_pending/` ディレクトリの一括再送スクリプトの設計（接続復帰検知の方法含む）
 - [ ] **[App 10 BCL]** 既知局 DB 拡充（受信実績に応じてユーザが追加するワークフロー）
+
+#### BCL ログモード uConsole 先行構築（`feat/app10-bcl-uconsole` / [`apps/sdr-receiver/bcl_log/`](apps/sdr-receiver/bcl_log/)）
+
+CardputerZero 実機到着前に ClockworkPi uConsole (CM4 / Debian 11 / Python 3.9.2) で
+ロジック層を先行構築・検証。Tailscale 上の uConsole (`100.85.21.75`) ↔ Mac Mini
+(`100.108.134.69`) 連携を確立。
+
+- [x] **[uConsole]** Win → uConsole の SSH 鍵認証設定（`~/.ssh/id_ed25519_uconsole` + `~/.ssh/config` の Host `uconsole`）
+- [x] **[uConsole]** uConsole → Mac Mini の SSH 鍵認証設定（`~/.ssh/id_ed25519_macmini`、`ssh-copy-id` 経由で登録）
+- [x] **[uConsole]** `bcl_log` パッケージ実装（`upnote.py` / `ssh_target.py` / `stations.py` / `markdown_template.py` / `pending.py` / `config.py` / `cli.py`）
+- [x] **[uConsole]** 既知局 YAML DB 初期 15 局のロード + 周波数近傍検索（3925 kHz でラジオ NIKKEI 第1 を抽出確認）
+- [x] **[uConsole]** Rich ベースのターミナル UI 実装（`new` / `resend` / `list` 3 サブコマンド）
+- [x] **[uConsole]** **e2e 実機テスト成功** (2026-06-17 11:33 JST) — Win → uConsole → Mac Mini → UpNote `BCL_LogBook` への自動ノート投稿。タイトル・本文・タグすべて期待通りレンダリング
+- [x] **[uConsole]** リモート zsh が URL 内 `&` をシェル区切りとして解釈する不具合を修正（`upnote.dispatch()` で `shlex.quote()` 必須化）
+- [x] **[uConsole]** `~/.config/cardputerzero/bcl_config.yaml` ローダー実装
+- [x] **[uConsole]** `_pending/` JSON キュー実装（`bcl_log resend` で一括再送）
+- [ ] **[uConsole]** GQRX 手動録音ファイルの scp 転送機能（現状は録音ファイル名を `bcl_log new` で手入力）
+- [ ] **[uConsole]** NOAA SWPC `wwv.txt` 取得・キャッシュ実装（現状は SFI/K-index 未記載）
+- [ ] **[uConsole]** App 01 GPS 連携（現状は `default_location` 固定）
+- [ ] **[uConsole]** 既知局未マッチ時の「新規局を DB に追加」ワークフロー
+
+> uConsole 版のロジックモジュール (`bcl_log/`) は機種非依存。CardputerZero 実機到着後は
+> `cli.py` を LVGL 版 UI に差し替え、`core/` 相当のモジュール群はそのまま再利用する想定。
+
 - [ ] **[2.6]** fcitx5-mozc + 46 キーレイアウトでの IME 切替動作検証
 - [ ] **[2.6]** LVGL アプリ内日本語入力の実装方針確定 (簡易ローマ字 / fcitx5 IPC / Mac 委譲のいずれか)
 
