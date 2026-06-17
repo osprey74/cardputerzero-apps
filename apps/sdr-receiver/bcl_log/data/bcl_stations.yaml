@@ -1,0 +1,119 @@
+# 既知局データベース (App 10 BCL ログモード)
+# 出典: HANDOFF_cardputerzero.md §3 App 10 BCL モード「既知局データベース」
+
+stations:
+  # ─── 日本国内（短波）───────────────────────────────
+  - name: ラジオ NIKKEI 第1
+    country: 日本
+    languages: [日本語]
+    transmitter_site: 千葉県長柄町
+    power_kw: 50
+    frequencies:
+      - { freq_khz: 3925, band: 75m, active_time: 夜間 }
+      - { freq_khz: 6055, band: 49m, active_time: 昼間 }
+    first_reception:
+      date: 2026-06-13
+      location: 札幌市
+      antenna: 15m ロングワイヤー
+      receiver: RTL-SDR Blog V4 + GQRX
+      upnote_link: upnote://x-callback-url/openNote?noteId=019ecfe3-f686-7612-93d0-3685b7e9057d
+      note: 総司様の BCL 趣味初日の特定局（記念すべき 1 局目）
+
+  - name: ラジオ NIKKEI 第2
+    country: 日本
+    languages: [日本語]
+    transmitter_site: 千葉県長柄町
+    power_kw: 50
+    frequencies:
+      - { freq_khz: 3945, band: 75m }
+      - { freq_khz: 6115, band: 49m }
+
+  - name: NHK ワールド・ラジオ日本
+    country: 日本
+    languages: [日本語, 英語, 多言語]
+    transmitter_site: 茨城県八俣
+    power_kw: 300
+    frequencies:
+      - { freq_khz: 5910,  band: 49m }
+      - { freq_khz: 6045,  band: 49m }
+      - { freq_khz: 9560,  band: 31m }
+      - { freq_khz: 11945, band: 25m }
+      - { freq_khz: 15445, band: 19m }
+
+  # ─── 北海道地区（中波）─────────────────────────────
+  - name: NHK 札幌 第1
+    country: 日本
+    languages: [日本語]
+    frequencies: [{ freq_khz: 567, band: 中波 }]
+  - name: NHK 札幌 第2
+    country: 日本
+    languages: [日本語]
+    frequencies: [{ freq_khz: 747, band: 中波 }]
+  - name: HBC ラジオ（北海道放送）
+    country: 日本
+    languages: [日本語]
+    frequencies: [{ freq_khz: 1287, band: 中波 }]
+  - name: STV ラジオ（札幌テレビ放送）
+    country: 日本
+    languages: [日本語]
+    frequencies: [{ freq_khz: 1440, band: 中波 }]
+
+  # ─── 国際短波局（アジア）──────────────────────────
+  - name: KBS World Radio
+    country: 韓国
+    languages: [日本語, 韓国語, 英語]
+    transmitter_site: 韓国・華城
+    frequencies:
+      - { freq_khz: 7235, band: 41m }
+      - { freq_khz: 9580, band: 31m }
+      - { freq_khz: 9745, band: 31m }
+  - name: 中国国際放送 (CRI)
+    country: 中国
+    languages: [日本語, 中国語, 多言語]
+    frequencies:
+      - { freq_khz: 7325,  band: 41m }
+      - { freq_khz: 9410,  band: 31m }
+      - { freq_khz: 11650, band: 25m }
+  - name: Radio Taiwan International
+    country: 台湾
+    languages: [日本語, 中国語, 英語]
+    frequencies:
+      - { freq_khz: 9740,  band: 31m }
+      - { freq_khz: 11550, band: 25m }
+  - name: 朝鮮の声 (Voice of Korea)
+    country: 北朝鮮
+    languages: [日本語, 朝鮮語, 多言語]
+    frequencies:
+      - { freq_khz: 7235,  band: 41m }
+      - { freq_khz: 9445,  band: 31m }
+      - { freq_khz: 11680, band: 25m }
+
+  # ─── 国際短波局（欧米）────────────────────────────
+  - name: BBC World Service
+    country: イギリス
+    languages: [英語]
+    frequencies:
+      - { freq_khz: 5970,  band: 49m }
+      - { freq_khz: 9410,  band: 31m }
+      - { freq_khz: 11945, band: 25m }
+      - { freq_khz: 15400, band: 19m }
+  - name: Voice of America (VOA)
+    country: アメリカ
+    languages: [英語, 多言語]
+    frequencies:
+      - { freq_khz: 7480,  band: 41m }
+      - { freq_khz: 9760,  band: 31m }
+      - { freq_khz: 15580, band: 19m }
+  - name: Radio Romania International
+    country: ルーマニア
+    languages: [日本語, 英語, ルーマニア語, 多言語]
+    transmitter_site: ルーマニア・ティギナ
+    frequencies:
+      - { freq_khz: 7330, band: 41m }
+      - { freq_khz: 9540, band: 31m }
+  - name: Radio Free Asia
+    country: アメリカ（対アジア向け）
+    languages: [中国語, 朝鮮語, ビルマ語等]
+    frequencies:
+      - { freq_khz: 9355,  band: 31m }
+      - { freq_khz: 11750, band: 25m }
