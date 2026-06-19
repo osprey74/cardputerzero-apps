@@ -1,0 +1,131 @@
+<svg width="100%" viewBox="0 0 720 760" role="img" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+<title>【第一推奨】CardputerZero + CoreS3 入力フロントエンド構成 (§1.6.1)</title>
+<desc>CoreS3 を I2C/UART ユニットのフロントエンドにして、USB CDC 経由で CardputerZero に値を流す第一推奨構成。CoreS3 Port A I2C には Hub Unit (U006) で 1→3 分岐し INA226 (App13) と MLX90614 (App15・NCIR) を同居させる (両者の I2C アドレスが衝突しないため受動分岐で十分・MUX 不要)。Port C UART には Chain Encoder ×2 をデイジーチェーン接続。Port B の Grove 5V/GND は App13 パターン 3 (導通チェック) の端子台 C 給電に流用する。CoreS3 は自己給電とし USB はデータ専用で給電競合を回避する。</desc>
+<style>
+text{fill:#2C2C2A}.th{font-size:13.5px;font-weight:500}.ts{font-size:11.5px;fill:#5F5E5A}.tn{font-size:10.5px;fill:#5F5E5A}
+.gray{fill:#F1EFE8;stroke:#5F5E5A}.gray .th{fill:#2C2C2A}
+.blue{fill:#E6F1FB;stroke:#185FA5}.blue .th{fill:#0C447C}.blue .ts{fill:#185FA5}.blue .tn{fill:#185FA5}
+.teal{fill:#E1F5EE;stroke:#0F6E56}.teal .th{fill:#085041}.teal .ts{fill:#0F6E56}
+.green{fill:#EAF3DE;stroke:#3B6D11}.green .th{fill:#27500A}.green .ts{fill:#3B6D11}
+.amber{fill:#FAEEDA;stroke:#854F0B}.amber .th{fill:#633806}.amber .ts{fill:#854F0B}
+.red{fill:#FCEBEB;stroke:#A32D2D}.red .th{fill:#791F1F}.red .ts{fill:#A32D2D}
+.banner{fill:#E1F5EE;stroke:#0F6E56}.banner .th{fill:#085041;font-weight:600}.banner .ts{fill:#0F6E56}
+.cores3{fill:#FFF8E3;stroke:#A07300}.cores3 .th{fill:#5A4200;font-weight:600}.cores3 .ts{fill:#7A5A00}
+</style>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="arrow-thick" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+
+<!-- 第一推奨 バナー -->
+<g class="banner">
+<rect x="40" y="14" width="640" height="40" rx="8" stroke-width="0.5"/>
+<text class="th" x="360" y="33" text-anchor="middle">【第一推奨】CoreS3 入力フロントエンド構成（§1.6.1・2026-06-19 確定）</text>
+<text class="ts" x="360" y="49" text-anchor="middle">代替/旧案・直結方式は cardputerzero_port_occupancy.svg を参照</text>
+</g>
+
+<text class="th" x="40" y="80">入力・計測デバイス → CoreS3 → USB CDC → CardputerZero</text>
+
+<!-- 入力ソース 3 グループ -->
+<!-- Port C UART: Chain Encoder ×2 -->
+<g class="blue">
+<rect x="40" y="92" width="200" height="146" rx="10" stroke-width="0.5"/>
+<text class="th" x="140" y="113" text-anchor="middle">Chain Encoder ×2</text>
+<text class="ts" x="140" y="131" text-anchor="middle">UART デイジーチェーン</text>
+<text class="tn" x="140" y="146" text-anchor="middle">→ CoreS3 Port C (青・G17/G18)</text>
+</g>
+<g class="blue">
+<rect x="58" y="156" width="164" height="32" rx="6" stroke-width="0.5"/>
+<text class="ts" x="140" y="176" text-anchor="middle">#1 粗調整ノブ</text>
+</g>
+<g class="blue">
+<rect x="58" y="196" width="164" height="32" rx="6" stroke-width="0.5"/>
+<text class="ts" x="140" y="216" text-anchor="middle">#2 微調整ノブ</text>
+</g>
+
+<!-- Port A I2C: Hub Unit + sensors -->
+<g class="red">
+<rect x="260" y="92" width="200" height="146" rx="10" stroke-width="0.5"/>
+<text class="th" x="360" y="113" text-anchor="middle">Hub Unit (U006)</text>
+<text class="ts" x="360" y="131" text-anchor="middle">受動 1→3 Grove 分岐</text>
+<text class="tn" x="360" y="146" text-anchor="middle">→ CoreS3 Port A (赤・G1/G2 I2C)</text>
+</g>
+<g class="green">
+<rect x="278" y="156" width="164" height="24" rx="6" stroke-width="0.5"/>
+<text class="ts" x="360" y="173" text-anchor="middle">INA226-10A (0x40 帯・App13)</text>
+</g>
+<g class="green">
+<rect x="278" y="184" width="164" height="24" rx="6" stroke-width="0.5"/>
+<text class="ts" x="360" y="201" text-anchor="middle">MLX90614/NCIR (0x5A・App15)</text>
+</g>
+<g class="gray">
+<rect x="278" y="212" width="164" height="22" rx="6" stroke-width="0.5"/>
+<text class="ts" x="360" y="228" text-anchor="middle">予備 (将来 I2C 増設枠)</text>
+</g>
+
+<!-- Port B GPIO/5V: 端子台 C 給電 -->
+<g class="gray">
+<rect x="480" y="92" width="200" height="146" rx="10" stroke-width="0.5"/>
+<text class="th" x="580" y="113" text-anchor="middle">App13 端子台 C</text>
+<text class="ts" x="580" y="131" text-anchor="middle">パターン 3 導通チェック給電</text>
+<text class="tn" x="580" y="146" text-anchor="middle">→ CoreS3 Port B (黒・5V/GND ライン)</text>
+</g>
+<g class="green">
+<rect x="498" y="160" width="164" height="32" rx="6" stroke-width="0.5"/>
+<text class="ts" x="580" y="180" text-anchor="middle">5V/GND (Grove 電源ライン)</text>
+</g>
+<g class="amber">
+<rect x="498" y="200" width="164" height="32" rx="6" stroke-width="0.5"/>
+<text class="ts" x="580" y="220" text-anchor="middle">1kΩ → DUT PIN1</text>
+</g>
+
+<!-- 矢印 3 本 → CoreS3 -->
+<line x1="140" y1="240" x2="140" y2="264" stroke="#185FA5" stroke-width="1.8" marker-end="url(#arrow-thick)"/>
+<line x1="360" y1="240" x2="360" y2="264" stroke="#A32D2D" stroke-width="1.8" marker-end="url(#arrow-thick)"/>
+<line x1="580" y1="240" x2="580" y2="264" stroke="#5F5E5A" stroke-width="1.8" marker-end="url(#arrow-thick)"/>
+
+<!-- CoreS3 -->
+<g class="cores3">
+<rect x="40" y="266" width="640" height="148" rx="14" stroke-width="0.6"/>
+<text class="th" x="360" y="290" text-anchor="middle">M5Stack CoreS3 (ESP32-S3 + 2-inch Touch LCD + AXP2101)</text>
+<text class="ts" x="360" y="312" text-anchor="middle">・Port A: INA226 と MLX90614 を同一 I2C ループで読取（アドレス衝突なし）</text>
+<text class="ts" x="360" y="332" text-anchor="middle">・Port C: Chain Encoder ×2 を UART デイジーチェーンで読取</text>
+<text class="ts" x="360" y="352" text-anchor="middle">・Port B: Grove 電源ライン (5V/GND) を端子台 C へスルー供給</text>
+<text class="ts" x="360" y="372" text-anchor="middle">・全値を JSON 整形し USB CDC へ送信 + タッチ液晶にリアルタイム表示</text>
+<text class="ts" x="360" y="392" text-anchor="middle">・自己給電（内蔵バッテリ + モバイルバッテリ）— USB はデータ専用</text>
+</g>
+
+<!-- USB CDC 矢印 -->
+<line x1="360" y1="414" x2="360" y2="446" stroke="#A07300" stroke-width="2.2" marker-end="url(#arrow-thick)"/>
+<text class="tn" x="372" y="434" fill="#5A4200">USB-C (CDC・データ専用)</text>
+
+<!-- CardputerZero -->
+<g class="gray">
+<rect x="40" y="448" width="640" height="138" rx="14" stroke-width="0.5"/>
+<text class="th" x="360" y="472" text-anchor="middle">CardputerZero (USB-A Host モード固定)</text>
+<text class="ts" x="360" y="494" text-anchor="middle">・/dev/ttyACM* で JSON 受信 (pyserial)</text>
+<text class="ts" x="360" y="514" text-anchor="middle">・shared/cores3_bridge/ がパースし shared/input_encoder/ / shared/ina226/ / shared/mlx90614/ に分配</text>
+<text class="ts" x="360" y="534" text-anchor="middle">・Cap (LoRa-1262 / CC1101) 装着可 — EXT/Grove を一切消費しない</text>
+<text class="ts" x="360" y="558" text-anchor="middle">・App01 / 10 / 11 / 13 / 15 すべてが同じ入力系を共有</text>
+</g>
+
+<!-- 注釈 1: 電源分離 -->
+<g class="amber">
+<rect x="40" y="608" width="640" height="42" rx="8" stroke-width="0.5"/>
+<text class="ts" x="58" y="628">電源分離: CoreS3 自己給電 + USB データ専用 → CardputerZero 側の給電競合</text>
+<text class="ts" x="58" y="644">(USBC_R / EXT_5VIN 同時禁止・USBA+USBC_L 1A 制限) を完全回避</text>
+</g>
+
+<!-- 注釈 2: I2C アドレス -->
+<g class="blue">
+<rect x="40" y="660" width="640" height="42" rx="8" stroke-width="0.5"/>
+<text class="ts" x="58" y="680">I2C アドレス: INA226 (0x40-0x4F 帯) と MLX90614 (0x5A) は衝突しないため、</text>
+<text class="ts" x="58" y="696">受動分岐 Hub Unit (U006) で十分・PaHUB のような MUX は不要</text>
+</g>
+
+<!-- 注釈 3: Cap 併用 -->
+<g class="teal">
+<rect x="40" y="712" width="640" height="38" rx="8" stroke-width="0.5"/>
+<text class="ts" x="58" y="736">Cap 併用: CardputerZero の EXT 2.54-14P (Cap-Bus) は本構成では空き状態のため、Cap LoRa-1262 / CC1101 を装着したまま全入力系が機能する</text>
+</g>
+</svg>

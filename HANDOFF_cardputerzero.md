@@ -238,15 +238,16 @@ App 10（SDR 受信機）の周波数選択、その他 LCD 上での一覧ス�
 2. **Chain Encoder は UART デバイス**（STM32G031・UART デイジーチェーン）。直結方式での接続経路は EXT 2.54-14P の Pin 12/14（G14/G15 UART）一択。
 3. **第一の判断軸は「I2C の有無」ではなく「Cap を装着するか否か」**。Cap 装着時点で UART 系（Chain Encoder）はどの経路でも使えなくなる（直結方式の場合。CoreS3 経由ならこの制約は無い）。
 
-#### 運用方針マトリクス（確定版）
+#### 運用方針マトリクス（確定版・2026-06-19 改訂）
 
-| アプリ分類 | EXT(UART) の状態 | 採用する UI 入力デバイス | バックエンド |
-|-----------|------------------|--------------------------|--------------|
-| **テスター（App13）** | 空き（Cap 非装着） | **Unit Scroll（I2C 0x40）** | PaHUB I2C（INA226 と同居） |
-| **Cap 非装着アプリ（App10 SDR / App11 LAN Scanner）** | 空き | **Chain Encoder ×2（EXT UART）** ※ I2C エンコーダも選択可 | EXT 2.54-14P UART |
-| **Cap 使用アプリ（App01-05 / 08 / 09）** | Cap が専有 | **Unit Encoder / Unit Scroll（I2C）** または **キーボード** | PaHUB I2C ／ 内蔵キーボード |
+| アプリ分類 | 第一推奨 (CoreS3 経由) | 代替 (直結方式) |
+|-----------|------------------------|-----------------|
+| **テスター（App13）** | **Chain Encoder ×2**（CoreS3 Port C UART → USB CDC・§1.6.1） | EXT 2.54-14P UART 直結（Cap 非装着時のみ・要 HY2.0 変換ハーネス） |
+| **Cap 非装着アプリ（App10 SDR / App11 LAN Scanner）** | **Chain Encoder ×2**（CoreS3 Port C UART → USB CDC） | EXT 2.54-14P UART 直結 |
+| **Cap 使用アプリ（App01-05 / 08 / 09）** | **Chain Encoder ×2**（CoreS3 Port C UART → USB CDC） | **キーボード**（Cap が EXT UART を専有するため直結方式での Chain Encoder 不可） |
 
-> 📌 **使い分けの意図**: テスターは据置で「値送り」操作 → ホイール型 Scroll Unit が馴染む。SDR 等は手持ちで「連続掃引」 → 無限回転ノブの Chain Encoder（または Unit Encoder）が馴染む。これは物理的強制ではなく**用途特性に沿った設計ポリシー**。
+> 📌 **方針の整理（2026-06-19）**: CoreS3 をフロントエンドにすれば Cap 装着の有無に関わらず Chain Encoder ×2 が全アプリで素直に使えるため、**全アプリ共通の標準入力デバイスを Chain Encoder ×2 (CoreS3 経由) に統一**する。
+> 当初検討していた **Scroll Unit ×2 (PaHUB CH1/CH2 分離) 構成** は、CoreS3 経由方式の採用により Cap 装着時の制約が無くなったため不要となり、不採用とした（経緯は本節末尾「検討したが不採用」表に追記）。
 
 #### ポート占有図 + PaHUB チャネル割当
 
@@ -256,14 +257,15 @@ App 10（SDR 受信機）の周波数選択、その他 LCD 上での一覧ス�
 
 | CH | 割当 | 用途 |
 |----|------|------|
-| CH0 | INA226-10A（要実機アドレス確認） | 電流/電圧測定（App13 テスター） |
-| CH1 | Unit Scroll（0x40） | テスター UI・値送りホイール |
-| CH2 | Unit Encoder（0x40） | Cap 使用アプリの多ノブ UI |
+| CH0 | INA226-10A（要実機アドレス確認） | 電流/電圧測定（App13 テスター・直結方式時のみ） |
+| CH1 | MLX90614（NCIR・0x5A） | 非接触温度測定（App15・直結方式時のみ） |
+| CH2 | 予備 | 将来 I2C センサ拡張 |
 | CH3 | 予備 | 将来 I2C センサ拡張 |
-| CH4 | 予備 | NCIR 等の増設枠 |
-| CH5 | 5V/GND 給電 | App13 パターン3 給電取出し |
+| CH4 | 予備 | 将来 I2C センサ拡張 |
+| CH5 | 5V/GND 給電 | App13 パターン3 給電取出し（直結方式時のみ） |
 
-> ⚠️ Scroll Unit と Unit Encoder はともに **0x40 固定**。同時使用時は上表のとおり **PaHUB の別チャネル（CH1 と CH2）に分離**すること。
+> ℹ️ **PaHUB の位置づけ（2026-06-19 更新）**: 上記割当は **直結方式（代替/旧案）** 専用。第一推奨の **CoreS3 経由方式**では、INA226 と MLX90614 を CoreS3 Port A の I2C バスに **Hub Unit (U006)** で 1→3 分岐して同居させるため PaHUB は不要（両者の I2C アドレスが 0x40-0x4F と 0x5A で衝突しないため MUX が不要・§1.6.1 参照）。
+> 旧 CH1/CH2 への Scroll Unit 割当（粗・微 2 ノブ構成）は CoreS3 経由 Chain Encoder ×2 に置換され不採用となった。
 
 #### Cap 使用アプリで多ノブ操作を実現する代替策（優先度順）
 
@@ -284,34 +286,6 @@ App 10（SDR 受信機）の周波数選択、その他 LCD 上での一覧ス�
 | Unit ExtEncoder | U161 | 0x59 | 外部エンコーダ依存（AB/ABZ） | 可 | 高級エンコーダを自前接続 |
 
 > ⚠️ **アドレス衝突注意**: Unit Encoder と Unit Scroll はともに **0x40 固定**。同時使用や同一バス上の他 0x40 機器がある場合は、必ず **PaHUB の別チャネル**に分離する。複数同時運用なら 8Encoder(0x41)/ExtEncoder(0x59) が無難。INA226-10A の実アドレスは実機 `i2cdetect` で要確認。
-
-> 📍 **Scroll Unit ×2 構成時の制限**: Scroll Unit を 2 個使う場合、両者とも **I2C アドレス 0x40 固定（変更不可）**のため、同一バスに直結すると衝突する。**PaHUB の別チャネルに 1 個ずつ分離**すること（例: CH1=Scroll #1 / CH2=Scroll #2）。CH0(INA226)・CH5(給電) を除く実用枠は CH1〜CH4 の 4 チャネルなので、0x40 系ユニットは最大 4 個まで分離可能。アドレスを変えて省配線にしたい場合は、プログラマブルな **Unit 8Encoder(0x41) / Unit ExtEncoder(0x59)** の採用も検討する。
-
-##### Scroll Unit の分解能に関する留意点
-
-Scroll Unit は **12 パルス/回転（1 ステップ ≒ 30 度）** で、Unit Encoder（30 ポジション）や無限回転の Chain Encoder より粗い。
-
-- **課題が出にくい用途**: メニュー/リスト送り、項目選択、段階的なレベル/ズーム調整（公式想定用途）。テスター(App13)の値送りや一覧操作には十分。
-- **課題が出やすい用途**: SDR(App10) の周波数微調整など連続的な細かい制御。1 ステップの増分が大きいと「粗い／届かない」のジレンマが生じやすい。
-- **緩和策**: ①回転加速（速回しで増分拡大）②内蔵ボタンによる調整桁切替（MHz↔kHz↔Hz）③**複数ノブの役割分担**④モード切替トグル。
-- ⚠️ AB 二相のデコード逓倍（×2/×4）で実効分解能を上げられる可能性があるが、内蔵 STM32F030 ファームが返す値が公称 12 か逓倍後かは**実機・API 要確認**。
-
-##### Scroll Unit ×2 による粗・微 2 ノブ構成（採用方針）
-
-分解能の粗さを「粗調整ノブ＋微調整ノブ」の役割分担で吸収する。当初の Chain Encoder ×2 構想を I2C 接続の Scroll Unit で実現するもので、Cap 使用/非使用を問わず PaHUB 経由で一貫して使える。
-
-| | 左: ノブ A | 右: ノブ B |
-|---|---|---|
-| PaHUB チャネル | CH1（0x40） | CH2（0x40） |
-| 役割 | 粗調整（例: MHz 桁） | 微調整（例: kHz 桁） |
-| 内蔵ボタン | 桁送り/モード切替 | 確定/ミュート 等 |
-
-実装上のポイント:
-
-- **左右の識別は PaHUB チャネルで行う**。同じ 0x40 でもホストが MUX を CH1/CH2 に切り替えて読むため区別可能。`shared/input_encoder/` に「チャネル番号 → ノブ役割」のマッピングを持たせる。
-- **ポーリング順序**: CH1 選択 → ノブ A 読取 → CH2 選択 → ノブ B 読取 を 1 ループで回す（チャネル切替は I2C 1 バイト書込みで軽量）。
-- **物理配置（左右）とチャネル番号の対応は配線時に固定**し、ドライバ設定と一致させる（左右逆挿しで操作が入れ替わる）。
-- 役割分担で粗・微を分けるため**回転加速は任意**。入れればさらに快適。
 
 **【推奨②・要検証】Cap LoRa-1262 の Grove(G8/G9 I2C) を活用**
 
@@ -343,6 +317,7 @@ CardputerZero 内蔵の 46 キーマトリクスキーボードで周波数調�
 |------|------|-----------|
 | Grove Converter (U208) | 2→1 受動結合 + USB 給電 | 信号パススルーのみ。USB-UART 変換機能なし。9.8mm 間隔制約あり |
 | USB TypeC2Grove | USB→5V 給電のみ | データ通信不可。給電補助にしか使えない |
+| Scroll Unit ×2 構成（PaHUB CH1/CH2 分離） | I2C 0x40 ホイール ×2 を粗・微 2 ノブとして使う | CoreS3 経由 Chain Encoder ×2（§1.6.1）が第一推奨に格上げされ、Cap 装着時の制約が解消したため不要となった（2026-06-19 撤回）。直結方式時のフォールバックとしても CoreS3 不使用なら Chain Encoder ×2 を EXT 直結すれば足りる |
 | Grove T (U039-B) | 1→2 受動 Y 分岐 | 新規通信経路を作らない。同一信号を分けるだけ |
 | PaHUB v2.1 | I2C 1→6ch MUX | （これは採用。ただし I2C アドレス衝突回避用であり UART 増設はできない） |
 
@@ -431,6 +406,8 @@ CoreS3 に以下のユニットを接続し、CardputerZero へ USB 経由で値
 > 💡 **Port B の 5V 活用**: M5Stack の Grove は全ポート共通で 4 線のうち 1 本が **5V**、1 本が GND（公式マニュアルで CoreS3 の Port A/B/C が GND/5V/GPIO 結線と確認済み）。Port B のデータピン（G8/G9）を使わず、**電源ライン（5V/GND）だけを App13 の導通チェック（端子台 C）給電に流用できる**。これにより従来の「PaHUB CH5 から 5V 取得」（直結方式の名残）が不要になり、App13 が CoreS3 だけで完結する。
 
 **全体構成図**
+
+![CoreS3 入力フロントエンド構成（第一推奨）](./assets/cardputerzero_cores3_frontend.svg)
 
 ```
 [INA226 ±10A]──I2C──┐
@@ -3044,15 +3021,25 @@ HDMI 接続時は 1080p で詳細描画（osprey74 ウェブ版に近い情報�
 **必要ハードウェア**:
 
 - [M5Stack 非接触温度センサユニット (NCIR / MLX90614)](https://www.switch-science.com/products/5220) — Grove HY2.0-4P 接続
-- [PaHUB v2.1](https://www.switch-science.com/products/10192) — App 13 と共有（CH1 を本アプリに割当）
+- **第一推奨**: [M5Stack Hub Unit (U006)](https://www.switch-science.com/products/5696) — CoreS3 Port A I2C を 1→3 受動分岐し、INA226 (App13) と同居させる
+- 代替: [PaHUB v2.1](https://www.switch-science.com/products/10192) — App 13 と共有（CH1 を本アプリに割当・**直結方式時のみ**）
 
 #### 概要
 
 Melexis **MLX90614** を搭載した M5Stack NCIR ユニットを使い、対象物の表面温度を
 非接触で測定する簡易温度計アプリ。**業務用機材の発熱点検・PC/GPU サーマルチェック・
-料理補助** を主な用途とする。App 13 (テスター) で予定している PaHUB v2.1 の
-**CH1** に挿すだけで I2C バスを共有でき、ハードウェア追加負担はセンサーユニット
-本体のみ。
+料理補助** を主な用途とする。
+
+**接続方式（2026-06-19 更新）**:
+
+- **第一推奨: CoreS3 Port A I2C 同居方式**（§1.6.1）。MLX90614 (I2C 0x5A) と
+  App13 の INA226 (I2C 0x40-0x4F 帯) は**アドレスが衝突しない**ため、CoreS3 Port A
+  の I2C バスに **Hub Unit (U006・受動 1→3 分岐)** を介して同居させられる。
+  PaHUB のような MUX は不要。CoreS3 が両センサを同一ループで読み取り、JSON にして
+  USB CDC で CardputerZero に流す。
+- **代替: PaHUB v2.1 経由方式**（直結方式時）。CoreS3 を使わない最小構成では、
+  PaHUB v2.1 の CH1 に NCIR を挿し、CH0 の INA226 と MUX で分離して使う。
+  ハードウェア追加負担はセンサーユニット本体のみ。
 
 #### 想定ユースケース（採用機能）
 
@@ -3113,16 +3100,34 @@ Melexis **MLX90614** を搭載した M5Stack NCIR ユニットを使い、対象
 
 | レイヤー | 採用技術 |
 | --- | --- |
-| I2C ドライバ | Linux `i2c-dev` (`/dev/i2c-1`) |
-| Python 側 | `smbus2` + 自作 MLX90614 レジスタアクセス（`0x07` = T_obj, `0x06` = T_amb） |
-| Rust 側 | `mlx9061x` crate (`embedded-hal` 経由) |
-| PaHUB 制御 | `shared/pahub/` 共通ドライバ（CH1 enable） |
+| 第一推奨: 入力経路 | **CoreS3 経由（USB CDC・JSON）** `shared/cores3_bridge/` で受信。CoreS3 側で I2C 読取・整形 |
+| 代替: 入力経路 | Linux `i2c-dev` (`/dev/i2c-1`) + `smbus2` で PaHUB v2.1 CH1 enable → MLX90614 直読 |
+| Rust 側 (代替経路) | `mlx9061x` crate (`embedded-hal` 経由) |
+| PaHUB 制御 (代替経路) | `shared/pahub/` 共通ドライバ（CH1 enable・直結方式時のみ） |
 | UI フレームワーク | LVGL (czdev) |
 | ログ形式 | CSV (`timestamp_ms, t_obj_c, t_amb_c, preset_name`) |
 | ストレージ | `/mnt/sdcard/ncir_logs/` |
 
+##### 第一推奨経路（CoreS3 → USB CDC）
+
+CoreS3 側 ESP32-S3 が Port A の I2C バス（Hub Unit 経由で INA226 と同居）から MLX90614 を読み、JSON 化して USB CDC で CardputerZero に流す。CardputerZero 側は `pyserial` で `/dev/ttyACM*` を開いてパースするだけ。MUX 制御コードは不要。
+
+```c
+// CoreS3 側 (Arduino / M5Unified) 抜粋
+Wire.begin(1, 2);  // Port A: SDA=G1 / SCL=G2
+// INA226 (0x40-0x4F 帯) と MLX90614 (0x5A) はアドレス衝突しないため
+// Hub Unit (U006) で 1→3 受動分岐して同居読取可能
+uint16_t raw = readWord(MLX_ADDR, REG_T_OBJ);
+float t_obj_c = raw * 0.02f - 273.15f;
+Serial.printf("{\"ncir\":{\"t_obj\":%.2f}}\n", t_obj_c);
+```
+
+##### 代替経路（CardputerZero 直結・PaHUB v2.1 CH1）
+
+CoreS3 を使わない最小構成での参考実装。`shared/pahub/` で CH1 を enable してから MLX90614 を読む。
+
 ```python
-# Python サンプル (smbus2 経由・PaHUB CH1 enable 想定)
+# Python サンプル (smbus2 経由・PaHUB CH1 enable 想定・直結方式時のみ)
 import smbus2
 
 I2C_BUS = 1
@@ -3171,11 +3176,10 @@ print(f"Object: {t_obj_c:.2f}℃")
 
 #### エコシステム連携
 
-- **App 13 (`tester`)**: PaHUB v2.1 を共有（CH0=INA226 / CH1=MLX90614）。
-  電圧/電流測定と温度測定を同時表示する **「電子工作モニタ」モード** の将来統合候補
-- **`shared/pahub/`**: App 13 と共通の I2C MUX 制御ドライバ
-- **`shared/mlx90614/`**: 本アプリ用 MLX90614 ドライバ（将来 App 06 Edge AI の
-  サーマル推論など、他アプリでの転用余地）
+- **App 13 (`tester`)**: 第一推奨経路では **CoreS3 Port A I2C バスを共有**（Hub Unit U006 で 1→3 受動分岐し INA226 と同居・MUX 不要）。電圧/電流/温度を CoreS3 が同一ループで読取り JSON 化、CardputerZero 側は USB CDC から両者を同時受信できるため、**「電子工作モニタ」モード** の統合実装が容易。代替（直結方式）時のみ PaHUB v2.1 CH0=INA226 / CH1=MLX90614 で共有
+- **`shared/cores3_bridge/`**: 第一推奨経路の USB CDC / JSON 受信ドライバ（App 13 / App 15 共通）
+- **`shared/pahub/`**: 代替経路（直結方式）の I2C MUX 制御ドライバ（App 13 と共通）
+- **`shared/mlx90614/`**: 本アプリ用 MLX90614 ドライバ（2 バックエンド: CoreS3 経由 = JSON フィールド読取 / PaHUB 直結 = `smbus2` + `pahub` CH1 enable）。将来 App 06 Edge AI のサーマル推論など、他アプリでの転用余地
 
 #### ⚠️ 法的・倫理的注意事項
 
@@ -3262,7 +3266,7 @@ osprey74/cardputerzero-apps/
 │   ├── lan-scanner/            # App 11 [本体 Wi-Fi / 有線 LAN]
 │   ├── tester/                 # App 13 [Grove I2C INA226]
 │   ├── qr-toolkit/             # App 14 [本体 IMX219 カメラ・標準版限定]
-│   └── ncir-thermometer/       # App 15 [Grove I2C MLX90614 / PaHUB CH1]
+│   └── ncir-thermometer/       # App 15 [第一推奨=CoreS3 Port A I2C (Hub Unit U006 経由・INA226 同居) / 代替=PaHUB CH1 直結]
 ├── shared/
 │   ├── lora_sx1262/            # SX1262 共通ドライバ [Cap A]
 │   ├── gnss_at6668/            # AT6668 共通ドライバ [Cap A]
@@ -3273,7 +3277,7 @@ osprey74/cardputerzero-apps/
 │   ├── cores3_bridge/          # CoreS3 フロントエンド連携ドライバ (USB CDC / JSON 受信・パース)。input_encoder/ina226 のバックエンドとして使用
 │   ├── pahub/                  # PCA9548A I2C MUX 共通ドライバ (PaHUB v2.1)。直結方式の場合のみ使用
 │   ├── camera_imx219/          # IMX219 共通カメラドライバ [picamera2 ラッパー]
-│   ├── mlx90614/               # MLX90614 共通ドライバ [Grove I2C / PaHUB CH1]（直結方式）
+│   ├── mlx90614/               # MLX90614 共通ドライバ。第一推奨=CoreS3 経由 (USB CDC JSON フィールド) / 代替=Grove I2C + PaHUB CH1 直結。バックエンド切替式
 │   └── ui_theme/               # 共通 UI テーマ (osprey74 カラー)
 └── scripts/
     ├── setup_device.sh         # デバイス初期セットアップ
@@ -3582,11 +3586,13 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 #### I2C センサ拡張（App 15）
 
 - [ ] **[App 15]** M5Stack NCIR Unit (MLX90614) を Switch Science で発注（在庫確認済み・¥3,729）
-- [ ] **[App 15]** PaHUB v2.1 CH1 への配線確定（CH0 = INA226 と並列運用）
+- [ ] **[App 15・第一推奨]** Hub Unit (U006) を Switch Science で発注（CoreS3 Port A I2C 1→3 分岐用・¥528）。INA226 と MLX90614 を Port A I2C バスに同居させる物理結線確定
+- [ ] **[App 15・第一推奨]** CoreS3 側 ESP32-S3 スケッチで MLX90614 (0x5A) を I2C 読取し T_obj / T_amb を JSON フィールドに含めて USB CDC 送信する実装。INA226 同居読取と同一ループで処理
+- [ ] **[App 15・第一推奨]** CardputerZero 側 `shared/mlx90614/` の CoreS3 経由バックエンド実装（USB CDC JSON から `t_obj` / `t_amb` フィールド抽出）
+- [ ] **[App 15・代替]** Python `smbus2` ベースで T_obj / T_amb 読み出し PoC（PaHUB CH1 enable → MLX90614 0x07/0x06 読出・直結方式時のみ）
+- [ ] **[App 15・代替]** PaHUB CH0 (INA226) + CH1 (MLX90614) の同時 enable 運用確認（アドレス衝突なしのため成立するはず・直結方式時のみ）
 - [ ] **[App 15]** MLX90614 の実機 I2C アドレス確認（デフォルト 0x5A・実機での確認要）
-- [ ] **[App 15]** Python `smbus2` ベースで T_obj / T_amb 読み出し PoC（PaHUB CH1 enable → MLX90614 0x07/0x06 読出）
 - [ ] **[App 15]** Rust `mlx9061x` crate の `linux-embedded-hal` 対応確認 / 非対応の場合は自作レジスタ操作 or Python に切替
-- [ ] **[App 15]** PaHUB CH0 (INA226) + CH1 (MLX90614) の同時 enable 運用確認（アドレス衝突なしのため成立するはず）
 - [ ] **[App 15]** プリセット温度の妥当性確認（CPU/GPU 警告閾値 / 料理温度の実用範囲）
 - [ ] **[App 15]** UI 上の「医療用ではない」注意表記の常時表示位置確定（LCD 上端 or プリセット切替時のガイダンス）
 
@@ -3596,9 +3602,8 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
   - 🔴 **Cap（A/B）装着時はこの UART が Cap に占有されるため Chain Encoder は併用不可**（§1.5）
   - Chain Encoder が使えるのは **Cap 非装着アプリ（App10 / App11 / App13）のみ**
   - HY2.0-4P → 2.54mm ピンソケット変換ハーネスの製作要件確定
-- [x] **[I2C エンコーダ採用方針確定]**（2026-06-19）Cap 使用アプリの多ノブ UI は **I2C エンコーダ（Unit Encoder 0x40 / Unit 8Encoder 0x41 / Unit Scroll 0x40 / Unit ExtEncoder 0x59）を PaHUB 経由で接続**する方針に決定。I2C は Cap の UART/SPI と独立のため Cap 併用可。詳細は §1.5
-- [ ] **[I2C・最優先]** Unit Scroll / Unit Encoder（ともに 0x40 固定）を PaHUB の別チャネルに割り当て、INA226-10A と同一バス上で衝突なく読めるか実機 `i2cdetect` で検証。INA226-10A の実 I2C アドレスを併せて確定
-- [ ] **[I2C]** テスター(App13)で Unit Scroll を UI とする実装の PoC（PaHUB チャネル割当例: CH0=INA226 / CH1=Scroll Unit / CH2-4=予備）
+- [x] **[I2C エンコーダ採用方針 (撤回 2026-06-19)]** 当初は Cap 使用アプリの多ノブ UI を I2C エンコーダ（Unit Encoder/Scroll/ExtEncoder）+ PaHUB 構成とする方針だったが、**CoreS3 経由 Chain Encoder ×2 の第一推奨化（§1.6.1）により撤回**。直結方式（CoreS3 不使用）でも、Cap 使用アプリではキーボード操作にフォールバックする方針に変更
+- [ ] **[I2C・直結方式時のみ]** INA226-10A（CH0）と MLX90614/NCIR（CH1）の同一 PaHUB バス上での衝突有無を実機 `i2cdetect` で確認。INA226-10A の実 I2C アドレスも併せて確定（CoreS3 経由方式では PaHUB を使わないため本 TODO は直結フォールバック運用時にのみ実施）
 - [ ] **[Cap-Grove・要検証]** [Cap LoRa-1262](https://docs.m5stack.com/en/cap/Cap_LoRa-1262) の **HY2.0-4P（G8/G9 I2C・PI4IOE5V6408 用）** が CardputerZero（CM0 機）で独立 I2C として機能するか実機検証。機能すれば Cap 装着のまま Cap 上 Grove に I2C エンコーダを直結できる。⚠️ 公式ピンマップは Cardputer-Adv 用のため動作保証なし。PI4IOE5V6408 のアドレスとエンコーダ 0x40 の衝突有無も確認
 - [ ] **[Cap-Grove]** [Cap CC1101](https://docs.m5stack.com/en/cap/Cap_CC1101) の Grove インターフェースの I2C ピンアサインを M5Stack 公式へ問い合わせ（ドキュメント非公開）
 - [x] **[回路図確定 2026-06-19]** CardputerZero 回路図 P08 を読解し、**Grove(I2C/UART) と EXT(Cap-Bus) は同一の I2C1(G2/G3)・UART(G14/G15) を共有**することを確定。`GROVE_SW` は L=UART / H=I2C1 のモード切替。→ Cap 装着時は UART も I2C1 も Cap 経由の同一バスとなる
@@ -3614,7 +3619,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
   - 公式 Arduino ライブラリのソースを参照し、Linux Python からアクセス可能な実装を確定
   - HANDOFF §3 App10「Python 読み取りサンプル」のコマンド仕様（0xAA55... 8byte）は**仮**のため要更新
 - [ ] **[App 10]** Chain Encoder × 2 連結時のアドレス割り当て・識別ロジックの検証
-- [ ] **[共通]** `shared/input_encoder/` の抽象 API が **UART バックエンド（Chain Encoder）と I2C バックエンド（Unit Encoder 系）の両方**を切り替えられる設計になっているか早期検証（App 10=Chain Encoder / App 13=Scroll Unit で PoC）
+- [ ] **[共通]** `shared/input_encoder/` の抽象 API が **CoreS3 経由バックエンド（USB CDC / JSON）と EXT UART 直結バックエンド（Chain Encoder）の両方**を切り替えられる設計になっているか早期検証（第一推奨= CoreS3 経由・App10/App13/App15 共通 / 代替= EXT UART 直結・Cap 非装着アプリのみ）
 
 ### 9.2 ソフトウェア・ツールチェーン検証
 
@@ -3684,6 +3689,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
   - 抽象 API: `capture_frame()` / `start_preview(callback)` / `stop_preview()` / `set_resolution(w, h)`
   - LVGL Canvas への直接描画パスと、numpy ndarray 取得パスの両方をサポート
 - [ ] `shared/mlx90614/` 共通ドライバの API 設計（App 15 で使用、将来 App 06 Edge AI のサーマル推論などに転用想定）
+  - **バックエンド 2 系統**: 第一推奨=CoreS3 経由（`shared/cores3_bridge/` 経由で T_obj/T_amb を JSON 受信）／ 代替=Grove I2C 直結（PaHUB CH1 経由・smbus2）
   - バックエンド: `smbus2` (Python) / `mlx9061x` crate (Rust)
   - 抽象 API: `read_object_temp() -> ℃` / `read_ambient_temp() -> ℃` / `set_emissivity(0.0-1.0)`
   - PaHUB v2.1 経由のチャネル選択を呼び出し側に依存させる（`shared/pahub/` と分離）
@@ -3695,51 +3701,53 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 ## 10. 購入リスト・見積もり
 
 実機到着後・実装開始までに揃えたい機材一覧（2026-06-07 時点の価格）。
+**`購入` 列にチェック (`[x]`) を付けて入手状況を管理する**（購入済み・KS 出資済み・既存所有を含む）。
 
 ### 必須（本体到着済み前提・最小構成）
 
-| # | 品目 | 数量 | 単価 (税込) | 小計 | 用途 |
-|---|------|------|-----------|------|------|
-| 1 | CardputerZero 標準版 (KS 出資済み) | 1 | (出資済) | — | 本体 |
-| 2 | Cap LoRa-1262 (Cap A) | 1 | ¥2,838 | ¥2,838 | App 01 / 02 / 05 |
-| 3 | Cap CC1101 (Cap B) | 1 | 価格未確定 | ¥?,??? | App 03 / 04 / 08 / 09 |
-| 4 | M5Stack Chain Encoder | 2 | ¥1,122 | ¥2,244 | 物理 UI（第一推奨=CoreS3 Port C 接続 / 代替=EXT 直結。App 01 / 10 / 11 / 13） |
-| 4b | M5Stack CoreS3（入力フロントエンド・第一推奨） | 1 | ¥?,??? | ¥?,??? | INA226/Chain Encoder を集約し USB で CardputerZero へ（§1.6.1）。内蔵バッテリ自己給電 |
-| 4c | USB-A↔USB-C データケーブル（CoreS3↔CardputerZero） | 1 | ¥500 | ¥500 | CoreS3 フロントエンド連携。給電競合回避のためデータ専用が望ましい |
-| 5 | M5Stack C6L Meshtastic Unit | 1 | ¥4,290 | ¥4,290 | 自宅 LoRa ゲートウェイ (App 02 / 05) |
-| 6 | RTL-SDR Blog V4 (アンテナキット同梱版) | 1 | $30–40 (≒¥4,500–6,000) | ¥6,000 | App 10 SDR 受信 |
-| 7 | USB-C 充電器 + ケーブル (C6L 常時給電用) | 1 | ¥1,000 | ¥1,000 | C6L 常時稼働 |
-| 13a | [M5Stack Unit INA226-10A (絶縁型 ±10A)](https://www.switch-science.com/products/10735) | 1 | ¥1,584 | ¥1,584 | App 13 テスター（第一推奨=CoreS3 Port A 接続 / 代替=PaHUB I2C 直結） |
-| 13b | [M5Stack PaHUB v2.1 (Port A I2C 拡張ハブ)](https://www.switch-science.com/products/10192) | 1 | ¥1,122 | ¥1,122 | ※**直結方式の場合のみ必須**。CoreS3 経由なら不要（将来 I2C センサ多数拡張時に有用） |
-| 13c | HY2.0-4P → 2.54mm ピンソケット変換ハーネス（自作 or 市販 Grove ケーブル切断） | 1 | ¥300 | ¥300 | ※**EXT 直結方式の場合のみ**。Chain Encoder を EXT 2.54-14P UART (Pin 12/14) に接続。CoreS3 経由なら不要 |
-| 13d | IC テストフック（グラバークリップ）赤・黒 | 2 本 | ¥300〜600 | ¥600 | App 13 プローブ先端（IC ピン・基板ランド掴み） |
-| 13e | カーボン抵抗 1kΩ 1/4W（または金属皮膜 1%） | 100 本 | ¥100 | ¥100 | App 13 パターン 3 導通チェック用電流制限 |
-| 13f | 熱収縮チューブ φ3〜5mm | 少量 | ¥200 | ¥200 | App 13 抵抗内蔵部の絶縁 |
-| 13g | リード線 AWG22 単線 赤・黒 | 各 50cm | ¥300 | ¥300 | App 13 プローブケーブル本体 |
-| 13h | 棒端子（フェルール）AWG22 用 + 簡易圧着工具 | 1 セット | ¥2,000 | ¥2,000 | App 13 端子台への線端処理（撚り線使用時推奨） |
-| 13i | VH3.96-4P プラガブル端子台 単体（**用途別モジュール化用**） | 2〜3 個 | ¥150 | ¥450 | App 13 結線パターン別プローブの常時固定用（INA226-10A 付属品と同形状、別途入手） |
-| 15a | [M5Stack NCIR Unit (MLX90614)](https://www.switch-science.com/products/5220) | 1 | ¥3,729 | ¥3,729 | App 15 非接触温度計（PaHUB CH1 経由で App 13 と並列運用） |
-| | **必須小計** | | | **約 ¥26,500 + Cap B 価格** | |
+| 購入 | # | 品目 | 数量 | 単価 (税込) | 小計 | 用途 |
+|------|---|------|------|-----------|------|------|
+| [x] | 1 | CardputerZero 標準版 (KS 出資済み) | 1 | (出資済) | — | 本体 |
+| [ ] | 2 | Cap LoRa-1262 (Cap A) | 1 | ¥2,838 | ¥2,838 | App 01 / 02 / 05 |
+| [ ] | 3 | Cap CC1101 (Cap B) | 1 | 価格未確定 | ¥?,??? | App 03 / 04 / 08 / 09 |
+| [ ] | 4 | M5Stack Chain Encoder | 2 | ¥1,122 | ¥2,244 | 物理 UI（第一推奨=CoreS3 Port C 接続 / 代替=EXT 直結。App 01 / 10 / 11 / 13 / 15） |
+| [ ] | 4b | M5Stack CoreS3（入力フロントエンド・第一推奨） | 1 | ¥?,??? | ¥?,??? | INA226 / Chain Encoder / MLX90614 を集約し USB で CardputerZero へ（§1.6.1）。内蔵バッテリ自己給電 |
+| [ ] | 4c | USB-A↔USB-C データケーブル（CoreS3↔CardputerZero） | 1 | ¥500 | ¥500 | CoreS3 フロントエンド連携。給電競合回避のためデータ専用が望ましい |
+| [ ] | 4d | [M5Stack Hub Unit (U006・受動 1→3 Grove 分岐ハブ)](https://www.switch-science.com/products/5696) | 1 | ¥528 | ¥528 | **CoreS3 Port A I2C を 1→3 受動分岐**し INA226 (App13) と MLX90614 (App15) を同居させる。受動 (チップなし) のためソフト変更不要・アドレス衝突がない本構成では MUX 不要 |
+| [ ] | 5 | M5Stack C6L Meshtastic Unit | 1 | ¥4,290 | ¥4,290 | 自宅 LoRa ゲートウェイ (App 02 / 05) |
+| [ ] | 6 | RTL-SDR Blog V4 (アンテナキット同梱版) | 1 | $30–40 (≒¥4,500–6,000) | ¥6,000 | App 10 SDR 受信 |
+| [ ] | 7 | USB-C 充電器 + ケーブル (C6L 常時給電用) | 1 | ¥1,000 | ¥1,000 | C6L 常時稼働 |
+| [ ] | 13a | [M5Stack Unit INA226-10A (絶縁型 ±10A)](https://www.switch-science.com/products/10735) | 1 | ¥1,584 | ¥1,584 | App 13 テスター（第一推奨=CoreS3 Port A 接続 / 代替=PaHUB I2C 直結） |
+| [ ] | 13b | [M5Stack PaHUB v2.1 (Port A I2C 拡張ハブ)](https://www.switch-science.com/products/10192) | 1 | ¥1,122 | ¥1,122 | ※**直結方式の場合のみ必須**。CoreS3 経由なら不要（将来 I2C センサ多数拡張時に有用） |
+| [ ] | 13c | HY2.0-4P → 2.54mm ピンソケット変換ハーネス（自作 or 市販 Grove ケーブル切断） | 1 | ¥300 | ¥300 | ※**EXT 直結方式の場合のみ**。Chain Encoder を EXT 2.54-14P UART (Pin 12/14) に接続。CoreS3 経由なら不要 |
+| [ ] | 13d | IC テストフック（グラバークリップ）赤・黒 | 2 本 | ¥300〜600 | ¥600 | App 13 プローブ先端（IC ピン・基板ランド掴み） |
+| [ ] | 13e | カーボン抵抗 1kΩ 1/4W（または金属皮膜 1%） | 100 本 | ¥100 | ¥100 | App 13 パターン 3 導通チェック用電流制限 |
+| [ ] | 13f | 熱収縮チューブ φ3〜5mm | 少量 | ¥200 | ¥200 | App 13 抵抗内蔵部の絶縁 |
+| [ ] | 13g | リード線 AWG22 単線 赤・黒 | 各 50cm | ¥300 | ¥300 | App 13 プローブケーブル本体 |
+| [ ] | 13h | 棒端子（フェルール）AWG22 用 + 簡易圧着工具 | 1 セット | ¥2,000 | ¥2,000 | App 13 端子台への線端処理（撚り線使用時推奨） |
+| [ ] | 13i | VH3.96-4P プラガブル端子台 単体（**用途別モジュール化用**） | 2〜3 個 | ¥150 | ¥450 | App 13 結線パターン別プローブの常時固定用（INA226-10A 付属品と同形状、別途入手） |
+| [ ] | 15a | [M5Stack NCIR Unit (MLX90614)](https://www.switch-science.com/products/5220) | 1 | ¥3,729 | ¥3,729 | App 15 非接触温度計（第一推奨=CoreS3 Port A I2C 同居・Hub Unit 経由 / 代替=PaHUB CH1 直結で App 13 と並列運用） |
+| | | **必須小計** | | | **約 ¥27,000 + Cap B 価格** | |
 
 ### 推奨（あると便利）
 
-| # | 品目 | 数量 | 単価 (税込) | 小計 | 用途 |
-|---|------|------|-----------|------|------|
-| 8 | 5dBi 920MHz SMA 外付けアンテナ | 1 | ¥1,500–3,000 | ¥2,500 | LoRa 到達距離向上 |
-| 9 | RP-SMA → SMA 変換アダプタ | 1 | ¥500 | ¥500 | RTL-SDR と LoRa アンテナの共用検証 |
-| 10 | HDMI ミニケーブル + 外部モニター (既存可) | 1 | — | — | App 10 GQRX / App 12 Sky Plot 詳細表示 |
-| 11 | microSDXC カード (64GB 以上、標準版付属 32GB の予備) | 1 | ¥1,500 | ¥1,500 | ログ保存余裕用 |
-| 12 | USB ハブ (セルフパワー型) | 1 | ¥2,000 | ¥2,000 | RTL-SDR + 他周辺機器の電力安定化 |
-| | **推奨小計** | | | **約 ¥6,500** | |
+| 購入 | # | 品目 | 数量 | 単価 (税込) | 小計 | 用途 |
+|------|---|------|------|-----------|------|------|
+| [ ] | 8 | 5dBi 920MHz SMA 外付けアンテナ | 1 | ¥1,500–3,000 | ¥2,500 | LoRa 到達距離向上 |
+| [ ] | 9 | RP-SMA → SMA 変換アダプタ | 1 | ¥500 | ¥500 | RTL-SDR と LoRa アンテナの共用検証 |
+| [ ] | 10 | HDMI ミニケーブル + 外部モニター (既存可) | 1 | — | — | App 10 GQRX / App 12 Sky Plot 詳細表示 |
+| [ ] | 11 | microSDXC カード (64GB 以上、標準版付属 32GB の予備) | 1 | ¥1,500 | ¥1,500 | ログ保存余裕用 |
+| [ ] | 12 | USB ハブ (セルフパワー型) | 1 | ¥2,000 | ¥2,000 | RTL-SDR + 他周辺機器の電力安定化 |
+| | | **推奨小計** | | | **約 ¥6,500** | |
 
 ### 将来検討（実装フェーズに応じて）
 
-| # | 品目 | 想定価格 | 用途 |
-|---|------|---------|------|
-| - | アマチュア無線技士免許 (3 級以上) | 受験料 ¥5,400 | App 10 / App 04 で送信運用したい場合 |
-| - | HackRF One | 約 ¥50,000 | RTL-SDR では受信できない用途 (要送信時) |
-| - | NFC 検証用ダミーカード (NTAG215 等) | ¥500 × 数枚 | App 03 / 08 の安全な試験 |
-| - | Sub-GHz 温湿度センサー (433MHz) | ¥1,000 | App 04 rtl_433 デコード検証用 |
+| 購入 | # | 品目 | 想定価格 | 用途 |
+|------|---|------|---------|------|
+| [ ] | - | アマチュア無線技士免許 (3 級以上) | 受験料 ¥5,400 | App 10 / App 04 で送信運用したい場合 |
+| [ ] | - | HackRF One | 約 ¥50,000 | RTL-SDR では受信できない用途 (要送信時) |
+| [ ] | - | NFC 検証用ダミーカード (NTAG215 等) | ¥500 × 数枚 | App 03 / 08 の安全な試験 |
+| [ ] | - | Sub-GHz 温湿度センサー (433MHz) | ¥1,000 | App 04 rtl_433 デコード検証用 |
 
 ### 合計目安
 
@@ -3750,10 +3758,11 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 ### 購入順序の推奨
 
 1. **Phase 0 (Kickstarter 到着前)**: なし — 仕様書整備に集中
-2. **Phase 1 (CardputerZero 到着直後)**: Cap A、Chain Encoder × 2、C6L、**INA226-10A + PaHUB v2.1 + 変換ハーネス (App 13 早期検証用)**
-3. **Phase 2 (App 10 着手前)**: RTL-SDR Blog V4
-4. **Phase 3 (Cap B 発売後)**: Cap CC1101
-5. **Phase 4 (運用拡張時)**: 推奨群
+2. **Phase 1 (CardputerZero 到着直後・第一推奨経路)**: Cap A、Chain Encoder × 2、C6L、**CoreS3 (4b) + USB-A↔USB-C データケーブル (4c) + Hub Unit U006 (4d) + INA226-10A (13a) + NCIR (15a)** (App 13 / App 15 早期検証 + 物理 UI 立上げ用)
+3. **Phase 1 (代替経路・CoreS3 不使用時)**: 上記の代わりに **PaHUB v2.1 (13b) + HY2.0-4P→2.54mm 変換ハーネス (13c) + INA226-10A + NCIR** で直結構成。CoreS3 経由方式を採用しない場合に発注
+4. **Phase 2 (App 10 着手前)**: RTL-SDR Blog V4
+5. **Phase 3 (Cap B 発売後)**: Cap CC1101
+6. **Phase 4 (運用拡張時)**: 推奨群
 
 > ⚠️ 価格・在庫はスイッチサイエンス・M5Stack 公式ストア・RTL-SDR Blog 等の
 > 2026-06-07 時点の情報。実購入時に最新価格を確認すること。
@@ -3778,7 +3787,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | **Phase 1.5** | Phase 1 と並行可 | App 13 (テスター) 実装 + `shared/ina226/` + `shared/cores3_bridge/` 確立（第一推奨: CoreS3 経由）。代替として `shared/pahub/` + EXT UART 変換ハーネス（直結方式） | (a) `tests/ina226_terminal_check.py` のステップ 1～4 全完了で端子動作確認、(b) **CoreS3 経由**で INA226-10A の電圧/電流/電力を `/dev/ttyACM*` から受信しリアルタイム表示（または代替: PaHUB CH0 直結で表示）、(c) **CoreS3 Port C に接続した Chain Encoder × 2** を CoreS3 経由で認識（または代替: EXT 2.54-14P UART 直結で認識・Cap 非装着時） |
 | **Phase 1.55** | Phase 1.5 と並行可 | CoreS3 フロントエンド連携の確立: CoreS3 側スケッチ（INA226 I2C 読取 + Chain Encoder UART 読取 + JSON 送信 + タッチ表示）+ CardputerZero 側 `shared/cores3_bridge/`（USB CDC 受信・パース） | (a) CoreS3 が Port A の INA226 と Port C の Chain Encoder ×2 を同時読取、(b) JSON を USB-C(CDC) で送信、(c) CardputerZero が USB-A Host モードで `/dev/ttyACM*` から受信・パース成功、(d) Cap 装着状態でも入力系が機能することを確認 |
 | **Phase 1.6** | Phase 1 と並行可 | App 14 (QR コードリーダー / アナライザー) 実装 + `shared/camera_imx219/` 確立 + osprey74 ウェブ版ナレッジモード移植 | (a) `pyzbar` で IMX219 のリアルタイム QR デコード成功、(b) Wi-Fi QR から `nmcli` 自動接続 PoC 完了、(c) ナレッジモードでバージョン/ECC/マスクパターン 0-7 切替の可視化が動作 |
-| **Phase 1.7** | Phase 1.5 完了後または並行 | App 15 (非接触温度計) 実装 + `shared/mlx90614/` 確立 + PaHUB CH1 経由運用 | (a) MLX90614 から T_obj/T_amb のリアルタイム読出成功、(b) CPU/GPU/料理プリセットでの閾値判定動作、(c) PaHUB CH0 (INA226) と CH1 (MLX90614) の同時運用確認 |
+| **Phase 1.7** | Phase 1.5 / 1.55 完了後または並行 | App 15 (非接触温度計) 実装 + `shared/mlx90614/` 確立（第一推奨: CoreS3 経由 / 代替: PaHUB CH1 経由） | (a) MLX90614 から T_obj/T_amb のリアルタイム読出成功、(b) CPU/GPU/料理プリセットでの閾値判定動作、(c) **第一推奨**: CoreS3 Port A I2C バスに Hub Unit (U006) で INA226 と MLX90614 を同居させた状態で両者同時読取成功 (CoreS3 → USB CDC → CardputerZero パース)、または **代替**: PaHUB CH0 (INA226) と CH1 (MLX90614) の同時運用確認 (直結方式) |
 | **Phase 8** | 任意 | App 06 / 07 / 08 / 09 実装 | 個別に完了 |
 | **Phase 9** | 各 App 完成時 | `czdev upload` で CardputerZeroRepository に投稿 | 公式 AppStore で `apt install` 可能になる |
 
@@ -3789,9 +3798,10 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 > App 14 もハードウェア依存が本体内蔵 IMX219 カメラのみで Cap A/B 非依存のため、
 > Phase 1.5 と並行して進められる「日常利用ツール」枠。標準版限定のため Lite 版では動作しない。
 >
-> App 15 は App 13 と同じ PaHUB v2.1 を経由するため、Phase 1.5 で確立した
-> `shared/pahub/` ドライバの再利用が前提。Cap A/B 非依存・カメラ非依存のため
-> Lite 版でも動作する。
+> App 15 は App 13 と同じ I2C センサ群（電流・電圧・温度）の一員として、
+> 第一推奨では CoreS3 Port A 同居（Hub Unit U006 で 1→3 分岐）、代替では
+> Phase 1.5 で確立した `shared/pahub/` ドライバの再利用（PaHUB CH1）。
+> Cap A/B 非依存・カメラ非依存のため Lite 版でも動作する。
 
 ### 11.1 法令・スキル別 Phase 配置の考え方
 
