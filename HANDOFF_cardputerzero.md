@@ -1,6 +1,6 @@
 # HANDOFF: CardputerZero 開発ガイド
 
-> **作成日**: 2026-05-24 / **最終更新**: 2026-06-13  
+> **作成日**: 2026-05-24 / **最終更新**: 2026-06-19（UI入力デバイス検討の追記）  
 > **対象デバイス**: M5Stack CardputerZero (Raspberry Pi CM0 搭載)  
 > **開発者**: 総司 (osprey74)  
 > **開発方針**: Spec-Driven / Claude Code + czdev ワークフロー  
@@ -39,6 +39,9 @@
 | 2026-06-13 | **BCL ログモードの全仕様確定（運用方針 A〜⑤ 全パラメータ決定）**: 1 受信 1 ノート方式・案 ③（録音は Mac Mini に scp 転送して永続保存・CZ 側削除）・アンテナはプリセット選択方式・SFI は NOAA SWPC から 1 時間キャッシュ・App 01 GPS 連携で受信地点座標取得。Markdown テンプレート最終確定（機材 + 受信記録 + 録音ファイル Mac Mini パス記載）。既知局 DB 初期 15 局（日本短波・北海道中波・国際短波局）登録。UI フロー設計確定（ノブA でフロー進行、ノブB で SINPO 値） |
 | 2026-06-13 | **App 13 パターン 3 給電経路を EXT Pin 4/6 → PaHUB CH5 に変更**（総司様ご指摘より）。当初設計では EXT 2.54-14P の Pin 4 (GND) / Pin 6 (5V OUT) から端子台 C への給電を想定していたが、これらは Chain Encoder #1 の電源ピンとして占有されており物理的にバッティングするため、PaHUB v2.1 の空きチャネル CH5 から Grove ケーブル経由で 5V/GND を取り出す方式に変更。結線図ポンチ画・配線サマリー表・パターン 3 結線図・用途別端子台モジュール表を更新。§9.1 に「PaHUB の電源スルー配線確認」TODO を追加 |
 | 2026-06-13 | **PaHUB v2.1 の電源スルー配線を公式回路図で確認・確定**。[公式回路図 PNG](https://static-cdn.m5stack.com/resource/docs/products/unit/Unit-PaHub2.1/img-103440a9-d7e4-4aab-b784-825aa9b35614.png) を直接読解し、各 Grove 出力ポート J1〜J6 の VCC/GND が全 CH 共通バスとしてスルー配線されていること、入力 J7 の 5V がそのまま CH0〜CH5 の Pin 3 へ届くことを確認。HT7533 LDO で生成される 3.3V は PCA9548A 内部 + SDA/SCL プルアップ専用で Grove ポートには出力されない。§9.1 該当 TODO を ✅ 確認済みに移行。§8 に PaHUB 公式ドキュメント・回路図 PNG・PCA9548A データシート URL を追加。App 13 パターン 3 結線図の注記から「※要実機確認」を確定情報に格上げ |
+| 2026-06-19 | **【重大訂正】Cap と Chain Encoder の同時併用は不可能であることが公式ピンマップ照合で判明**。3 点の公式ドキュメント（[CardputerZero](https://docs.m5stack.com/ja/CardputerZero) / [Cap LoRa-1262](https://docs.m5stack.com/en/cap/Cap_LoRa-1262) / [Cap CC1101](https://docs.m5stack.com/en/cap/Cap_CC1101)）を直接読解した結果、従来「上部 Cap スロット」と「2.54mm UART ヘッダ（EXT 2.54-14P）」を**別ポートとして扱っていたのは誤り**であり、両者は**同一の 14 ピン物理バス（= Cap-Bus = EXT 2.54-14P）**であることが確定。Cap 装着時はこのバスの全ピン（SPI/UART/I2C/電源）が Cap に占有されるため、同じ Pin 12/14（G15/G14 = UART）を使う Chain Encoder と**物理的に共存できない**。特に Cap LoRa-1262 は GPS が G14/G15 UART を使用し Chain Encoder と完全衝突。§1.2〜1.4 を全面改訂し「Cap-Bus = EXT 同一」「Cap 常駐時 Chain Encoder 併用不可」を明記。§1.4 早見表の CC1101 受信感度・アンテナ等を公式値に訂正。代替案（Grove UART / キーボード操作 / I2C エンコーダ）を §1.5 として新設。Chain Encoder を前提とする App01/10/11 の物理 UI 記述に「Cap 非装着時のみ」の条件を付記。§9.1 に回路図 PDF での Grove/EXT UART 排他確認 TODO を追加（総司様ご指摘より） |
+| 2026-06-19 | **App13 導通チェックの 5V 取得を CoreS3 Port B（黒・Grove 電源ライン）から行う構成を追加**。公式マニュアルで CoreS3 の Port A/B/C が GND/5V/GPIO 結線と確認（Grove は全ポート共通で 5V/GND を持つ）。Port B のデータピン（G8/G9）を使わず**電源ライン 5V/GND のみを App13 パターン 3（端子台 C）の給電に流用**できる。これにより PaHUB CH5 からの 5V 取得（直結方式の名残）が不要になり、App13 が CoreS3 完結型に。§1.6.1 の接続表・構成図・ポイント整理、App13 パターン 3 配線・端子台 C モジュール表を更新（第一推奨=CoreS3 Port B / 代替=PaHUB CH5）。⚠️ Port B 5V は常時出力の電源ライン（GPIO 制御不可）・供給電流上限は実機確認・DUT が CoreS3 電源系と導通する点に注意 |
+| 2026-06-19 | **HANDOFF 全体査読し「CoreS3 併用案＝第一推奨」で齟齬を解消**。方針決定（CoreS3 フロントエンド方式を第一推奨／直結方式は代替・旧案として残す）に基づき以下を修正: §1.6 冒頭にアーキテクチャ方針バナーを追加／§1.5 を「直結方式（代替/旧案）の運用方針」と位置づけ明記／App10 物理 UI に CoreS3 経由（第一推奨）と EXT 直結（代替）の 2 構成を併記／App13 に接続方式の方針注記を追加し PaHUB・端子台系を「直結方式の参照情報」と明記／App01 衛星リスト送りを「CoreS3 経由なら Cap A 使用でも可」に更新／`shared/` ツリーに `cores3_bridge/` を追加し input_encoder・ina226 を 2 バックエンド化（CoreS3 経由＝第一推奨 / 直結＝代替）／CLAUDE.md のデバイス接続・制約・共有ドライバを更新／§9.4 ドライバ API 設計を多バックエンド化／購入リストに CoreS3・データ専用ケーブルを追加し PaHUB・変換ハーネスを「直結方式の場合のみ」と注記／Phase 1.5 を CoreS3 経由優先に改訂し Phase 1.55（CoreS3 連携確立）を新設／Cap B 表記を公式名「Cap CC1101」に統一 |
 
 ---
 
@@ -70,36 +73,42 @@
 
 | ポート | 仕様 | 主な用途 |
 |--------|------|----------|
-| Grove | HY2.0-4P (I2C / UART 切替) | GNSS, センサー類 |
-| **EXT 2.54-14P** | **2.54mm 2 列 14 ピンヘッダ（本体上部）** | **SPI / I2C / UART / GPIO / 5V / GND をすべて集約** |
+| Grove (HY2.0-4P) | I2C / UART 切替（内蔵電子スイッチ・既定は UART） | GNSS, センサー類 |
+| **EXT 2.54-14P（= Cap-Bus）** | **2.54mm 2 列 14 ピンヘッダ（本体上部）** | **SPI / I2C / UART / USB / GPIO / 5V / GND をすべて集約。Cap モジュールはここに装着される** |
 | CSI | カメラコネクタ | IMX219 |
 
-#### EXT 2.54-14P ピンマップ（公式ドキュメント画像より確定・2026-06-13）
+> 🔴 **最重要（2026-06-19 訂正）**: **「上部 Cap スロット」と「EXT 2.54-14P（2.54mm UART ヘッダ）」は同一の物理ヘッダ**である。
+> 公式ドキュメントでは Cap モジュールの接続バスを **「Cap-Bus」** と呼ぶが、これは本体側の **EXT 2.54-14P** そのものを指す。
+> したがって **Cap（A/B）を装着すると EXT 2.54-14P の 14 ピンは Cap に占有され、同じヘッダに依存する Chain Encoder とは併用できない**（詳細は §1.3・§1.5）。
 
-本体上部の 2.54mm 2 列 14 ピンヘッダ。SPI/I2C/UART/電源すべてが集約されており、
-App 13 (テスター) では本ヘッダ 1 つから 5V 給電・GND・(必要なら) I2C・UART
-すべてを取り出せる。
+#### EXT 2.54-14P（Cap-Bus）ピンマップ（公式ドキュメントより確定・2026-06-19 訂正）
+
+本体上部の 2.54mm 2 列 14 ピンヘッダ。SPI/I2C/UART/USB/電源すべてが集約されており、
+**Cap モジュールはこのヘッダに装着される（Cap-Bus）**。Cap 非装着時は App 13 (テスター) 等で
+本ヘッダから 5V 給電・GND・I2C・UART を取り出せる。
 
 | Pin | 信号 | 主な用途 / 備考 |
 | --- | --- | --- |
-| 1 | G25 | GPIO |
+| 1 | HAT_P0 (USB4_D_P / G26) | USB / GPIO 切替（既定 GPIO26） |
 | **2** | **5V IN** | 外部給電入力 |
-| 3 | G23 | GPIO |
-| **4** | **GND** | グランド（App 13 パターン 3 の戻り経路） |
+| 3 | HAT_P1 (USB4_D_N / G23) | USB / GPIO 切替（既定 GPIO23） |
+| **4** | **GND** | グランド |
 | 5 | G22 | GPIO |
-| **6** | **5V OUT** | 5V 出力（App 13 パターン 3 の給電経路、1kΩ 経由で PIN1 へ） |
-| 7 | G11 / CLK | SPI クロック |
-| 8 | **G2 / SDA** | **I2C データ**（PaHUB → INA226 通信用、ただし通常は Grove ポート経由を推奨） |
-| 9 | G10 / MO | SPI MOSI |
-| 10 | **G3 / SCL** | **I2C クロック** |
-| 11 | G9 / MI | SPI MISO |
-| 12 | **G15 / RX** | **UART 受信**（Chain Encoder デイジーチェーン入力） |
-| 13 | G7 / CS0 | SPI チップセレクト |
-| 14 | **G14 / TX** | **UART 送信**（Chain Encoder デイジーチェーン出力） |
+| **6** | **5V OUT** | 5V 出力 |
+| 7 | G11 / SPI0_CLK | SPI クロック |
+| 8 | **G2 / SDA** | **I2C データ**（I2C1_SDA） |
+| 9 | G10 / SPI0_MOSI | SPI MOSI |
+| 10 | **G3 / SCL** | **I2C クロック**（I2C1_SCL） |
+| 11 | G9 / SPI0_MISO | SPI MISO |
+| 12 | **G15 / UART_RXD** | **UART 受信**（Cap LoRa-1262 では GPS-TX が接続。Chain Encoder の入力と競合） |
+| 13 | G7 / SPI0_CS1 | SPI チップセレクト |
+| 14 | **G14 / UART_TXD** | **UART 送信**（Cap LoRa-1262 では GPS-RX が接続。Chain Encoder の出力と競合） |
 
 - ピン番号は左から「上段 → 下段 → 上段 → 下段 …」の交互順
+- Pin 1/3（HAT_P0/P1）は `M5IOE1` の `PYG1_HAT_SW` で USB Hub(USB4) / GPIO を切替（既定 GPIO）
+- ⚠️ **Pin 12/14（G15/G14 UART）は Cap LoRa-1262 の GPS UART と同一**。Cap 装着時はこの UART が Cap に占有される
 - 出典: [CardputerZero 公式ドキュメント (M5Stack 公式)](https://docs.m5stack.com/ja/CardputerZero)
-- ヘッダ右側には microSD スロット（Raspberry Pi OS 書き込み済み標準版）が配置
+- ヘッダ近傍には microSD スロット（Raspberry Pi OS 書き込み済み標準版）が配置
 
 #### Grove (HY2.0-4P) 配色規約
 
@@ -118,19 +127,37 @@ PaHUB v2.1 経由で複数センサーを増設する際も配線ミスが起き
 - 黄/白の信号線の意味のみがモードで変化
 - INA226-10A（App 13）/ PaHUB v2.1 / Chain Encoder はすべて HY2.0-4P コネクタを採用
   - INA226-10A・PaHUB は **Port A (I2C)** モード
-  - Chain Encoder は **Port C (UART)** モード（→ 2.54mm UART ヘッダ経由で接続）
+  - Chain Encoder は **Port C (UART)** モード（→ EXT 2.54-14P の Pin 12/14 経由で接続。**Cap 非装着時のみ利用可** — §1.5 参照）
 - 将来 PaHUB CH1～5 にセンサー増設する際も、Port A 系統センサーであれば Grove ケーブルそのままで接続可能
 
 ### 1.3 装着確認済みモジュール
 
 | モジュール | 接続方式 | 確認方法 |
 |------------|----------|----------|
-| **Cap A**: Cap LoRa 1262 (SX1262 + ATGM336H-6N@AT6668) | 上部 Cap スロット | ✅ Kickstarter公式画像で確認 / ⚠️ 技適番号は実機到着後に要確認 |
-| **Cap B**: Hacker Cap (CC1101 + ST25R3916 NFC) | 上部 Cap スロット | ✅ M5Stack公式X・プレスリリースで確認 / ⚠️ CC1101 技適は実機到着後に要確認 |
+| **Cap A**: Cap LoRa-1262 (SX1262 + ATGM336H-6N@AT6668) | **EXT 2.54-14P（Cap-Bus）に装着** | ✅ [公式ドキュメント](https://docs.m5stack.com/en/cap/Cap_LoRa-1262)でピンマップ確認 / ⚠️ 技適番号は実機到着後に要確認 |
+| **Cap B**: Cap CC1101 (CC1101 + ST25R3916 NFC) | **EXT 2.54-14P（Cap-Bus）に装着** | ✅ [公式ドキュメント](https://docs.m5stack.com/en/cap/Cap_CC1101)でピンマップ確認 / ⚠️ CC1101 技適は実機到着後に要確認 |
 | Grove センサー 100+種 | Grove HY2.0-4P | ✅ 互換 |
 
-> ⚠️ **Cap スロット制約**: Cap A と Cap B は上部スロットを共用するため**同時装着不可**。
-> 用途に応じて付け替えて使用する。Grove ポートを使った片方常駐構成は実機到着後に要検証。
+> 🔴 **Cap-Bus 占有制約（2026-06-19 全面訂正・総司様ご指摘より）**
+>
+> 1. **Cap A と Cap B は同一の EXT 2.54-14P（Cap-Bus）を使う**ため、従来どおり**同時装着は不可**（用途に応じて付け替え運用）。
+> 2. **【新たに判明】Cap 装着時は Chain Encoder と併用できない**。Chain Encoder は EXT 2.54-14P の Pin 12/14（G15/G14 = UART）を使うが、**Cap も同じ 14 ピンバスを占有**するため物理的に衝突する。
+>    - 特に **Cap LoRa-1262 は GPS(AT6668) が G14/G15 の UART を使用**しており、Chain Encoder の UART と**完全に同一ピン**。回避不能の衝突。
+>    - Cap CC1101 も同バスの SPI/制御ピンを占有するため、同様に Chain Encoder と共存不可。
+> 3. 従来 HANDOFF では「上部 Cap スロット」と「2.54mm UART ヘッダ」を別ポートと誤認していた。**両者は同一ヘッダ**であり、この前提は撤回する。
+>
+> → **対処方針は §1.5「Cap と入力デバイスの排他関係・代替案」を参照**。
+
+#### 公式ピンマップ照合の根拠（2026-06-19）
+
+| 観点 | CardputerZero 本体 EXT 2.54-14P | Cap LoRa-1262 Cap-Bus | Cap CC1101 Cap-Bus |
+|------|-------------------------------|----------------------|--------------------|
+| Pin 12 (G15) | UART_RXD | GPS_TX | （SPI/NFC 制御に割当） |
+| Pin 14 (G14) | UART_TXD | GPS_RX | （SPI/NFC 制御に割当） |
+| SPI (Pin 7/9/11/13) | SPI0 CLK/MOSI/MISO/CS | LoRa SX1262 の SPI | CC1101 + ST25R3916 の SPI |
+
+- いずれも**同一 14 ピンバス**を共有しており、Cap 装着で全ピンが Cap 機能に割り当てられる
+- 出典: [CardputerZero](https://docs.m5stack.com/ja/CardputerZero) / [Cap LoRa-1262 PinMap](https://docs.m5stack.com/en/cap/Cap_LoRa-1262) / [Cap CC1101 PinMap](https://docs.m5stack.com/en/cap/Cap_CC1101)
 
 #### 関連デバイス（自宅 LoRa ゲートウェイ用）
 
@@ -154,9 +181,10 @@ App 10（SDR 受信機）の周波数選択、その他 LCD 上での一覧ス�
 
 - **エンコーダ方式**: AB 相**増分（incremental）エンコーダ**で、機械的なストッパーがなく**物理的には無限回転**する。回転検出はソフトウェア側でパルスを積算する方式
 - **採用構成**: **Chain Encoder × 2 個デイジーチェーン**（ノブA = 周波数粗調整 / ノブB = 周波数微調整 or ゲイン）。UART 1 系統だけで多ノブ運用が可能
-- **接続経路**: 本体の **2.54mm UART ヘッダ**に接続（App 13 で Grove ポートを I2C 専用とするため経路を分離）。HY2.0-4P コネクタは Grove ケーブルを切断改造、もしくはピンソケット変換アダプタで配線
-- **他アプリへの転用**: App 01（GPS ロガー: 衛星リスト送り）、App 11（LAN Scanner: ホストリスト送り）等の LCD 一覧操作にも利用
-- **設計指針**: アプリ側は `shared/input_encoder/` 共通ドライバ経由で抽象 API（`RotateDelta` / `ButtonPress` / `LedSet`）を扱う
+- **接続経路**: 本体の **EXT 2.54-14P（Cap-Bus）の Pin 12/14（G15/G14 = UART）**に接続。HY2.0-4P コネクタは Grove ケーブルを切断改造、もしくはピンソケット変換アダプタで配線
+- 🔴 **Cap との排他制約（2026-06-19 訂正）**: Chain Encoder が使う EXT の UART ピンは **Cap-Bus と同一**である。**Cap（A/B）を装着するアプリ（App01/02/03/04/05/08/09 等）では Chain Encoder を併用できない**。Chain Encoder を前提とする物理 UI は **Cap 非装着のアプリ（App10 SDR / App11 LAN Scanner / App13 テスター 等）でのみ有効**。代替案は §1.5 を参照
+- **他アプリへの転用**: App 10（SDR 受信機: 周波数選択）、App 11（LAN Scanner: ホストリスト送り）等、**Cap を使わない LCD 一覧操作**にも利用
+- **設計指針**: アプリ側は `shared/input_encoder/` 共通ドライバ経由で抽象 API（`RotateDelta` / `ButtonPress` / `LedSet`）を扱う。Cap 使用アプリでは本ドライバを無効化し、キーボード操作にフォールバックする
 
 #### Cap LoRa-1262 技適状況メモ（2026-06-07 時点）
 
@@ -176,19 +204,284 @@ App 10（SDR 受信機）の周波数選択、その他 LCD 上での一覧ス�
 
 ### 1.4 Cap 構成早見表
 
-| | Cap A: Cap LoRa 1262 | Cap B: Hacker Cap |
+| | Cap A: Cap LoRa-1262 | Cap B: Cap CC1101 |
 |---|---|---|
+| SKU | U214 | U219 |
 | 無線チップ | SX1262 (LoRa 専用変調) | CC1101 (汎用 Sub-GHz) |
-| 対応周波数 | 868〜923 MHz | 315 / 433 / 868 / 920 MHz |
-| 変調方式 | LoRa / FSK / GFSK / OOK | FSK / GFSK / MSK / ASK / OOK |
-| 送信出力 | 最大 +22 dBm（日本では 13dBm 以下に制限要） | 最大 +10 dBm |
-| 受信感度 | -147 dBm (LoRa 低速) | -116 dBm (FSK 1.2kbps) |
-| 測位チップ | AT6668 GNSS (6衛星系) | なし |
+| 対応周波数 | 868〜923 MHz | 315 / 433 / 868 / 915 MHz |
+| 変調方式 | FSK / GFSK / MSK / LoRa / OOK | 2-FSK / 4-FSK / GFSK / MSK / ASK / OOK |
+| 送信出力 | 最大 +22 dBm（日本では要技適確認・出力制限要） | 最大 +10 dBm |
+| 受信感度 | -147 dBm (LoRa 低速) | 最大 -99.5 dBm |
+| 測位チップ | AT6668 GNSS (GPS/QZSS/BD2/BD3/GAL/GLO) | なし |
 | NFC チップ | なし | ST25R3916 (13.56 MHz) |
-| NFC プロトコル | なし | ISO 14443A/B · FeliCa · ISO 15693 |
-| NFC 動作モード | なし | R/W · カードエミュレーション · カスタム |
-| アンテナ | SMA (LoRa) + セラミック (GNSS) | 内蔵アンテナ (要確認) |
+| NFC プロトコル | なし | NFC-A/B (ISO14443A/B) · NFC-F (FeliCa) · NFC-V (ISO15693) |
+| NFC 動作モード | なし | R/W · カードエミュレーション (NFC-A/F) |
+| NFC 最大読取距離 | なし | 45mm |
+| 接続バス | EXT 2.54-14P（Cap-Bus）+ HY2.0-4P(I2C) | EXT 2.54-14P（Cap-Bus）+ Grove |
+| RF アンテナ | RP-SMA（LoRa）+ 内蔵セラミック（GPS） | RP-SMA（315/433/868 用ラバーアンテナ 3 本付属） |
+| LoRa I/F | SPI | — |
+| GPS I/F | UART (115200bps, G14/G15) | — |
+| RF I/F | — | SPI |
 | 主用途 | GPS ロガー / Meshtastic / BSAF | NFC 解析 / RF スニファー |
+
+> 補足: 旧版で「Hacker Cap」と通称していたモジュールは公式名 **Cap CC1101 (SKU: U219)** である。受信感度・NFC 動作モード等を公式スペックに訂正済み。
+> 出典: [Cap LoRa-1262 公式](https://docs.m5stack.com/en/cap/Cap_LoRa-1262) / [Cap CC1101 公式](https://docs.m5stack.com/en/cap/Cap_CC1101)
+
+### 1.5 UI 入力デバイスのアプリ別運用方針（2026-06-19 確定）
+
+> 🟡 **位置づけ（2026-06-19 更新）**: 本節は **CoreS3 を使わない「直結方式」（= 代替/旧案）** における入力デバイスの運用方針を扱う。**第一推奨は §1.6 の CoreS3 フロントエンド方式**であり、そちらでは Cap 装着の有無に関わらず入力系が使えるため、本節の「Cap 装着時は Chain Encoder 不可」等の制約は CoreS3 を使わない場合にのみ当てはまる。CoreS3 を使わない最小構成・暫定運用の参照用として本節を残す。
+
+#### 前提となる物理制約（直結方式の場合）
+
+1. **右側面 HY2.0-4P（Grove）と上部 EXT 2.54-14P（Cap-Bus）は同一信号を共有**する。公式ピンマップ上、UART は両者とも **G14/G15**、I2C は両者とも **G2/G3** であり、本体内蔵の電子スイッチ（`G4_I2C/UART_SW`）で切り替えて引き出している。
+   - → **Cap を装着すると上部 EXT が Cap に専有され、同じ信号を引く右側面 Grove も実質的に使えなくなる**。
+2. **Chain Encoder は UART デバイス**（STM32G031・UART デイジーチェーン）。直結方式での接続経路は EXT 2.54-14P の Pin 12/14（G14/G15 UART）一択。
+3. **第一の判断軸は「I2C の有無」ではなく「Cap を装着するか否か」**。Cap 装着時点で UART 系（Chain Encoder）はどの経路でも使えなくなる（直結方式の場合。CoreS3 経由ならこの制約は無い）。
+
+#### 運用方針マトリクス（確定版）
+
+| アプリ分類 | EXT(UART) の状態 | 採用する UI 入力デバイス | バックエンド |
+|-----------|------------------|--------------------------|--------------|
+| **テスター（App13）** | 空き（Cap 非装着） | **Unit Scroll（I2C 0x40）** | PaHUB I2C（INA226 と同居） |
+| **Cap 非装着アプリ（App10 SDR / App11 LAN Scanner）** | 空き | **Chain Encoder ×2（EXT UART）** ※ I2C エンコーダも選択可 | EXT 2.54-14P UART |
+| **Cap 使用アプリ（App01-05 / 08 / 09）** | Cap が専有 | **Unit Encoder / Unit Scroll（I2C）** または **キーボード** | PaHUB I2C ／ 内蔵キーボード |
+
+> 📌 **使い分けの意図**: テスターは据置で「値送り」操作 → ホイール型 Scroll Unit が馴染む。SDR 等は手持ちで「連続掃引」 → 無限回転ノブの Chain Encoder（または Unit Encoder）が馴染む。これは物理的強制ではなく**用途特性に沿った設計ポリシー**。
+
+#### ポート占有図 + PaHUB チャネル割当
+
+![CardputerZero ポート占有図と PaHUB チャネル割当](./assets/cardputerzero_port_occupancy.svg)
+
+本体は **EXT（UART/SPI・上部・Cap 装着口）** と **Grove（I2C・右側面・PaHUB 接続口）** の 2 系統。Grove → PaHUB v2.1（0x70）で I2C を 6ch に分岐し、各チャネルへ機器を割り当てる。
+
+| CH | 割当 | 用途 |
+|----|------|------|
+| CH0 | INA226-10A（要実機アドレス確認） | 電流/電圧測定（App13 テスター） |
+| CH1 | Unit Scroll（0x40） | テスター UI・値送りホイール |
+| CH2 | Unit Encoder（0x40） | Cap 使用アプリの多ノブ UI |
+| CH3 | 予備 | 将来 I2C センサ拡張 |
+| CH4 | 予備 | NCIR 等の増設枠 |
+| CH5 | 5V/GND 給電 | App13 パターン3 給電取出し |
+
+> ⚠️ Scroll Unit と Unit Encoder はともに **0x40 固定**。同時使用時は上表のとおり **PaHUB の別チャネル（CH1 と CH2）に分離**すること。
+
+#### Cap 使用アプリで多ノブ操作を実現する代替策（優先度順）
+
+**【推奨①】I2C 接続エンコーダを使う（本命だが前提に重要な訂正あり）**
+
+> 🔴 **回路図確認による前提訂正（2026-06-19）**: 当初「Cap が占有するのは UART/SPI のみで I2C は独立」と記載していたが、**公式回路図で否定された**。実際は次のとおり。
+> - CardputerZero の **Grove(I2C) と HAT Port(EXT/Cap-Bus) の I2C は同一の I2C1 バス（G2=SDA / G3=SCL）**。Grove の電子スイッチ（GROVE_SW: L=UART / H=I2C1）は Grove ポートのモード切替であり、別バスを作るものではない。
+> - **Cap LoRa-1262 は装着時にこの I2C1 を内部で使用する**（GPS モジュール GP-02 の SCL/SDA、IO エキスパンダ PI4IOE5V6408 の SCL/SDA が I2C1 にぶら下がる）。
+> - したがって I2C エンコーダ／PaHUB／後述の CoreS3 は、いずれも**「独立 I2C」ではなく「Cap が使用中の I2C1 バスへの相乗り」**になる。
+
+成立条件は **(1) 追加デバイスの I2C アドレスが Cap 内部デバイス（GP-02 / PI4IOE5V6408）と衝突しないこと**、**(2) 共有バスのプルアップ合成値・容量・タイミングが安定範囲に収まること**。これらを満たせば、Cap 装着のまま I2C エンコーダを相乗りできる。PaHUB を噛ませると、PaHUB 自身（0x70）が I2C1 上の 1 デバイスとなり、その配下は別チャネルに分離できるため、**アドレス衝突回避の観点では PaHUB 経由が安全**。
+
+| ユニット | SKU | I2C アドレス | 分解能 / 形状 | アドレス変更 | 備考 |
+|----------|-----|-------------|----------------|:---:|------|
+| Unit 8Encoder | U153 | 0x41 | 8 ノブ + トグル + 8×RGB | 可 | 5V→3.3V DC-DC 内蔵。多ノブ用途の最有力 |
+| Unit Encoder | U135 | 0x40 | 30 ポジション + ボタン + 2×RGB | 不可 | Chain Encoder 同等のノブ型 |
+| Unit Scroll | U186 | 0x40 | 12 パルス/回転 ホイール + ボタン + RGB | 不可 | スクロール/一覧送りに好適 |
+| Unit ExtEncoder | U161 | 0x59 | 外部エンコーダ依存（AB/ABZ） | 可 | 高級エンコーダを自前接続 |
+
+> ⚠️ **アドレス衝突注意**: Unit Encoder と Unit Scroll はともに **0x40 固定**。同時使用や同一バス上の他 0x40 機器がある場合は、必ず **PaHUB の別チャネル**に分離する。複数同時運用なら 8Encoder(0x41)/ExtEncoder(0x59) が無難。INA226-10A の実アドレスは実機 `i2cdetect` で要確認。
+
+> 📍 **Scroll Unit ×2 構成時の制限**: Scroll Unit を 2 個使う場合、両者とも **I2C アドレス 0x40 固定（変更不可）**のため、同一バスに直結すると衝突する。**PaHUB の別チャネルに 1 個ずつ分離**すること（例: CH1=Scroll #1 / CH2=Scroll #2）。CH0(INA226)・CH5(給電) を除く実用枠は CH1〜CH4 の 4 チャネルなので、0x40 系ユニットは最大 4 個まで分離可能。アドレスを変えて省配線にしたい場合は、プログラマブルな **Unit 8Encoder(0x41) / Unit ExtEncoder(0x59)** の採用も検討する。
+
+##### Scroll Unit の分解能に関する留意点
+
+Scroll Unit は **12 パルス/回転（1 ステップ ≒ 30 度）** で、Unit Encoder（30 ポジション）や無限回転の Chain Encoder より粗い。
+
+- **課題が出にくい用途**: メニュー/リスト送り、項目選択、段階的なレベル/ズーム調整（公式想定用途）。テスター(App13)の値送りや一覧操作には十分。
+- **課題が出やすい用途**: SDR(App10) の周波数微調整など連続的な細かい制御。1 ステップの増分が大きいと「粗い／届かない」のジレンマが生じやすい。
+- **緩和策**: ①回転加速（速回しで増分拡大）②内蔵ボタンによる調整桁切替（MHz↔kHz↔Hz）③**複数ノブの役割分担**④モード切替トグル。
+- ⚠️ AB 二相のデコード逓倍（×2/×4）で実効分解能を上げられる可能性があるが、内蔵 STM32F030 ファームが返す値が公称 12 か逓倍後かは**実機・API 要確認**。
+
+##### Scroll Unit ×2 による粗・微 2 ノブ構成（採用方針）
+
+分解能の粗さを「粗調整ノブ＋微調整ノブ」の役割分担で吸収する。当初の Chain Encoder ×2 構想を I2C 接続の Scroll Unit で実現するもので、Cap 使用/非使用を問わず PaHUB 経由で一貫して使える。
+
+| | 左: ノブ A | 右: ノブ B |
+|---|---|---|
+| PaHUB チャネル | CH1（0x40） | CH2（0x40） |
+| 役割 | 粗調整（例: MHz 桁） | 微調整（例: kHz 桁） |
+| 内蔵ボタン | 桁送り/モード切替 | 確定/ミュート 等 |
+
+実装上のポイント:
+
+- **左右の識別は PaHUB チャネルで行う**。同じ 0x40 でもホストが MUX を CH1/CH2 に切り替えて読むため区別可能。`shared/input_encoder/` に「チャネル番号 → ノブ役割」のマッピングを持たせる。
+- **ポーリング順序**: CH1 選択 → ノブ A 読取 → CH2 選択 → ノブ B 読取 を 1 ループで回す（チャネル切替は I2C 1 バイト書込みで軽量）。
+- **物理配置（左右）とチャネル番号の対応は配線時に固定**し、ドライバ設定と一致させる（左右逆挿しで操作が入れ替わる）。
+- 役割分担で粗・微を分けるため**回転加速は任意**。入れればさらに快適。
+
+**【推奨②・要検証】Cap LoRa-1262 の Grove(G8/G9 I2C) を活用**
+
+[Cap LoRa-1262 公式ピンマップ](https://docs.m5stack.com/en/cap/Cap_LoRa-1262)によれば、本 Cap は内部 IO エキスパンダ（PI4IOE5V6408）用の **I2C(SDA=G8 / SCL=G9)** を **HY2.0-4P ポートとして外部に引き出している**。
+
+- もしこの G8/G9 I2C が CardputerZero 上で独立 I2C として機能するなら、**Cap LoRa-1262 を装着したまま Cap 上の Grove に I2C エンコーダを直結**できる（App01 GPS ロガー等で多ノブ UI が可能に）。
+- 🔴 **ただし当該ピンマップは Cardputer-Adv（ESP32-S3 機）用**。CardputerZero（CM0 機）では G8/G9 が LCD-CS / SPI0-MISO 等に割当られている可能性があり、**動作保証なし → §9.1 で実機検証必須**。
+- PI4IOE5V6408 の I2C アドレスとエンコーダ(0x40)の衝突有無も要確認。
+- **Cap CC1101 の Grove は I2C ピンアサインが公式非公開**のため、現時点では設計に組み込めない（公式問い合わせ TODO）。
+
+![推奨② Cap LoRa-1262 の Grove(G8/G9 I2C) 活用パターン](./assets/cap_lora_grove_i2c.svg)
+
+**【代替③】USB-UART 変換で独立 UART を増設（Chain Encoder 資産を活かす場合）**
+
+Chain Encoder（UART）を Cap 併用のまま使いたい場合は、本体 USB(Host) に **USB-シリアル(TTL)変換器**を挿し、`/dev/ttyUSB0` 等の独立 UART を生やす。
+
+- 変換器候補: CP2102 / CH340 / FT232 系モジュール、または純正 **ESP32 Downloader Kit (A105, CP2104/CH9102)**
+- ⚠️ **3.3V ロジック**を厳守（STM32G031 は 3.3V 系。5V 直結は損傷リスク）。TX/RX はクロス結線
+- ⚠️ USB は **Host モード固定**が前提（Slave 時は左 USB・HAT USB・Ethernet が無効）
+- ソフトは `shared/input_encoder/` の接続先を `/dev/ttyAMA0`（内蔵）→ `/dev/ttyUSB0`（変換器）に変えるだけで流用可
+
+**【代替④】キーボード操作（追加ハード不要・確実）**
+
+CardputerZero 内蔵の 46 キーマトリクスキーボードで周波数調整・一覧送りを代替。確実に動作する最終フォールバック。
+
+#### 検討したが不採用の選択肢（参考記録）
+
+| 製品 | 機能 | 不採用理由 |
+|------|------|-----------|
+| Grove Converter (U208) | 2→1 受動結合 + USB 給電 | 信号パススルーのみ。USB-UART 変換機能なし。9.8mm 間隔制約あり |
+| USB TypeC2Grove | USB→5V 給電のみ | データ通信不可。給電補助にしか使えない |
+| Grove T (U039-B) | 1→2 受動 Y 分岐 | 新規通信経路を作らない。同一信号を分けるだけ |
+| PaHUB v2.1 | I2C 1→6ch MUX | （これは採用。ただし I2C アドレス衝突回避用であり UART 増設はできない） |
+
+> ⚠️ いずれの推奨策も実機・回路図での裏取りが必要。現時点で**追加ハード無しで確実に動くのはキーボード操作のみ**。
+> Grove(UART) と EXT(UART) の排他/独立、および Cap LoRa-1262 の G8/G9 I2C の CardputerZero での可否は、[CardputerZero 回路図 V0.3 PDF](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1243/C154-CardputerZERO_SCHE_PRJ_V0.3_20260430.pdf) の `G4_I2C/UART_SW` 結線確認と実機 `i2cdetect` で確定する。
+
+---
+
+### 1.6 CoreS3 併用構成（フロントエンド/サブシステム連携）
+
+> 🟢 **アーキテクチャ方針（2026-06-19 決定）**: 入力・計測デバイス（Chain Encoder / INA226 等）は **CoreS3 をフロントエンドにして接続し、USB 経由で CardputerZero へ流す方式を第一推奨**とする。これにより Cap 装着の有無に関わらず入力系が使え、CardputerZero の EXT/Grove も消費しない。
+> 従来の「Chain Encoder を CardputerZero の EXT UART に直結」「INA226 を PaHUB(Grove I2C) 経由で CardputerZero に直結」という**直結方式は「代替/旧案」として残す**（CoreS3 を使わない最小構成や、CoreS3 到着前の暫定運用向け）。直結方式には Cap 非装着時のみ・配線改造が必要等の制約があるため、§1.5 の各記述には「直結方式の場合」という条件が付く点に注意。
+
+CardputerZero（Raspberry Pi CM0 = Linux 機）と **M5Stack CoreS3（ESP32-S3 マイコン + タッチ液晶）** を併用し、CoreS3 を「入力・センサ・表示のフロントエンド」、CardputerZero を「処理・ネットワーク・集約のバックエンド」として役割分担する構成。CoreS3 が UART/I2C ユニットを受け、整形した値を CardputerZero へ流し込む。
+
+#### CoreS3 ポート割当（公式確定 2026-06-19）
+
+| ポート | 色 | 機能 | GPIO | 排他関係 |
+|--------|----|------|------|----------|
+| Port A | 赤 | I2C | SDA=G1 / SCL=G2 | 独立（Port B/C と同時使用可） |
+| Port B | 黒 | GPIO/ADC・DAC | G8 / G9 | 独立 |
+| Port C | 青 | UART | RX=G18 / TX=G17 | 独立 |
+
+> ✅ **CardputerZero との決定的な違い**: CardputerZero の Grove は I2C/UART が同一ピン（G2/G3・G14/G15）で**排他**だったが、**CoreS3 は Port A(I2C)・Port C(UART) が別 GPIO のため同時使用できる**。これが CoreS3 をフロントエンドにする最大の利点。
+> 内蔵デバイス（BMI270=0x68 / AXP2101 / AW9523 / BMM150 等）は**別系統の内部 I2C バス**にあり、外部 Port A(G1/G2) とは分離。外部 I2C ユニット追加時のアドレス衝突は原則回避される（最終確認は実機 `i2cdetect`）。
+> 出典: [ESPHome CoreS3](https://devices.esphome.io/devices/m5stack-cores3/)（Port A=G2/G1, B=G9/G8, C=G18/G17）／ [M5Stack Community](https://community.m5stack.com/topic/5583/)（実機: GPIO1/2=外部I2C, PC_RX=G18/PC_TX=G17=2nd serial）
+
+#### 役割分担の考え方
+
+| | CardputerZero (CM0/Linux) | CoreS3 (ESP32-S3) |
+|---|---|---|
+| 得意 | Python・ネットワーク・デーモン・重い処理 | リアルタイム制御・センサ常時読み・タッチ UI |
+| 役割 | バックエンド（集約・クラウド連携・最終処理） | フロントエンド（ユニット受け・前処理・表示） |
+
+#### 連携経路の評価（CardputerZero ← CoreS3）
+
+| 経路 | 概要 | Cap 併用との両立 | 遅延 | 評価 |
+|------|------|:---:|:---:|------|
+| **A: Wi-Fi（MQTT/HTTP/WS）** | CoreS3 の Wi-Fi で CardputerZero(Linux) のブローカ/サーバへ送信 | ✅ 物理配線ゼロで完全両立 | 中（数〜数十ms） | **本命**。既存のクラウド/BSAF 資産と親和。拡張性最大 |
+| **B: USB シリアル** | CoreS3(自己給電) 内蔵 USB を CardputerZero(USB Host) に接続、`/dev/ttyACM*` 等で受信。USB はデータ専用 | ✅ EXT/Grove/I2C1 を一切消費せず完全両立 | 低 | **第一推奨**。CoreS3 自己給電で給電競合・電流制限を回避。途中で値整形・集約も可 |
+| **C: I2C（CoreS3=スレーブ）** | CoreS3 を I2C スレーブ化し Grove(I2C) に接続 | ⚠️ 条件付き（下記） | 低 | 回路図確認の結果、**独立バスではなく Cap 占有 I2C1 への相乗り**。非推奨寄り |
+| **D: UART 直結** | CoreS3 ↔ CardputerZero の Grove/EXT UART を直結 | ❌ Cap 装着時 UART は Cap 専有 | 低 | Cap 併用とは両立不可 |
+
+#### 🔴 経路 C（I2C）の回路図確定事項（重要）
+
+経路 C を本命にしたいという検討があったが、**公式回路図の確認により、当初の期待（Cap を避けた独立 I2C 経路）は成立しないことが判明した**。
+
+- CardputerZero の **Grove(I2C) と HAT Port(EXT) の I2C は同一の I2C1 バス（G2/G3）**。Grove の `GROVE_SW`（L=UART / H=I2C1）はモード切替であり別バスを生成しない。
+- **Cap LoRa-1262 装着時、I2C1 は Cap 内部の GPS（GP-02）と IO エキスパンダ（PI4IOE5V6408）が使用中**。よって Grove(I2C) に CoreS3 を挿しても「独立経路」にはならず、**Cap 占有 I2C1 バスへの相乗り**になる。
+- 相乗り自体は I2C のバス特性上、**(1) CoreS3 のスレーブアドレスが GP-02 / PI4IOE5V6408 と衝突しない**、**(2) プルアップ合成値・バス容量・タイミングが安定範囲**、を満たせば理論上は可能。ただし「使用中の共有バスへの相乗り」であり、安定性・プルアップ重複のリスクを伴うため**設計としては非推奨寄り**。
+- ⚠️ Cap CC1101 の I2C 使用状況は回路図未確認（別途要確認）。GP-02 / PI4IOE5V6408 の正確な I2C アドレスも各データシートで要確認。
+
+#### 推奨構成（CoreS3 自己給電を前提に更新 2026-06-19）
+
+**前提**: CoreS3 は**内蔵バッテリー＋モバイルバッテリーで自己給電**する。これにより CardputerZero 側の USB 給電容量（USBA+USBC_L: 1A 制限）や給電競合警告（USBC_R と EXT_5VIN の同時給電禁止）の影響を受けない。
+
+- **第一推奨: 経路 B（USB-A シリアル・データ専用）**。CoreS3 を自己給電とし、CardputerZero(USB-A Host) とは **USB をデータ通信のみ**に使う。電源は各機独立のため給電競合・電流制限を完全に回避。Cap 占有 I2C1 とも UART とも独立した経路で、Cap 併用と完全両立。低遅延で CoreS3 側からの自発送信（イベント駆動入力）も可能。**最もクリーンで安全な構成**。
+- **代替: 経路 A（Wi-Fi）**。物理ケーブルすら不要にしたい場合や、CardputerZero から離れた位置に CoreS3 を置く場合に有効。既存のクラウド/BSAF/MQTT 資産とも親和。
+- 経路 C（I2C 相乗り）/ D（UART 直結）は Cap 併用時の制約・バス安定性リスクが大きく、積極採用しない。
+
+> 💡 **給電分離のポイント**: CoreS3 自己給電なら、USB は「データ線中心」で扱える。給電競合を確実に避けたい場合は、VBUS(5V) を結線しない**データ専用 USB ケーブル**の利用も検討（要動作確認）。USB CDC のデータ線（D+/D-）と GND が繋がっていれば通信は成立する。
+
+#### CoreS3 側の実装メモ
+
+- **モード**: CardputerZero を **USB Host モード**に固定（Slave 時は USB-A 等が無効）。CoreS3 はデバイス側。
+- **デバイス名**: CoreS3 の ESP32-S3 ネイティブ USB を使えば CDC-ACM として `/dev/ttyACM*`、UART ブリッジ経由なら `/dev/ttyUSB*`。実機 `dmesg` / `ls /dev/tty*` で確認。
+- 経路 B: CoreS3 はシリアル送信（JSON over serial 等）。CardputerZero 側は `pyserial` で `/dev/ttyACM*` を読む。`shared/input_encoder/` に「CoreS3 経由バックエンド」を 1 つ追加する形が綺麗。CoreS3 側で複数 UART/I2C ユニットを集約し、デバウンス・加速・単位変換まで前処理して整形済みの値だけ渡せる。
+- 経路 A: CoreS3 は MQTT publisher または HTTP client。CardputerZero(Linux) 側に Mosquitto 等のブローカ、または FastAPI 等のエンドポイントを立てる。
+- CoreS3 は AXP2101 電源管理・タッチ液晶・内蔵バッテリーを搭載。**現在値をタッチ液晶に表示しつつ USB で送信するハイブリッド UI** が可能。
+- 給電は CoreS3 自己給電（内蔵バッテリー / モバイルバッテリー）、CardputerZero は別途給電。**USB はデータ専用**とし給電競合を回避。
+
+> 出典: CardputerZero 回路図 P08（USBA "Only Output"、USBA+USBC_L 1A 制限、USBC_R/EXT_5VIN 同時給電禁止、GROVE_SW=L:UART/H:I2C1）／ Cap LoRa-1262 回路図（P1 の SDA/SCL が GP-02・PI4IOE5V6408・Grove に接続）／ [M5Stack CoreS3 公式](https://docs.m5stack.com/en/core/CoreS3)
+
+#### 1.6.1 確定構成例：CoreS3 入力フロントエンド（INA226 + Chain Encoder ×2）
+
+CoreS3 に以下のユニットを接続し、CardputerZero へ USB 経由で値を流し込む確定構成。CardputerZero 側は Cap 装着の有無に関わらず（EXT/Grove を消費しないため）この入力系を利用できる。
+
+**接続ユニット**
+
+| 接続先ポート | ユニット | 台数 | 通信 | CoreS3 GPIO |
+|--------------|----------|:---:|------|-------------|
+| **Port A（赤・I2C）** | M5Stack INA226 電流電圧測定ユニット ±10A レンジ | 1 | I2C | SDA=G1 / SCL=G2 |
+| **Port C（青・UART）** | M5Stack Chain Encoder（デイジーチェーン） | 2 | UART | RX=G18 / TX=G17 |
+| **Port B（黒・GPIO）** | （App13 導通チェック用）5V/GND 電源取り出し | — | 電源ラインのみ | 5V / GND（G8/G9 は未使用） |
+
+> 💡 **Port B の 5V 活用**: M5Stack の Grove は全ポート共通で 4 線のうち 1 本が **5V**、1 本が GND（公式マニュアルで CoreS3 の Port A/B/C が GND/5V/GPIO 結線と確認済み）。Port B のデータピン（G8/G9）を使わず、**電源ライン（5V/GND）だけを App13 の導通チェック（端子台 C）給電に流用できる**。これにより従来の「PaHUB CH5 から 5V 取得」（直結方式の名残）が不要になり、App13 が CoreS3 だけで完結する。
+
+**全体構成図**
+
+```
+[INA226 ±10A]──I2C──┐
+                     ├─ CoreS3 Port A (G1/G2)
+                     │
+[Chain Encoder #1]   │
+   └[Chain Encoder #2]──UART デイジーチェーン── CoreS3 Port C (G17/G18)
+
+[App13 端子台C]──5V/GND──── CoreS3 Port B (5V/GND・G8/G9未使用)
+                                                     │
+                                          CoreS3（ESP32-S3）
+                                          ・INA226 を I2C で読取
+                                          ・Encoder ×2 を UART で読取
+                                          ・Port B から導通チェック用 5V 供給
+                                          ・タッチ液晶に現在値表示
+                                          ・値を整形し JSON 化
+                                                     │ USB-C (OTG/CDC)
+                                                     │ ※CoreS3 は内蔵バッテリ/モバイルバッテリ自己給電
+                                                     │ ※USB はデータ専用
+                                          ┌──────────┘
+                                   CardputerZero (USB-A Host)
+                                   ・/dev/ttyACM* で受信（pyserial）
+                                   ・Cap 装着可（EXT/Grove 非消費）
+```
+
+**ポイント整理**
+
+1. **同時稼働**: INA226（Port A=I2C）と Chain Encoder ×2（Port C=UART）は別 GPIO のため**同時に動作**する（CoreS3 の Port A/C は独立）。
+2. **Chain Encoder ×2 のデイジーチェーン**: Chain Encoder は UART デイジーチェーン対応のため、Port C 1 系統に 2 台を数珠つなぎできる。粗調整ノブ A / 微調整ノブ B として役割分担（§1.5 の 2 ノブ構成と同じ思想）。
+3. **INA226 ±10A レンジ**: 1 台を Port A に直結。CoreS3 内蔵 I2C デバイスとは別系統のため、アドレス（INA226 既定 0x40〜0x4F 帯）の衝突は原則回避（実機 `i2cdetect` で確認）。
+4. **CardputerZero との独立性**: この入力系は CoreS3 ＋ USB で完結し、CardputerZero の EXT(Cap-Bus)・Grove(I2C1) を一切使わない。よって **Cap LoRa-1262 / CC1101 を装着したままでも、この INA226 計測値と Encoder 操作を CardputerZero で受けられる**。
+5. **給電**: CoreS3 は自己給電（内蔵バッテリ / モバイルバッテリ）。USB はデータ専用とし給電競合を回避。
+6. **App13 導通チェック 5V を Port B から取得**: Port B の Grove 電源ライン（5V/GND）を、App13 のパターン 3（導通チェック）端子台 C の給電に流用。1kΩ 制限抵抗は従来どおり直列に入れる。これにより **PaHUB CH5 からの 5V 取得が不要**になり、App13 が CoreS3 完結型になる。
+   - ⚠️ Port B の「V」は GPIO 制御の 5V ではなく**常時出力の Grove 電源ライン**（CoreS3 の AXP2101 電源経路由来）。導通チェックのような常時 5V 用途には合致するが、GPIO で ON/OFF はできない。
+   - ⚠️ Port B 5V の最大供給電流は公式未確認。パターン 3 は 1kΩ 制限の微小電流のため問題ないと見込まれるが、実機で電圧・電流確認のこと。
+   - ⚠️ 導通チェックの 5V は DUT（被測定物）側に流れるため、CoreS3 電源系と DUT が電気的に繋がる（CardputerZero からは USB により絶縁）。DUT の電位状態に注意。
+
+**データフロー（実装イメージ）**
+
+- CoreS3 側（ESP32-S3 / Arduino or M5Unified）:
+  - `Wire.begin(1, 2)` で Port A の I2C を初期化し INA226 を読取（電圧/電流/電力）。
+  - `Serial2.begin(baud, SERIAL_8N1, 18, 17)` で Port C の UART を初期化し Chain Encoder ×2 を読取。
+  - 両者を 1 つの JSON（例: `{"ina":{"v":..,"i":..,"p":..},"enc":[{"id":0,"delta":..,"btn":..},{"id":1,...}]}`）にまとめ、`Serial`（USB CDC）へ定期送信。
+  - タッチ液晶に現在値（電圧/電流、ノブ位置）を表示。
+- CardputerZero 側（Linux / Python）:
+  - `pyserial` で `/dev/ttyACM*` を開き、JSON 行を読んでパース。
+  - `shared/input_encoder/` に「CoreS3 経由バックエンド」を追加し、Encoder 値を既存の抽象 API（`RotateDelta` / `ButtonPress`）へマッピング。
+  - INA226 計測値はテスター系アプリ（App13 相当）やロギングへ。
+
+> ⚠️ INA226 の実 I2C アドレス、Chain Encoder のデイジーチェーン UART プロトコル（コマンド/識別）、Port C の baud は実機で確定。CoreS3 を **USB Host 側の CardputerZero に対してデバイス（CDC）として認識**させるため、CardputerZero は Host モード固定。
+> 出典: [M5Stack CoreS3 公式](https://docs.m5stack.com/en/core/CoreS3) ／ [Chain Encoder 公式](https://docs.m5stack.com/en/chain/Chain_Encoder) ／ ESPHome CoreS3 ポート割当 ／ M5Stack 製品 I2C アドレス表
 
 ---
 
@@ -414,7 +707,7 @@ Cap LoRa 1262 の AT6668 GNSS チップを使い、走行・サイクリング�
 - [ ] **天球図（Sky Plot）表示**: 円形ビュー（170×170）+ 衛星リスト分割
 - [ ] 衛星カラーコード（GPS / QZSS / GLO / GAL / BDS の 5 色）
 - [ ] SNR をドットサイズで可視化
-- [ ] Chain Encoder（`shared/input_encoder/` 経由・App 10 と共通）で衛星リスト送り・プロット連動ハイライト
+- [ ] 衛星リスト送り・プロット連動ハイライト（入力は **CoreS3 経由の Chain Encoder/エンコーダ**（第一推奨、`shared/input_encoder/` の CoreS3 バックエンド）。App01 は Cap A 使用のため EXT 直結は不可だが、CoreS3 経由なら利用可。CoreS3 非使用時はキーボードにフォールバック）
 - [ ] HDMI 接続時は PRN ラベル付きフルスクリーン Sky Plot に切替
 
 #### Sky Plot（天球図）表示仕様
@@ -593,20 +886,21 @@ App02 を実用化するには、インターネット ↔ LoRa の橋渡しを�
 ### App 03: NFC セキュリティツール群 (`nfc-toolkit`)
 
 **優先度**: ★★★★☆  
-**必要ハードウェア**: Cap B (Hacker Cap) — ST25R3916 NFC チップ
+**必要ハードウェア**: Cap B (Cap CC1101) — ST25R3916 NFC チップ
 
 #### 概要
-Hacker Cap に内蔵の ST25R3916 (13.56 MHz NFC) を使い、カードの読み取り・書き込み・エミュレーションを行う実践的セキュリティ学習ツール。教育・研究・ペネトレーションテスト学習を目的とする。Cap スロット経由で SPI 接続される点に注意（Grove 接続の Unit NFC とは別構成）。
+Cap CC1101 に内蔵の ST25R3916 (13.56 MHz NFC) を使い、カードの読み取り・書き込み・エミュレーションを行う実践的セキュリティ学習ツール。教育・研究・ペネトレーションテスト学習を目的とする。**EXT 2.54-14P（Cap-Bus）経由で SPI 接続される点に注意**（Grove 接続の Unit NFC とは別構成）。本アプリは Cap-Bus を占有するため **Chain Encoder は併用不可**（入力はキーボード操作）。
 
 #### ハードウェア接続（公式回路図 V0.3 より）
 
 ```
-Hacker Cap — ST25R3916 (NFC)
-  接続バス: SPI (共有バス)
+Cap CC1101 — ST25R3916 (NFC)
+  接続バス: SPI (Cap-Bus 共有 / 公式 PinMap)
   ピンアサイン:
     NFC_IRQ: G4
     NFC_CS:  G6
-    SCLK/MOSI/MISO は CC1101 と共有
+    SCLK: G40 / MOSI: G14 / MISO: G39 （CC1101 と共有）
+  ※ MOSI=G14 は本体 EXT の UART_TXD と同一ピン → Chain Encoder と排他
 ```
 
 #### サポートプロトコル
@@ -659,10 +953,10 @@ cargo add libnfc-sys
 ### App 04: Sub-GHz スニファー (`subghz-sniffer`)
 
 **優先度**: ★★★☆☆  
-**必要ハードウェア**: Cap B (Hacker Cap) — CC1101 Sub-GHz チップ
+**必要ハードウェア**: Cap B (Cap CC1101) — CC1101 Sub-GHz チップ
 
 #### 概要
-Hacker Cap に内蔵の CC1101 を使い、Sub-GHz 帯の無線信号を受信・解析する。Flipper Zero の Sub-GHz 機能に相当するが、フル Linux 上で動作するため Python で高度な解析が可能。
+Cap CC1101 に内蔵の CC1101 を使い、Sub-GHz 帯の無線信号を受信・解析する。Flipper Zero の Sub-GHz 機能に相当するが、フル Linux 上で動作するため Python で高度な解析が可能。**EXT 2.54-14P（Cap-Bus）経由で SPI 接続**するため Chain Encoder は併用不可（入力はキーボード操作）。
 
 #### CC1101 チップ詳細スペック
 
@@ -670,21 +964,21 @@ Hacker Cap に内蔵の CC1101 を使い、Sub-GHz 帯の無線信号を受信�
 |------|------|
 | 対応周波数 | 315 / 433 / 868 / 920 MHz (マルチバンド) |
 | 変調方式 | 2-FSK / 4-FSK / GFSK / MSK / ASK / OOK |
-| 受信感度 | -116 dBm (FSK 1.2kbps) |
+| 受信感度 | 最大 -99.5 dBm（公式値） |
 | 送信出力 | 最大 +10 dBm |
-| インターフェース | SPI (4線式) |
+| インターフェース | SPI (4線式・Cap-Bus 共有) |
 | データレート | 0.6 〜 600 kbps |
 
 #### ハードウェア接続（公式回路図 V0.3 より）
 
 ```python
-# CC1101 SPI 接続 (Hacker Cap 経由)
+# CC1101 SPI 接続 (Cap CC1101 経由 / 公式 PinMap)
 CC1101_CS    = "G5"    # SPI Chip Select
 CC1101_SCLK  = "G40"
-CC1101_MOSI  = "G14"
+CC1101_MOSI  = "G14"   # ※ 本体 EXT UART_TXD と同一ピン → Chain Encoder と排他
 CC1101_MISO  = "G39"
 CC1101_RF_SW0 = "G13"  # RF スイッチ制御
-CC1101_GDO0  = "G15"   # 割り込み出力
+CC1101_GDO0  = "G15"   # 割り込み出力 ※ 本体 EXT UART_RXD と同一ピン → Chain Encoder と排他
 ```
 
 #### 対応周波数と用途 (日本国内)
@@ -1187,23 +1481,28 @@ def scan_peaks(sdr: RtlSdr, center_mhz: float, bw_mhz: float = 2.4) -> list[dict
 
 #### 物理 UI 拡張（Chain Encoder × 2 デイジーチェーン）
 
-CardputerZero の 46 キーキーボードだけでは SDR の周波数微調整が困難。
-本体の **2.54mm UART ヘッダ**に **M5Stack Chain Encoder × 2** を
-デイジーチェーン接続し、Flipper Zero ライクな物理ノブ操作を実現する。
+CardputerZero の 46 キーキーボードだけでは SDR の周波数微調整が困難。**M5Stack Chain Encoder × 2** をデイジーチェーン接続し、Flipper Zero ライクな物理ノブ操作を実現する。
 
-> App 13 (`tester`) で Grove ポートを I2C 専用とするため、Chain Encoder は
-> 2.54mm UART ヘッダ経由で接続する構成に変更（HANDOFF 2026-06-11 改訂）。
-> Grove ケーブルから自作変換ハーネスで 2.54mm ピンソケットへ接続する。
+> 🟢 **第一推奨は CoreS3 経由（§1.6.1）**: Chain Encoder ×2 を **CoreS3 の Port C（UART）に接続**し、CoreS3 が読取・整形して **USB 経由で CardputerZero へ**流す。この方式なら配線改造不要で、Cap 装着の有無にも左右されない。App10 では INA226 等を同時に CoreS3 Port A に載せることも可能。
+>
+> 🟡 **代替/旧案: EXT 直結方式**: CoreS3 を使わない最小構成では、本体の **EXT 2.54-14P（Cap-Bus）の Pin 12/14（UART）**に Chain Encoder を直結する。App 10 は Cap を装着しない（RTL-SDR は USB 接続）ため EXT UART が空いており直結可能。ただし HY2.0-4P → 2.54mm 変換ハーネスの自作が必要。Cap を装着するアプリ（App01〜05/08/09）では EXT UART が Cap に占有され直結不可（§1.5 参照）。
 
-> 実装は **`shared/input_encoder/` 共通入力ドライバ**経由で行う（App01 Sky Plot
-> や App11 ホストリスト送りと同じ抽象 API を使う）。
-> 抽象 API 仕様は §9.4 共通モジュール設計 参照。
+> 実装は **`shared/input_encoder/` 共通入力ドライバ**経由で行う（App11 ホストリスト送りと同じ抽象 API を使う）。ドライバは **CoreS3 経由バックエンド（第一推奨）／ EXT UART 直結バックエンド（代替）** を切り替えられる設計とする。抽象 API 仕様は §9.4 共通モジュール設計 参照。
 
-##### 推奨ハードウェア構成
+##### 推奨ハードウェア構成（第一推奨: CoreS3 経由）
+
+```
+[Chain Encoder #1 (粗調整)]
+   └[Chain Encoder #2 (微調整)] ──UART デイジーチェーン── CoreS3 Port C (G17/G18)
+                                                              │ USB (CDC)
+                                                       CardputerZero (USB-A Host, /dev/ttyACM*)
+```
+
+##### 代替ハードウェア構成（旧案: EXT 直結）
 
 ```
 CardputerZero
-  └── 2.54mm UART ヘッダ (TX / RX / 5V / GND)
+  └── EXT 2.54-14P Pin 12/14 (UART_RX / UART_TX) + Pin 4/6 (GND / 5V)
        └── 自作 HY2.0-4P 変換ハーネス
             └── Chain Encoder #1 (粗調整)
                  └── Chain Encoder #2 (微調整)  ← デイジーチェーン
@@ -1225,7 +1524,8 @@ CardputerZero
 ```python
 import serial, struct
 
-# 2.54mm UART ヘッダ経由のデイジーチェーン (CardputerZero 側 /dev/ttyAMA0 想定)
+# 第一推奨(CoreS3経由): /dev/ttyACM* を開く / 代替(EXT直結): /dev/ttyAMA0
+# ※下記は EXT 直結時の例。CoreS3 経由なら CoreS3 が整形した JSON を /dev/ttyACM* から読む（§1.6.1）
 ser = serial.Serial("/dev/ttyAMA0", baudrate=115200, timeout=0.1)
 
 def read_encoders():
@@ -1954,6 +2254,9 @@ scan_target="10.0.0.0/24"
 - [M5Stack Port A I2C 拡張ハブユニット PaHUB v2.1](https://www.switch-science.com/products/10192)
 - いずれも Grove HY2.0-4P 接続
 
+> 🟢 **接続方式の方針（2026-06-19）**: 本アプリの INA226-10A と Chain Encoder は、**第一推奨では CoreS3 をフロントエンドにして接続**する（INA226 → CoreS3 Port A / Chain Encoder → CoreS3 Port C、CoreS3 が USB で CardputerZero へ送信。§1.6.1 の確定構成例がそのまま App13 の構成に対応）。この方式なら CardputerZero 側で Cap 装着の有無に関わらずテスター機能が使え、PaHUB や EXT 直結配線・変換ハーネスが不要。
+> 🟡 **代替/旧案: 直結方式**: CoreS3 を使わない場合は、INA226 を PaHUB(Grove I2C) 経由で、Chain Encoder を EXT 2.54-14P UART 直結で CardputerZero に繋ぐ（以降の結線図・端子台設計はこの直結方式の詳細）。App13 は Cap 非装着のため直結も成立するが、配線・変換ハーネスの手間がかかる。以降の PaHUB チャネル割当・ポンチ画・端子台モジュールは**直結方式を採る場合の参照情報**として残す。
+
 #### 概要
 
 ブレッドボードでの電子工作のお供となる簡易テスター。Raspberry Pi / Arduino /
@@ -2009,9 +2312,12 @@ PaHUB v2.1（PCA9548A、6ch I2C マルチプレクサ）を CardputerZero と IN
 
 #### 結線図（ポンチ画）
 
+> 🟡 **この結線図は「直結方式（代替/旧案）」の詳細図**である。第一推奨は §1.6.1 の CoreS3 経由構成（INA226→Port A / Chain Encoder→Port C / 5V→Port B / USB で CardputerZero へ）であり、その場合 PaHUB・EXT 直結・変換ハーネスは不要。以下は CoreS3 を使わない最小構成の参照図として残す。
+
 CardputerZero ↔ PaHUB ↔ INA226-10A、および Chain Encoder × 2 を含む
-全体の接続構成。Grove ポートは I2C モード固定で運用し、UART デバイス
-（Chain Encoder）は本体の 2.54mm UART ヘッダで配線する。
+全体の接続構成（直結方式）。Grove ポートは I2C モード固定で運用し、UART デバイス
+（Chain Encoder）は本体の **EXT 2.54-14P（Cap-Bus）の Pin 12/14（UART）**で配線する。
+App13 は Cap を装着しないため EXT-UART が空いており、直結方式でも Chain Encoder を利用できる。
 
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
@@ -2246,19 +2552,20 @@ PIN1 (INPUT +) と PIN2 (INPUT -) は未接続・浮き
 > 入力 J7 の 5V がそのまま CH0〜CH5 の Pin 3 へ届く構造。
 > HT7533 LDO で生成する 3.3V は PCA9548A 内部用のみで Grove ポートには出力されない。
 
-- **電流制限抵抗（1kΩ 程度）を必ず PaHUB CH5 5V と PIN1 の間に直列に入れる**
+- **電流制限抵抗（1kΩ 程度）を必ず 5V 供給源と PIN1 の間に直列に入れる**
 - 線が断線していなければ約 3.3mA 程度が流れる → 「OK」判定
 - 流れなければ「NG」判定（INA226 が 0A 近傍を報告）
 - リターン経路は PIN3 (OUTPUT -) または PIN2 (INPUT -) のどちらでも可（内部直結のため等価）
 - 解釈 A 採用時の推奨配線（プラガブル端子台 C モジュール内）:
-  - **PIN1** ← 1kΩ ← 赤線 → **PaHUB CH5 の 5V（Grove ピン 2 赤）**
-  - **PIN2** ← 黒線 → **PaHUB CH5 の GND（Grove ピン 1 黒）**
+  - 🟢 **第一推奨（CoreS3 経由）**: **PIN1** ← 1kΩ ← 赤線 → **CoreS3 Port B の 5V（Grove ピン 2 赤）** ／ **PIN2** ← 黒線 → **CoreS3 Port B の GND（Grove ピン 1 黒）**
+  - 🟡 **代替（直結方式）**: **PIN1** ← 1kΩ ← 赤線 → **PaHUB CH5 の 5V** ／ **PIN2** ← 黒線 → **PaHUB CH5 の GND**
   - **PIN3** ← 黒 IC グラバー → DUT - 側（被測定物の戻り端）
   - **PIN4** → 赤 IC グラバー → DUT + 側（被測定物の入力端）
-  - ⚠️ PaHUB CH5 の SDA/SCL（黄/白）は未使用、Grove ケーブルを切断改造するか切断不要なら未接続のまま放置
+  - ⚠️ Grove ケーブルの SDA/SCL（黄/白）は未使用、切断改造するか未接続のまま放置
 - アプリ側モード: 導通チェックモード（I 監視、閾値超過でブザー or LED）
 - ⚠️ リミッタなしで 5V を直接 PIN1 にかけると、内蔵 5mΩ shunt にいきなり数 A 流れ、PTC ヒューズが作動する可能性
 - ⚠️ 導通治具を作るなら **1kΩ 抵抗付きの専用ケーブル**を別途用意（プローブクリップ + 1kΩ 直列構造）
+- ⚠️ CoreS3 Port B 5V を使う場合、5V は DUT 側に流れるため CoreS3 電源系と DUT が電気的に繋がる（CardputerZero からは USB で絶縁）。Port B 5V の供給電流上限は実機確認
 
 ##### 用途とポートの対応表
 
@@ -2304,7 +2611,7 @@ VH3.96-4P 端子台は基板から脱着可能なため、結線パターン別�
 | --- | --- | --- | --- | --- |
 | 端子台 A | パターン 1 (V/I/W 同時測定) | なし | ワニ口クリップ × 4 | PIN1 ～ PIN4 に赤黒のワニ口クリップを2対 |
 | 端子台 B | パターン 2 (電圧プローブ) | なし | IC グラバー × 2 (赤/黒) | PIN3、PIN4 に赤黒のICグラバー1対 |
-| 端子台 C | パターン 3 (導通チェック) | 赤側 (PIN1 ライン) に **1kΩ + 熱収縮チューブ** 内蔵 | Grove ケーブル赤黒、IC グラバー赤黒 1 対 | **PIN1 から PaHUB CH5 の 5V（Grove ピン 2 赤）へ** 1kΩ を間に挟んだ赤線で接続<br />**PIN2 から PaHUB CH5 の GND（Grove ピン 1 黒）へ** 黒線で接続<br />**PIN3** に黒 IC グラバーを接続し被測定物のマイナス側へ、**PIN4** に赤 IC グラバーを接続し被測定物のプラス側へ<br />⚠️ EXT Pin 4/6 は Chain Encoder #1 に占有されているため使用不可 |
+| 端子台 C | パターン 3 (導通チェック) | 赤側 (PIN1 ライン) に **1kΩ + 熱収縮チューブ** 内蔵 | Grove ケーブル赤黒、IC グラバー赤黒 1 対 | 🟢 **第一推奨（CoreS3 経由）**: **PIN1 → 1kΩ → CoreS3 Port B の 5V（Grove ピン 2 赤）**、**PIN2 → CoreS3 Port B の GND（Grove ピン 1 黒）**<br />🟡 **代替（直結方式）**: **PIN1 → 1kΩ → PaHUB CH5 の 5V**、**PIN2 → PaHUB CH5 の GND**<br />いずれも **PIN3** に黒 IC グラバー（被測定物マイナス）、**PIN4** に赤 IC グラバー（被測定物プラス）<br />⚠️ CardputerZero の EXT Pin 4/6 は（直結方式時）Chain Encoder #1 に占有されるため使用不可 |
 
 - VH3.96-4P プラガブル端子台は単体で 1 個 ¥100〜200 程度で入手可能
 - 追加 ¥500 程度で 3 用途分のモジュールが揃う
@@ -2414,6 +2721,9 @@ INA226-10A はハイサイド方式（電源 + 側に shunt を挿入）を採�
 - [ ] パターン 1 → パターン 2 等、結線変更が必要な遷移では「結線変更してください」表示
 
 **物理入力（Chain Encoder 連携）**
+
+> 入力は `shared/input_encoder/` 経由。第一推奨は **CoreS3 経由**（Chain Encoder を CoreS3 Port C に接続。§1.6.1）、代替は EXT UART 直結。以下のノブ機能割当はバックエンドに依存せず共通。
+
 - [ ] ノブA 回転: モード切替（V プローブ → 電圧判定 → V/A/W 統合 → ログ → 導通）
 - [ ] ノブA 押下: Min/Max リセット、モード進入確認ダイアログの OK
 - [ ] ノブB 回転: 閾値・レンジ・プリセット電圧（3.3 / 5 / 12V）の調整
@@ -2958,11 +3268,12 @@ osprey74/cardputerzero-apps/
 │   ├── gnss_at6668/            # AT6668 共通ドライバ [Cap A]
 │   ├── nfc_st25r3916/          # ST25R3916 共通ドライバ [Cap B]
 │   ├── rf_cc1101/              # CC1101 共通ドライバ [Cap B]
-│   ├── input_encoder/          # Chain Encoder 共通入力ドライバ [2.54mm UART]
-│   ├── ina226/                 # INA226-10A 共通ドライバ [Grove I2C / PaHUB CH0]
-│   ├── pahub/                  # PCA9548A I2C MUX 共通ドライバ (PaHUB v2.1)
+│   ├── input_encoder/          # 入力デバイス共通ドライバ。第一推奨=CoreS3 経由(USB CDC)／代替=EXT 2.54-14P UART 直結。バックエンド切替式
+│   ├── ina226/                 # INA226-10A 共通ドライバ。第一推奨=CoreS3 経由(USB CDC)／代替=Grove I2C(PaHUB CH0) 直結
+│   ├── cores3_bridge/          # CoreS3 フロントエンド連携ドライバ (USB CDC / JSON 受信・パース)。input_encoder/ina226 のバックエンドとして使用
+│   ├── pahub/                  # PCA9548A I2C MUX 共通ドライバ (PaHUB v2.1)。直結方式の場合のみ使用
 │   ├── camera_imx219/          # IMX219 共通カメラドライバ [picamera2 ラッパー]
-│   ├── mlx90614/               # MLX90614 共通ドライバ [Grove I2C / PaHUB CH1]
+│   ├── mlx90614/               # MLX90614 共通ドライバ [Grove I2C / PaHUB CH1]（直結方式）
 │   └── ui_theme/               # 共通 UI テーマ (osprey74 カラー)
 └── scripts/
     ├── setup_device.sh         # デバイス初期セットアップ
@@ -3089,6 +3400,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 ## デバイス接続
 - SSH: `ssh pi@cardputerzero.local`
 - ポート: `22`
+- CoreS3 フロントエンド連携（第一推奨）: CardputerZero を USB Host モードにし、CoreS3 を USB-A に接続。`/dev/ttyACM*` から JSON を受信（INA226 計測値・Chain Encoder 入力）。CoreS3 は自己給電・USB はデータ専用。
 
 ## 重要な制約
 - LCD 解像度: 320×170 px (LVGL)
@@ -3096,13 +3408,16 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - LORA 周波数: 920MHz 帯のみ (日本)・出力 13dBm 以下に制限
 - NFC/Sub-GHz: 自己所有デバイスへの教育目的のみ
 - LAN スキャン: 管理権限のあるネットワークのみ / ISMS 規程に従うこと
+- **入力/計測デバイスは CoreS3 経由が第一推奨**。EXT/Grove 直結は代替/旧案（Cap 非装着時のみ・配線改造要）
 
 ## 共有ドライバ
 - SX1262: `shared/lora_sx1262/`
 - AT6668: `shared/gnss_at6668/`
 - ST25R3916: `shared/nfc_st25r3916/`
 - CC1101: `shared/rf_cc1101/`
-- Chain Encoder: `shared/input_encoder/`
+- 入力エンコーダ: `shared/input_encoder/`（第一推奨=CoreS3 経由 / 代替=EXT UART 直結）
+- INA226: `shared/ina226/`（第一推奨=CoreS3 経由 / 代替=Grove I2C 直結）
+- CoreS3 連携: `shared/cores3_bridge/`（USB CDC / JSON 受信）
 ```
 
 ---
@@ -3146,6 +3461,12 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | INA226 IC データシート (TI) | https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1171/INA226.pdf |
 | M5Stack Unit INA226-10A 国内代理店 | https://www.switch-science.com/products/10735 |
 | M5Stack PaHUB v2.1 (Port A I2C 拡張ハブ / App 13) | https://www.switch-science.com/products/10192 |
+| M5Stack Unit Scroll (U186 / ホイール型 I2C エンコーダ 0x40 / テスター UI) | https://docs.m5stack.com/en/unit/UNIT-Scroll |
+| M5Stack Unit Encoder (U135 / ノブ型 I2C エンコーダ 0x40) | https://docs.m5stack.com/en/unit/encoder |
+| M5Stack Unit 8Encoder (U153 / 8 ノブ I2C エンコーダ 0x41・アドレス可変) | https://docs.m5stack.com/en/unit/8Encoder |
+| M5Stack Unit ExtEncoder (U161 / 外部エンコーダ収集 I2C 0x59・アドレス可変) | https://docs.m5stack.com/en/products/sku/U161 |
+| M5Stack 製品 I2C アドレス一覧表（エンコーダ各種の衝突確認用） | https://docs.m5stack.com/en/product_i2c_addr |
+| M5Stack ESP32 Downloader Kit (A105 / USB-UART 変換・代替策③) | https://shop.m5stack.com/products/usb-ttl-uart-serial-adapter |
 | M5Stack PaHUB v2.1 公式ドキュメント | [docs.m5stack.com/en/unit/Unit-PaHub v2.1](https://docs.m5stack.com/en/unit/Unit-PaHub%20v2.1) |
 | M5Stack PaHUB v2.1 公式回路図 PNG（電源スルー配線確認・App 13 パターン 3 CH5 給電根拠） | [static-cdn.m5stack.com/.../img-103440a9-....png](https://static-cdn.m5stack.com/resource/docs/products/unit/Unit-PaHub2.1/img-103440a9-d7e4-4aab-b784-825aa9b35614.png) |
 | PCA9548A データシート（PaHUB 搭載 I2C MUX IC） | [m5stack.oss-cn-shenzhen.aliyuncs.com/.../pca9548a.pdf](https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/docs/datasheet/unit/pahub2/pca9548a.pdf) |
@@ -3202,17 +3523,19 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 
 #### Cap A: Cap LoRa-1262
 
+- [x] **[Cap A]** 公式ドキュメント・ピンマップ確認済み → [docs.m5stack.com/en/cap/Cap_LoRa-1262](https://docs.m5stack.com/en/cap/Cap_LoRa-1262)。**EXT 2.54-14P（Cap-Bus）接続**を確定。GPS は UART(G14/G15)、LoRa は SPI を使用
 - [ ] Cap LoRa-1262 の日本向け技適番号確認（実機ラベル → 総務省データベース照合、§1.3 参照）
-- [ ] Cap LoRa 1262 の SPI CE (Chip Enable) ピン番号
+- [ ] Cap LoRa-1262 の SPI CE (Chip Enable) ピン番号（公式: LoRa_NSS=G5）
 - [ ] AT6668 (ATGM336H-6N) と Linux gpsd の互換性テスト
-- [ ] SX1262 レジスタ設定で +13dBm 以下に出力制限する手順の検証
+- [ ] SX1262 レジスタ設定で日本の技適範囲内に出力制限する手順の検証
+- [x] **[Cap A]** Chain Encoder との排他確認済み（2026-06-19）: GPS の UART(G14/G15) が EXT-UART と同一ピンのため**併用不可**を確定
 
-#### Cap B: Hacker Cap
+#### Cap B: Cap CC1101（旧称 Hacker Cap）
 
 - [x] **[Cap B]** 公式ドキュメント確認済み → [docs.m5stack.com/en/cap/Cap_CC1101](https://docs.m5stack.com/en/cap/Cap_CC1101)
 - [x] **[Cap B]** CC1101 SPI ピンアサイン確認済み (回路図 V0.3 より: CS=G5, RF_SW0=G13, G0=G15, SCLK=G40, MOSI=G14, MISO=G39)
 - [x] **[Cap B]** ST25R3916 SPI 接続確認済み (NFC_IRQ=G4, NFC_CS=G6, 共有 SPI バス)
-- [ ] **[Cap B]** Cap A / Cap B の Grove 常駐併用可否の実機検証
+- [x] **[Cap B]** Chain Encoder との排他確認済み（2026-06-19）: MOSI=G14 / G0=G15 が EXT-UART と同一ピンのため**併用不可**を確定
 - [ ] **[Cap B]** CC1101 の技適状況確認 (送信可否の判断に必要)
 - [ ] **[Cap B]** nfcpy の ST25R3916 対応確認 (未対応の場合は libst25r3916 C バインディングを検討)
 
@@ -3229,7 +3552,9 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [x] **[App 13]** VH3.96-4P 端子台形式確認済み（2026-06-13、総司確認）: **着脱式（プラガブル）ネジ式 cage clamp** タイプ、基板から脱着可能。用途別プローブを別個の端子台に常時固定し、本体側で差し替えるモジュール運用が可能
 - [ ] **[App 13]** PIN2 (INPUT -) と PIN3 (OUTPUT -) が内部直結であることのテスタ導通確認（裏面ブロック図からは直結に見えるが、実機で最終確認）
 - [ ] **[App 13]** CA-IS3020S の公式データシート入手・絶縁耐圧・I2C 速度上限の確認
-- [ ] **[App 13]** INA226-10A の I2C アドレス（0x41 固定）と PaHUB v2.1 のアドレス（0x70～0x77、DIP スイッチ）の組合せ確認
+- [ ] **[App 13・第一推奨]** CoreS3 経由構成（INA226 → CoreS3 Port A / Chain Encoder → CoreS3 Port C / 導通チェック 5V → CoreS3 Port B / USB で CardputerZero へ）の PoC。成功すれば以下の PaHUB・変換ハーネス・直結系 TODO は不要になる（CoreS3 非使用の最小構成向けに残置）
+- [ ] **[App 13・第一推奨]** CoreS3 Port B の Grove 5V ラインの電圧・供給電流上限を実機確認（パターン 3 導通チェックの 1kΩ 経由微小電流で安定供給できるか）。DUT が CoreS3 電源系と導通する点の安全確認も併せて実施
+- [ ] **[App 13]** INA226-10A の I2C アドレス（0x41 固定）と PaHUB v2.1 のアドレス（0x70～0x77、DIP スイッチ）の組合せ確認 ※直結方式の場合
 - [ ] **[App 13]** Rust `ina226` crate の `linux-embedded-hal` 対応確認 / 非対応の場合は自作レジスタ操作 or Python `smbus2` 実装に切替
 - [ ] **[App 13]** PaHUB v2.1 (PCA9548A) のチャネル切替プロトコル実装（制御レジスタ 1byte 書込）
 - [x] **[App 13]** CardputerZero 2.54mm UART ヘッダのピン配確認済み（2026-06-13）: EXT 2.54-14P の **Pin 12 (G15/RX) / Pin 14 (G14/TX)**。電圧レベル（3.3V/5V）・使用可能 UART デバイス名（`/dev/ttyAMA0` 等）は実機検証で確定すること
@@ -3265,16 +3590,31 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 15]** プリセット温度の妥当性確認（CPU/GPU 警告閾値 / 料理温度の実用範囲）
 - [ ] **[App 15]** UI 上の「医療用ではない」注意表記の常時表示位置確定（LCD 上端 or プリセット切替時のガイダンス）
 
-#### 入力デバイス拡張（Chain Encoder）
+#### 入力デバイス拡張（Chain Encoder / I2C エンコーダ）
 
-- [ ] **[UART]** CardputerZero の 2.54mm UART ヘッダのピン配・電圧レベル・デバイス名確認（HANDOFF 2026-06-11 改訂で Chain Encoder の経路を Grove → 2.54mm UART に変更）
-  - Grove ポートは App 13 で I2C 専用とするため、Chain Encoder は UART ヘッダ経由で接続
+- [x] **[UART]** CardputerZero の EXT 2.54-14P UART ピン配確認済み（2026-06-19 訂正）: **Pin 12 = G15/RXD / Pin 14 = G14/TXD**。これは「2.54mm UART ヘッダ」= EXT 2.54-14P = Cap-Bus と同一であることが判明。電圧レベル・デバイス名（`/dev/ttyAMA0` 等）は実機検証で確定
+  - 🔴 **Cap（A/B）装着時はこの UART が Cap に占有されるため Chain Encoder は併用不可**（§1.5）
+  - Chain Encoder が使えるのは **Cap 非装着アプリ（App10 / App11 / App13）のみ**
   - HY2.0-4P → 2.54mm ピンソケット変換ハーネスの製作要件確定
+- [x] **[I2C エンコーダ採用方針確定]**（2026-06-19）Cap 使用アプリの多ノブ UI は **I2C エンコーダ（Unit Encoder 0x40 / Unit 8Encoder 0x41 / Unit Scroll 0x40 / Unit ExtEncoder 0x59）を PaHUB 経由で接続**する方針に決定。I2C は Cap の UART/SPI と独立のため Cap 併用可。詳細は §1.5
+- [ ] **[I2C・最優先]** Unit Scroll / Unit Encoder（ともに 0x40 固定）を PaHUB の別チャネルに割り当て、INA226-10A と同一バス上で衝突なく読めるか実機 `i2cdetect` で検証。INA226-10A の実 I2C アドレスを併せて確定
+- [ ] **[I2C]** テスター(App13)で Unit Scroll を UI とする実装の PoC（PaHUB チャネル割当例: CH0=INA226 / CH1=Scroll Unit / CH2-4=予備）
+- [ ] **[Cap-Grove・要検証]** [Cap LoRa-1262](https://docs.m5stack.com/en/cap/Cap_LoRa-1262) の **HY2.0-4P（G8/G9 I2C・PI4IOE5V6408 用）** が CardputerZero（CM0 機）で独立 I2C として機能するか実機検証。機能すれば Cap 装着のまま Cap 上 Grove に I2C エンコーダを直結できる。⚠️ 公式ピンマップは Cardputer-Adv 用のため動作保証なし。PI4IOE5V6408 のアドレスとエンコーダ 0x40 の衝突有無も確認
+- [ ] **[Cap-Grove]** [Cap CC1101](https://docs.m5stack.com/en/cap/Cap_CC1101) の Grove インターフェースの I2C ピンアサインを M5Stack 公式へ問い合わせ（ドキュメント非公開）
+- [x] **[回路図確定 2026-06-19]** CardputerZero 回路図 P08 を読解し、**Grove(I2C/UART) と EXT(Cap-Bus) は同一の I2C1(G2/G3)・UART(G14/G15) を共有**することを確定。`GROVE_SW` は L=UART / H=I2C1 のモード切替。→ Cap 装着時は UART も I2C1 も Cap 経由の同一バスとなる
+- [x] **[回路図確定 2026-06-19]** Cap LoRa-1262 回路図を読解し、**装着時に I2C1 を Cap 内部の GP-02(GPS) と PI4IOE5V6408(IO エキスパンダ) が使用**することを確定。→ Grove(I2C) に挿す機器は「独立 I2C」ではなく「Cap 占有 I2C1 への相乗り」
+- [ ] **[I2C・相乗り検証]** GP-02 / PI4IOE5V6408 の I2C アドレスをデータシートで確定し、追加 I2C 機器（エンコーダ 0x40 / PaHUB 0x70 / CoreS3 スレーブ）との衝突有無を確認。実機 `i2cdetect` でバス上の全アドレスを把握
+- [ ] **[I2C・相乗り検証]** Cap 装着 + 追加 I2C 機器を相乗りさせた際の**バス安定性**（プルアップ合成値・容量・通信タイミング）を実機確認
+- [ ] **[Cap CC1101]** Cap CC1101 の I2C 使用状況を回路図で確認（LoRa-1262 と同様に I2C1 を内部使用するか）
+- [ ] **[CoreS3 連携・経路A]** CoreS3 → CardputerZero の Wi-Fi 連携（MQTT/HTTP）PoC。CardputerZero 側にブローカ/エンドポイントを立て、CoreS3 から値を送信
+- [ ] **[CoreS3 連携・経路B]** CoreS3 内蔵 USB を CardputerZero(USB Host) に接続し `/dev/ttyACM*` で受信できるか検証。CoreS3 を UART/I2C ユニットの受け＋前処理に使う構成の PoC
+- [ ] **[UART・代替策]** Grove(UART) と EXT(UART) は同一 G14/G15（回路図確定済み）。Cap 装着時は UART 経路での Chain Encoder/CoreS3 直結は不可。USB-UART 変換（代替策③）でのみ Cap 併用可能
+- [ ] **[USB-UART・代替策]** USB-シリアル変換器（CP2102/CH340 または純正 ESP32 Downloader Kit A105）経由で `/dev/ttyUSB0` を生やし、Cap 併用のまま Chain Encoder を使えるか検証。3.3V ロジック・TX/RX クロス・Host モード固定が前提
 - [ ] **[App 10]** Chain Encoder のデイジーチェーン UART プロトコル仕様確認
   - 公式 Arduino ライブラリのソースを参照し、Linux Python からアクセス可能な実装を確定
   - HANDOFF §3 App10「Python 読み取りサンプル」のコマンド仕様（0xAA55... 8byte）は**仮**のため要更新
 - [ ] **[App 10]** Chain Encoder × 2 連結時のアドレス割り当て・識別ロジックの検証
-- [ ] **[共通]** `shared/input_encoder/` の抽象 API がアプリ側コードで実用に足るかの早期検証（App 01 / App 10 / App 11 のいずれかで PoC）
+- [ ] **[共通]** `shared/input_encoder/` の抽象 API が **UART バックエンド（Chain Encoder）と I2C バックエンド（Unit Encoder 系）の両方**を切り替えられる設計になっているか早期検証（App 10=Chain Encoder / App 13=Scroll Unit で PoC）
 
 ### 9.2 ソフトウェア・ツールチェーン検証
 
@@ -3324,15 +3664,21 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] `shared/nfc_st25r3916/` ドライバの API 設計 (App03 / App08 / App09 で共有)
 - [ ] `shared/rf_cc1101/` ドライバの API 設計 (App04 で使用)
 - [ ] `shared/ina226/` ドライバの API 設計（App 13 で使用、将来 App 02 / App 10 の消費電流測定に転用検討）
-- [ ] `shared/pahub/` ドライバの API 設計（PCA9548A チャネル切替、`select_channel(ch)` / `enable_channels(mask)` 等）
+  - **バックエンド 2 系統**: 第一推奨=CoreS3 経由（`shared/cores3_bridge/` から JSON で電圧/電流/電力を受信）／ 代替=Grove I2C 直結（PaHUB CH0 経由）
+- [ ] `shared/cores3_bridge/` ドライバの API 設計（**CoreS3 フロントエンド連携・第一推奨経路**）
+  - USB CDC (`/dev/ttyACM*`) を開き、CoreS3 が送る JSON（`{"ina":{...},"enc":[...]}`）を行単位でパース
+  - `input_encoder` / `ina226` のバックエンドとして値を供給
+  - 再接続・タイムアウト・不正行スキップのハンドリング
+  - CardputerZero は USB Host モード固定が前提
+- [ ] `shared/pahub/` ドライバの API 設計（PCA9548A チャネル切替、`select_channel(ch)` / `enable_channels(mask)` 等）※**直結方式の場合のみ使用**
 - [ ] `shared/input_encoder/` 共通入力ドライバの API 設計
-  - バックエンド: M5Stack Chain Encoder（2.54mm UART ヘッダ経由デイジーチェーン）一本化
-  - 想定利用元: App01 (Sky Plot 衛星リスト送り) / App10 (周波数選択) / App11 (ホストリスト送り) 等
+  - **バックエンド 2 系統（切替式）**: 第一推奨=**CoreS3 経由**（`shared/cores3_bridge/` 経由で Encoder 値を受信。Cap 装着の有無に関わらず利用可）／ 代替=**EXT 2.54-14P UART 直結**（Cap 非装着アプリのみ）
+  - 想定利用元: App10 (周波数選択) / App11 (ホストリスト送り) / App13 (テスター)。CoreS3 経由なら App01〜09（Cap 使用アプリ含む）でも利用可
   - 抽象 API 要件:
     - イベント型: `RotateDelta(idx, ±N)` / `ButtonPress(idx)` / `ButtonRelease(idx)` / `LedSet(idx, rgb)`
     - 多ノブ識別: デイジーチェーン上の連番 (`idx = 0, 1, 2, ...`)
     - 非同期通知 (LVGL イベントループへのコールバック登録)
-    - 将来別バックエンド（I2C 系エンコーダ等）を追加できる拡張余地を残す抽象化
+    - **バックエンド抽象化**: CoreS3 経由 / EXT UART 直結 / （将来）I2C 系エンコーダ を切り替えられる設計
 - [ ] `shared/camera_imx219/` 共通カメラドライバの API 設計（App 14 で使用、将来 App 06 Edge AI / App 08 NFC×GPS チェックポイントの画像保存等に転用想定）
   - バックエンド: `picamera2` (libcamera) Python ラッパー
   - 抽象 API: `capture_frame()` / `start_preview(callback)` / `stop_preview()` / `set_resolution(w, h)`
@@ -3356,14 +3702,16 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 |---|------|------|-----------|------|------|
 | 1 | CardputerZero 標準版 (KS 出資済み) | 1 | (出資済) | — | 本体 |
 | 2 | Cap LoRa-1262 (Cap A) | 1 | ¥2,838 | ¥2,838 | App 01 / 02 / 05 |
-| 3 | Cap Hacker (Cap B) | 1 | 価格未確定 | ¥?,??? | App 03 / 04 / 08 / 09 |
-| 4 | M5Stack Chain Encoder | 2 | ¥1,122 | ¥2,244 | 物理 UI (App 01 / 10 / 11) |
+| 3 | Cap CC1101 (Cap B) | 1 | 価格未確定 | ¥?,??? | App 03 / 04 / 08 / 09 |
+| 4 | M5Stack Chain Encoder | 2 | ¥1,122 | ¥2,244 | 物理 UI（第一推奨=CoreS3 Port C 接続 / 代替=EXT 直結。App 01 / 10 / 11 / 13） |
+| 4b | M5Stack CoreS3（入力フロントエンド・第一推奨） | 1 | ¥?,??? | ¥?,??? | INA226/Chain Encoder を集約し USB で CardputerZero へ（§1.6.1）。内蔵バッテリ自己給電 |
+| 4c | USB-A↔USB-C データケーブル（CoreS3↔CardputerZero） | 1 | ¥500 | ¥500 | CoreS3 フロントエンド連携。給電競合回避のためデータ専用が望ましい |
 | 5 | M5Stack C6L Meshtastic Unit | 1 | ¥4,290 | ¥4,290 | 自宅 LoRa ゲートウェイ (App 02 / 05) |
 | 6 | RTL-SDR Blog V4 (アンテナキット同梱版) | 1 | $30–40 (≒¥4,500–6,000) | ¥6,000 | App 10 SDR 受信 |
 | 7 | USB-C 充電器 + ケーブル (C6L 常時給電用) | 1 | ¥1,000 | ¥1,000 | C6L 常時稼働 |
-| 13a | [M5Stack Unit INA226-10A (絶縁型 ±10A)](https://www.switch-science.com/products/10735) | 1 | ¥1,584 | ¥1,584 | App 13 テスター |
-| 13b | [M5Stack PaHUB v2.1 (Port A I2C 拡張ハブ)](https://www.switch-science.com/products/10192) | 1 | ¥1,122 | ¥1,122 | App 13 I2C 分岐・将来 I2C センサ拡張 |
-| 13c | HY2.0-4P → 2.54mm ピンソケット変換ハーネス（自作 or 市販 Grove ケーブル切断） | 1 | ¥300 | ¥300 | Chain Encoder を 2.54mm UART ヘッダに接続 |
+| 13a | [M5Stack Unit INA226-10A (絶縁型 ±10A)](https://www.switch-science.com/products/10735) | 1 | ¥1,584 | ¥1,584 | App 13 テスター（第一推奨=CoreS3 Port A 接続 / 代替=PaHUB I2C 直結） |
+| 13b | [M5Stack PaHUB v2.1 (Port A I2C 拡張ハブ)](https://www.switch-science.com/products/10192) | 1 | ¥1,122 | ¥1,122 | ※**直結方式の場合のみ必須**。CoreS3 経由なら不要（将来 I2C センサ多数拡張時に有用） |
+| 13c | HY2.0-4P → 2.54mm ピンソケット変換ハーネス（自作 or 市販 Grove ケーブル切断） | 1 | ¥300 | ¥300 | ※**EXT 直結方式の場合のみ**。Chain Encoder を EXT 2.54-14P UART (Pin 12/14) に接続。CoreS3 経由なら不要 |
 | 13d | IC テストフック（グラバークリップ）赤・黒 | 2 本 | ¥300〜600 | ¥600 | App 13 プローブ先端（IC ピン・基板ランド掴み） |
 | 13e | カーボン抵抗 1kΩ 1/4W（または金属皮膜 1%） | 100 本 | ¥100 | ¥100 | App 13 パターン 3 導通チェック用電流制限 |
 | 13f | 熱収縮チューブ φ3〜5mm | 少量 | ¥200 | ¥200 | App 13 抵抗内蔵部の絶縁 |
@@ -3404,7 +3752,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 1. **Phase 0 (Kickstarter 到着前)**: なし — 仕様書整備に集中
 2. **Phase 1 (CardputerZero 到着直後)**: Cap A、Chain Encoder × 2、C6L、**INA226-10A + PaHUB v2.1 + 変換ハーネス (App 13 早期検証用)**
 3. **Phase 2 (App 10 着手前)**: RTL-SDR Blog V4
-4. **Phase 3 (Cap B 発売後)**: Cap Hacker
+4. **Phase 3 (Cap B 発売後)**: Cap CC1101
 5. **Phase 4 (運用拡張時)**: 推奨群
 
 > ⚠️ 価格・在庫はスイッチサイエンス・M5Stack 公式ストア・RTL-SDR Blog 等の
@@ -3427,7 +3775,8 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | **Phase 5** | Phase 4 完了後〜2ヶ月 | App 05 (BSAF 二系統受信) 実装 | Bluesky 投稿 → MQTT → LoRa → CardputerZero LCD 表示 |
 | **Phase 6** | Cap B 入手後 | App 03 / 04 (NFC / Sub-GHz) 実装 | nfcpy で自己所有 Suica の UID 読取 + rtl_433 で温湿度センサーデコード |
 | **Phase 7** | 業務利用前 | App 11 (LAN Scanner) 実装 + ISMS 規程との整合性確認 | 自宅 LAN を nmap でスキャンし JSON 保存 |
-| **Phase 1.5** | Phase 1 と並行可 | App 13 (テスター) 実装 + `shared/ina226/` + `shared/pahub/` 確立、Chain Encoder 用 2.54mm UART 変換ハーネス製作 | (a) `tests/ina226_terminal_check.py` のステップ 1～4 全完了で端子動作確認、(b) PaHUB CH0 経由で INA226-10A から電圧/電流/電力をリアルタイム表示、(c) Chain Encoder × 2 が 2.54mm UART ヘッダで認識 |
+| **Phase 1.5** | Phase 1 と並行可 | App 13 (テスター) 実装 + `shared/ina226/` + `shared/cores3_bridge/` 確立（第一推奨: CoreS3 経由）。代替として `shared/pahub/` + EXT UART 変換ハーネス（直結方式） | (a) `tests/ina226_terminal_check.py` のステップ 1～4 全完了で端子動作確認、(b) **CoreS3 経由**で INA226-10A の電圧/電流/電力を `/dev/ttyACM*` から受信しリアルタイム表示（または代替: PaHUB CH0 直結で表示）、(c) **CoreS3 Port C に接続した Chain Encoder × 2** を CoreS3 経由で認識（または代替: EXT 2.54-14P UART 直結で認識・Cap 非装着時） |
+| **Phase 1.55** | Phase 1.5 と並行可 | CoreS3 フロントエンド連携の確立: CoreS3 側スケッチ（INA226 I2C 読取 + Chain Encoder UART 読取 + JSON 送信 + タッチ表示）+ CardputerZero 側 `shared/cores3_bridge/`（USB CDC 受信・パース） | (a) CoreS3 が Port A の INA226 と Port C の Chain Encoder ×2 を同時読取、(b) JSON を USB-C(CDC) で送信、(c) CardputerZero が USB-A Host モードで `/dev/ttyACM*` から受信・パース成功、(d) Cap 装着状態でも入力系が機能することを確認 |
 | **Phase 1.6** | Phase 1 と並行可 | App 14 (QR コードリーダー / アナライザー) 実装 + `shared/camera_imx219/` 確立 + osprey74 ウェブ版ナレッジモード移植 | (a) `pyzbar` で IMX219 のリアルタイム QR デコード成功、(b) Wi-Fi QR から `nmcli` 自動接続 PoC 完了、(c) ナレッジモードでバージョン/ECC/マスクパターン 0-7 切替の可視化が動作 |
 | **Phase 1.7** | Phase 1.5 完了後または並行 | App 15 (非接触温度計) 実装 + `shared/mlx90614/` 確立 + PaHUB CH1 経由運用 | (a) MLX90614 から T_obj/T_amb のリアルタイム読出成功、(b) CPU/GPU/料理プリセットでの閾値判定動作、(c) PaHUB CH0 (INA226) と CH1 (MLX90614) の同時運用確認 |
 | **Phase 8** | 任意 | App 06 / 07 / 08 / 09 実装 | 個別に完了 |
