@@ -1,0 +1,62 @@
+<svg width="100%" viewBox="0 0 680 400" role="img" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+<title>推奨② Cap LoRa-1262 の Grove(G8/G9 I2C) 活用パターン</title>
+<desc>Cap LoRa-1262 は内部IOエキスパンダ用のG8/G9 I2CをHY2.0-4Pとして外部に引き出す。これが独立I2Cとして機能すれば、Cap装着のままCap上GroveにI2Cエンコーダを接続できる（要実機検証）。</desc>
+<style>
+text{fill:#2C2C2A}.th{font-size:14px;font-weight:500}.ts{font-size:12px;fill:#5F5E5A}
+.gray{fill:#F1EFE8;stroke:#5F5E5A}.gray .th{fill:#2C2C2A}
+.teal{fill:#E1F5EE;stroke:#0F6E56}.teal .th{fill:#085041}.teal .ts{fill:#0F6E56}
+.amber{fill:#FAEEDA;stroke:#854F0B}.amber .th{fill:#633806}.amber .ts{fill:#854F0B}
+.coral{fill:#FAECE7;stroke:#993C1D}.coral .th{fill:#712B13}.coral .ts{fill:#993C1D}
+.red{fill:#FCEBEB;stroke:#A32D2D}.red .th{fill:#791F1F}.red .ts{fill:#A32D2D}
+</style>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+
+<text class="th" x="40" y="28">推奨② Cap LoRa-1262 の Grove(G8/G9) 活用 ── 要実機検証</text>
+
+<g class="gray">
+<rect x="40" y="44" width="270" height="120" rx="12" stroke-width="0.5"/>
+<text class="th" x="58" y="68">CardputerZero 本体</text>
+<text class="ts" x="58" y="88">上部 EXT 2.54-14P</text>
+</g>
+
+<g class="coral">
+<rect x="62" y="100" width="226" height="48" rx="8" stroke-width="0.5"/>
+<text class="th" x="175" y="120" text-anchor="middle">Cap LoRa-1262 装着</text>
+<text class="ts" x="175" y="138" text-anchor="middle">EXT を専有（SPI+UART）</text>
+</g>
+
+<line x1="310" y1="124" x2="356" y2="124" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+<g class="coral">
+<rect x="358" y="44" width="282" height="120" rx="12" stroke-width="0.5"/>
+<text class="th" x="376" y="68">Cap LoRa-1262 基板上</text>
+<text class="ts" x="376" y="88">内部 IO エキスパンダ用 I2C を引出し</text>
+</g>
+
+<g class="teal">
+<rect x="380" y="100" width="240" height="48" rx="8" stroke-width="0.5"/>
+<text class="th" x="500" y="120" text-anchor="middle">Cap 上 Grove（G8/G9 I2C）</text>
+<text class="ts" x="500" y="138" text-anchor="middle">PI4IOE5V6408 と同バス</text>
+</g>
+
+<line x1="500" y1="164" x2="500" y2="196" stroke="#1D9E75" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+<g class="amber">
+<rect x="380" y="198" width="240" height="52" rx="8" stroke-width="0.5"/>
+<text class="th" x="500" y="220" text-anchor="middle">I2C エンコーダ</text>
+<text class="ts" x="500" y="239" text-anchor="middle">Scroll / Encoder Unit を直結</text>
+</g>
+
+<g class="teal">
+<rect x="40" y="278" width="600" height="44" rx="8" stroke-width="0.5"/>
+<text class="ts" x="58" y="305">狙い: EXT を Cap が専有していても、Cap 自身の Grove(G8/G9 I2C) からエンコーダを接続 → Cap 併用 UI を実現</text>
+</g>
+
+<g class="red">
+<rect x="40" y="330" width="600" height="52" rx="8" stroke-width="0.5"/>
+<text class="th" x="58" y="352">🔴 要検証（§9.1）</text>
+<text class="ts" x="58" y="372">公式ピンマップは Cardputer-Adv 用。CardputerZero で G8/G9 が独立 I2C か実機 i2cdetect で確認必須</text>
+</g>
+</svg>
