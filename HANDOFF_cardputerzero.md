@@ -3019,15 +3019,25 @@ HDMI 接続時は 1080p で詳細描画（osprey74 ウェブ版に近い情報�
 **必要ハードウェア**:
 
 - [M5Stack 非接触温度センサユニット (NCIR / MLX90614)](https://www.switch-science.com/products/5220) — Grove HY2.0-4P 接続
-- [PaHUB v2.1](https://www.switch-science.com/products/10192) — App 13 と共有（CH1 を本アプリに割当）
+- **第一推奨**: [M5Stack Hub Unit (U006)](https://www.switch-science.com/products/5696) — CoreS3 Port A I2C を 1→3 受動分岐し、INA226 (App13) と同居させる
+- 代替: [PaHUB v2.1](https://www.switch-science.com/products/10192) — App 13 と共有（CH1 を本アプリに割当・**直結方式時のみ**）
 
 #### 概要
 
 Melexis **MLX90614** を搭載した M5Stack NCIR ユニットを使い、対象物の表面温度を
 非接触で測定する簡易温度計アプリ。**業務用機材の発熱点検・PC/GPU サーマルチェック・
-料理補助** を主な用途とする。App 13 (テスター) で予定している PaHUB v2.1 の
-**CH1** に挿すだけで I2C バスを共有でき、ハードウェア追加負担はセンサーユニット
-本体のみ。
+料理補助** を主な用途とする。
+
+**接続方式（2026-06-19 更新）**:
+
+- **第一推奨: CoreS3 Port A I2C 同居方式**（§1.6.1）。MLX90614 (I2C 0x5A) と
+  App13 の INA226 (I2C 0x40-0x4F 帯) は**アドレスが衝突しない**ため、CoreS3 Port A
+  の I2C バスに **Hub Unit (U006・受動 1→3 分岐)** を介して同居させられる。
+  PaHUB のような MUX は不要。CoreS3 が両センサを同一ループで読み取り、JSON にして
+  USB CDC で CardputerZero に流す。
+- **代替: PaHUB v2.1 経由方式**（直結方式時）。CoreS3 を使わない最小構成では、
+  PaHUB v2.1 の CH1 に NCIR を挿し、CH0 の INA226 と MUX で分離して使う。
+  ハードウェア追加負担はセンサーユニット本体のみ。
 
 #### 想定ユースケース（採用機能）
 
@@ -3088,16 +3098,34 @@ Melexis **MLX90614** を搭載した M5Stack NCIR ユニットを使い、対象
 
 | レイヤー | 採用技術 |
 | --- | --- |
-| I2C ドライバ | Linux `i2c-dev` (`/dev/i2c-1`) |
-| Python 側 | `smbus2` + 自作 MLX90614 レジスタアクセス（`0x07` = T_obj, `0x06` = T_amb） |
-| Rust 側 | `mlx9061x` crate (`embedded-hal` 経由) |
-| PaHUB 制御 | `shared/pahub/` 共通ドライバ（CH1 enable） |
+| 第一推奨: 入力経路 | **CoreS3 経由（USB CDC・JSON）** `shared/cores3_bridge/` で受信。CoreS3 側で I2C 読取・整形 |
+| 代替: 入力経路 | Linux `i2c-dev` (`/dev/i2c-1`) + `smbus2` で PaHUB v2.1 CH1 enable → MLX90614 直読 |
+| Rust 側 (代替経路) | `mlx9061x` crate (`embedded-hal` 経由) |
+| PaHUB 制御 (代替経路) | `shared/pahub/` 共通ドライバ（CH1 enable・直結方式時のみ） |
 | UI フレームワーク | LVGL (czdev) |
 | ログ形式 | CSV (`timestamp_ms, t_obj_c, t_amb_c, preset_name`) |
 | ストレージ | `/mnt/sdcard/ncir_logs/` |
 
+##### 第一推奨経路（CoreS3 → USB CDC）
+
+CoreS3 側 ESP32-S3 が Port A の I2C バス（Hub Unit 経由で INA226 と同居）から MLX90614 を読み、JSON 化して USB CDC で CardputerZero に流す。CardputerZero 側は `pyserial` で `/dev/ttyACM*` を開いてパースするだけ。MUX 制御コードは不要。
+
+```c
+// CoreS3 側 (Arduino / M5Unified) 抜粋
+Wire.begin(1, 2);  // Port A: SDA=G1 / SCL=G2
+// INA226 (0x40-0x4F 帯) と MLX90614 (0x5A) はアドレス衝突しないため
+// Hub Unit (U006) で 1→3 受動分岐して同居読取可能
+uint16_t raw = readWord(MLX_ADDR, REG_T_OBJ);
+float t_obj_c = raw * 0.02f - 273.15f;
+Serial.printf("{\"ncir\":{\"t_obj\":%.2f}}\n", t_obj_c);
+```
+
+##### 代替経路（CardputerZero 直結・PaHUB v2.1 CH1）
+
+CoreS3 を使わない最小構成での参考実装。`shared/pahub/` で CH1 を enable してから MLX90614 を読む。
+
 ```python
-# Python サンプル (smbus2 経由・PaHUB CH1 enable 想定)
+# Python サンプル (smbus2 経由・PaHUB CH1 enable 想定・直結方式時のみ)
 import smbus2
 
 I2C_BUS = 1
@@ -3146,11 +3174,10 @@ print(f"Object: {t_obj_c:.2f}℃")
 
 #### エコシステム連携
 
-- **App 13 (`tester`)**: PaHUB v2.1 を共有（CH0=INA226 / CH1=MLX90614）。
-  電圧/電流測定と温度測定を同時表示する **「電子工作モニタ」モード** の将来統合候補
-- **`shared/pahub/`**: App 13 と共通の I2C MUX 制御ドライバ
-- **`shared/mlx90614/`**: 本アプリ用 MLX90614 ドライバ（将来 App 06 Edge AI の
-  サーマル推論など、他アプリでの転用余地）
+- **App 13 (`tester`)**: 第一推奨経路では **CoreS3 Port A I2C バスを共有**（Hub Unit U006 で 1→3 受動分岐し INA226 と同居・MUX 不要）。電圧/電流/温度を CoreS3 が同一ループで読取り JSON 化、CardputerZero 側は USB CDC から両者を同時受信できるため、**「電子工作モニタ」モード** の統合実装が容易。代替（直結方式）時のみ PaHUB v2.1 CH0=INA226 / CH1=MLX90614 で共有
+- **`shared/cores3_bridge/`**: 第一推奨経路の USB CDC / JSON 受信ドライバ（App 13 / App 15 共通）
+- **`shared/pahub/`**: 代替経路（直結方式）の I2C MUX 制御ドライバ（App 13 と共通）
+- **`shared/mlx90614/`**: 本アプリ用 MLX90614 ドライバ（2 バックエンド: CoreS3 経由 = JSON フィールド読取 / PaHUB 直結 = `smbus2` + `pahub` CH1 enable）。将来 App 06 Edge AI のサーマル推論など、他アプリでの転用余地
 
 #### ⚠️ 法的・倫理的注意事項
 
@@ -3237,7 +3264,7 @@ osprey74/cardputerzero-apps/
 │   ├── lan-scanner/            # App 11 [本体 Wi-Fi / 有線 LAN]
 │   ├── tester/                 # App 13 [Grove I2C INA226]
 │   ├── qr-toolkit/             # App 14 [本体 IMX219 カメラ・標準版限定]
-│   └── ncir-thermometer/       # App 15 [Grove I2C MLX90614 / PaHUB CH1]
+│   └── ncir-thermometer/       # App 15 [第一推奨=CoreS3 Port A I2C (Hub Unit U006 経由・INA226 同居) / 代替=PaHUB CH1 直結]
 ├── shared/
 │   ├── lora_sx1262/            # SX1262 共通ドライバ [Cap A]
 │   ├── gnss_at6668/            # AT6668 共通ドライバ [Cap A]
@@ -3248,7 +3275,7 @@ osprey74/cardputerzero-apps/
 │   ├── cores3_bridge/          # CoreS3 フロントエンド連携ドライバ (USB CDC / JSON 受信・パース)。input_encoder/ina226 のバックエンドとして使用
 │   ├── pahub/                  # PCA9548A I2C MUX 共通ドライバ (PaHUB v2.1)。直結方式の場合のみ使用
 │   ├── camera_imx219/          # IMX219 共通カメラドライバ [picamera2 ラッパー]
-│   ├── mlx90614/               # MLX90614 共通ドライバ [Grove I2C / PaHUB CH1]（直結方式）
+│   ├── mlx90614/               # MLX90614 共通ドライバ。第一推奨=CoreS3 経由 (USB CDC JSON フィールド) / 代替=Grove I2C + PaHUB CH1 直結。バックエンド切替式
 │   └── ui_theme/               # 共通 UI テーマ (osprey74 カラー)
 └── scripts/
     ├── setup_device.sh         # デバイス初期セットアップ
@@ -3557,11 +3584,13 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 #### I2C センサ拡張（App 15）
 
 - [ ] **[App 15]** M5Stack NCIR Unit (MLX90614) を Switch Science で発注（在庫確認済み・¥3,729）
-- [ ] **[App 15]** PaHUB v2.1 CH1 への配線確定（CH0 = INA226 と並列運用）
+- [ ] **[App 15・第一推奨]** Hub Unit (U006) を Switch Science で発注（CoreS3 Port A I2C 1→3 分岐用・¥528）。INA226 と MLX90614 を Port A I2C バスに同居させる物理結線確定
+- [ ] **[App 15・第一推奨]** CoreS3 側 ESP32-S3 スケッチで MLX90614 (0x5A) を I2C 読取し T_obj / T_amb を JSON フィールドに含めて USB CDC 送信する実装。INA226 同居読取と同一ループで処理
+- [ ] **[App 15・第一推奨]** CardputerZero 側 `shared/mlx90614/` の CoreS3 経由バックエンド実装（USB CDC JSON から `t_obj` / `t_amb` フィールド抽出）
+- [ ] **[App 15・代替]** Python `smbus2` ベースで T_obj / T_amb 読み出し PoC（PaHUB CH1 enable → MLX90614 0x07/0x06 読出・直結方式時のみ）
+- [ ] **[App 15・代替]** PaHUB CH0 (INA226) + CH1 (MLX90614) の同時 enable 運用確認（アドレス衝突なしのため成立するはず・直結方式時のみ）
 - [ ] **[App 15]** MLX90614 の実機 I2C アドレス確認（デフォルト 0x5A・実機での確認要）
-- [ ] **[App 15]** Python `smbus2` ベースで T_obj / T_amb 読み出し PoC（PaHUB CH1 enable → MLX90614 0x07/0x06 読出）
 - [ ] **[App 15]** Rust `mlx9061x` crate の `linux-embedded-hal` 対応確認 / 非対応の場合は自作レジスタ操作 or Python に切替
-- [ ] **[App 15]** PaHUB CH0 (INA226) + CH1 (MLX90614) の同時 enable 運用確認（アドレス衝突なしのため成立するはず）
 - [ ] **[App 15]** プリセット温度の妥当性確認（CPU/GPU 警告閾値 / 料理温度の実用範囲）
 - [ ] **[App 15]** UI 上の「医療用ではない」注意表記の常時表示位置確定（LCD 上端 or プリセット切替時のガイダンス）
 
@@ -3658,6 +3687,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
   - 抽象 API: `capture_frame()` / `start_preview(callback)` / `stop_preview()` / `set_resolution(w, h)`
   - LVGL Canvas への直接描画パスと、numpy ndarray 取得パスの両方をサポート
 - [ ] `shared/mlx90614/` 共通ドライバの API 設計（App 15 で使用、将来 App 06 Edge AI のサーマル推論などに転用想定）
+  - **バックエンド 2 系統**: 第一推奨=CoreS3 経由（`shared/cores3_bridge/` 経由で T_obj/T_amb を JSON 受信）／ 代替=Grove I2C 直結（PaHUB CH1 経由・smbus2）
   - バックエンド: `smbus2` (Python) / `mlx9061x` crate (Rust)
   - 抽象 API: `read_object_temp() -> ℃` / `read_ambient_temp() -> ℃` / `set_emissivity(0.0-1.0)`
   - PaHUB v2.1 経由のチャネル選択を呼び出し側に依存させる（`shared/pahub/` と分離）
@@ -3752,7 +3782,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | **Phase 1.5** | Phase 1 と並行可 | App 13 (テスター) 実装 + `shared/ina226/` + `shared/cores3_bridge/` 確立（第一推奨: CoreS3 経由）。代替として `shared/pahub/` + EXT UART 変換ハーネス（直結方式） | (a) `tests/ina226_terminal_check.py` のステップ 1～4 全完了で端子動作確認、(b) **CoreS3 経由**で INA226-10A の電圧/電流/電力を `/dev/ttyACM*` から受信しリアルタイム表示（または代替: PaHUB CH0 直結で表示）、(c) **CoreS3 Port C に接続した Chain Encoder × 2** を CoreS3 経由で認識（または代替: EXT 2.54-14P UART 直結で認識・Cap 非装着時） |
 | **Phase 1.55** | Phase 1.5 と並行可 | CoreS3 フロントエンド連携の確立: CoreS3 側スケッチ（INA226 I2C 読取 + Chain Encoder UART 読取 + JSON 送信 + タッチ表示）+ CardputerZero 側 `shared/cores3_bridge/`（USB CDC 受信・パース） | (a) CoreS3 が Port A の INA226 と Port C の Chain Encoder ×2 を同時読取、(b) JSON を USB-C(CDC) で送信、(c) CardputerZero が USB-A Host モードで `/dev/ttyACM*` から受信・パース成功、(d) Cap 装着状態でも入力系が機能することを確認 |
 | **Phase 1.6** | Phase 1 と並行可 | App 14 (QR コードリーダー / アナライザー) 実装 + `shared/camera_imx219/` 確立 + osprey74 ウェブ版ナレッジモード移植 | (a) `pyzbar` で IMX219 のリアルタイム QR デコード成功、(b) Wi-Fi QR から `nmcli` 自動接続 PoC 完了、(c) ナレッジモードでバージョン/ECC/マスクパターン 0-7 切替の可視化が動作 |
-| **Phase 1.7** | Phase 1.5 完了後または並行 | App 15 (非接触温度計) 実装 + `shared/mlx90614/` 確立 + PaHUB CH1 経由運用 | (a) MLX90614 から T_obj/T_amb のリアルタイム読出成功、(b) CPU/GPU/料理プリセットでの閾値判定動作、(c) PaHUB CH0 (INA226) と CH1 (MLX90614) の同時運用確認 |
+| **Phase 1.7** | Phase 1.5 / 1.55 完了後または並行 | App 15 (非接触温度計) 実装 + `shared/mlx90614/` 確立（第一推奨: CoreS3 経由 / 代替: PaHUB CH1 経由） | (a) MLX90614 から T_obj/T_amb のリアルタイム読出成功、(b) CPU/GPU/料理プリセットでの閾値判定動作、(c) **第一推奨**: CoreS3 Port A I2C バスに Hub Unit (U006) で INA226 と MLX90614 を同居させた状態で両者同時読取成功 (CoreS3 → USB CDC → CardputerZero パース)、または **代替**: PaHUB CH0 (INA226) と CH1 (MLX90614) の同時運用確認 (直結方式) |
 | **Phase 8** | 任意 | App 06 / 07 / 08 / 09 実装 | 個別に完了 |
 | **Phase 9** | 各 App 完成時 | `czdev upload` で CardputerZeroRepository に投稿 | 公式 AppStore で `apt install` 可能になる |
 
@@ -3763,9 +3793,10 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 > App 14 もハードウェア依存が本体内蔵 IMX219 カメラのみで Cap A/B 非依存のため、
 > Phase 1.5 と並行して進められる「日常利用ツール」枠。標準版限定のため Lite 版では動作しない。
 >
-> App 15 は App 13 と同じ PaHUB v2.1 を経由するため、Phase 1.5 で確立した
-> `shared/pahub/` ドライバの再利用が前提。Cap A/B 非依存・カメラ非依存のため
-> Lite 版でも動作する。
+> App 15 は App 13 と同じ I2C センサ群（電流・電圧・温度）の一員として、
+> 第一推奨では CoreS3 Port A 同居（Hub Unit U006 で 1→3 分岐）、代替では
+> Phase 1.5 で確立した `shared/pahub/` ドライバの再利用（PaHUB CH1）。
+> Cap A/B 非依存・カメラ非依存のため Lite 版でも動作する。
 
 ### 11.1 法令・スキル別 Phase 配置の考え方
 
