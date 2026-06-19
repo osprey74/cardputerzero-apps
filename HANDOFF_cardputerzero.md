@@ -407,6 +407,8 @@ CoreS3 に以下のユニットを接続し、CardputerZero へ USB 経由で値
 
 **全体構成図**
 
+![CoreS3 入力フロントエンド構成（第一推奨）](./assets/cardputerzero_cores3_frontend.svg)
+
 ```
 [INA226 ±10A]──I2C──┐
                      ├─ CoreS3 Port A (G1/G2)
