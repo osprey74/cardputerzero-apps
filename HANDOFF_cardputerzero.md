@@ -238,15 +238,16 @@ App 10（SDR 受信機）の周波数選択、その他 LCD 上での一覧ス�
 2. **Chain Encoder は UART デバイス**（STM32G031・UART デイジーチェーン）。直結方式での接続経路は EXT 2.54-14P の Pin 12/14（G14/G15 UART）一択。
 3. **第一の判断軸は「I2C の有無」ではなく「Cap を装着するか否か」**。Cap 装着時点で UART 系（Chain Encoder）はどの経路でも使えなくなる（直結方式の場合。CoreS3 経由ならこの制約は無い）。
 
-#### 運用方針マトリクス（確定版）
+#### 運用方針マトリクス（確定版・2026-06-19 改訂）
 
-| アプリ分類 | EXT(UART) の状態 | 採用する UI 入力デバイス | バックエンド |
-|-----------|------------------|--------------------------|--------------|
-| **テスター（App13）** | 空き（Cap 非装着） | **Unit Scroll（I2C 0x40）** | PaHUB I2C（INA226 と同居） |
-| **Cap 非装着アプリ（App10 SDR / App11 LAN Scanner）** | 空き | **Chain Encoder ×2（EXT UART）** ※ I2C エンコーダも選択可 | EXT 2.54-14P UART |
-| **Cap 使用アプリ（App01-05 / 08 / 09）** | Cap が専有 | **Unit Encoder / Unit Scroll（I2C）** または **キーボード** | PaHUB I2C ／ 内蔵キーボード |
+| アプリ分類 | 第一推奨 (CoreS3 経由) | 代替 (直結方式) |
+|-----------|------------------------|-----------------|
+| **テスター（App13）** | **Chain Encoder ×2**（CoreS3 Port C UART → USB CDC・§1.6.1） | EXT 2.54-14P UART 直結（Cap 非装着時のみ・要 HY2.0 変換ハーネス） |
+| **Cap 非装着アプリ（App10 SDR / App11 LAN Scanner）** | **Chain Encoder ×2**（CoreS3 Port C UART → USB CDC） | EXT 2.54-14P UART 直結 |
+| **Cap 使用アプリ（App01-05 / 08 / 09）** | **Chain Encoder ×2**（CoreS3 Port C UART → USB CDC） | **キーボード**（Cap が EXT UART を専有するため直結方式での Chain Encoder 不可） |
 
-> 📌 **使い分けの意図**: テスターは据置で「値送り」操作 → ホイール型 Scroll Unit が馴染む。SDR 等は手持ちで「連続掃引」 → 無限回転ノブの Chain Encoder（または Unit Encoder）が馴染む。これは物理的強制ではなく**用途特性に沿った設計ポリシー**。
+> 📌 **方針の整理（2026-06-19）**: CoreS3 をフロントエンドにすれば Cap 装着の有無に関わらず Chain Encoder ×2 が全アプリで素直に使えるため、**全アプリ共通の標準入力デバイスを Chain Encoder ×2 (CoreS3 経由) に統一**する。
+> 当初検討していた **Scroll Unit ×2 (PaHUB CH1/CH2 分離) 構成** は、CoreS3 経由方式の採用により Cap 装着時の制約が無くなったため不要となり、不採用とした（経緯は本節末尾「検討したが不採用」表に追記）。
 
 #### ポート占有図 + PaHUB チャネル割当
 
@@ -256,14 +257,15 @@ App 10（SDR 受信機）の周波数選択、その他 LCD 上での一覧ス�
 
 | CH | 割当 | 用途 |
 |----|------|------|
-| CH0 | INA226-10A（要実機アドレス確認） | 電流/電圧測定（App13 テスター） |
-| CH1 | Unit Scroll（0x40） | テスター UI・値送りホイール |
-| CH2 | Unit Encoder（0x40） | Cap 使用アプリの多ノブ UI |
+| CH0 | INA226-10A（要実機アドレス確認） | 電流/電圧測定（App13 テスター・直結方式時のみ） |
+| CH1 | MLX90614（NCIR・0x5A） | 非接触温度測定（App15・直結方式時のみ） |
+| CH2 | 予備 | 将来 I2C センサ拡張 |
 | CH3 | 予備 | 将来 I2C センサ拡張 |
-| CH4 | 予備 | NCIR 等の増設枠 |
-| CH5 | 5V/GND 給電 | App13 パターン3 給電取出し |
+| CH4 | 予備 | 将来 I2C センサ拡張 |
+| CH5 | 5V/GND 給電 | App13 パターン3 給電取出し（直結方式時のみ） |
 
-> ⚠️ Scroll Unit と Unit Encoder はともに **0x40 固定**。同時使用時は上表のとおり **PaHUB の別チャネル（CH1 と CH2）に分離**すること。
+> ℹ️ **PaHUB の位置づけ（2026-06-19 更新）**: 上記割当は **直結方式（代替/旧案）** 専用。第一推奨の **CoreS3 経由方式**では、INA226 と MLX90614 を CoreS3 Port A の I2C バスに **Hub Unit (U006)** で 1→3 分岐して同居させるため PaHUB は不要（両者の I2C アドレスが 0x40-0x4F と 0x5A で衝突しないため MUX が不要・§1.6.1 参照）。
+> 旧 CH1/CH2 への Scroll Unit 割当（粗・微 2 ノブ構成）は CoreS3 経由 Chain Encoder ×2 に置換され不採用となった。
 
 #### Cap 使用アプリで多ノブ操作を実現する代替策（優先度順）
 
@@ -284,34 +286,6 @@ App 10（SDR 受信機）の周波数選択、その他 LCD 上での一覧ス�
 | Unit ExtEncoder | U161 | 0x59 | 外部エンコーダ依存（AB/ABZ） | 可 | 高級エンコーダを自前接続 |
 
 > ⚠️ **アドレス衝突注意**: Unit Encoder と Unit Scroll はともに **0x40 固定**。同時使用や同一バス上の他 0x40 機器がある場合は、必ず **PaHUB の別チャネル**に分離する。複数同時運用なら 8Encoder(0x41)/ExtEncoder(0x59) が無難。INA226-10A の実アドレスは実機 `i2cdetect` で要確認。
-
-> 📍 **Scroll Unit ×2 構成時の制限**: Scroll Unit を 2 個使う場合、両者とも **I2C アドレス 0x40 固定（変更不可）**のため、同一バスに直結すると衝突する。**PaHUB の別チャネルに 1 個ずつ分離**すること（例: CH1=Scroll #1 / CH2=Scroll #2）。CH0(INA226)・CH5(給電) を除く実用枠は CH1〜CH4 の 4 チャネルなので、0x40 系ユニットは最大 4 個まで分離可能。アドレスを変えて省配線にしたい場合は、プログラマブルな **Unit 8Encoder(0x41) / Unit ExtEncoder(0x59)** の採用も検討する。
-
-##### Scroll Unit の分解能に関する留意点
-
-Scroll Unit は **12 パルス/回転（1 ステップ ≒ 30 度）** で、Unit Encoder（30 ポジション）や無限回転の Chain Encoder より粗い。
-
-- **課題が出にくい用途**: メニュー/リスト送り、項目選択、段階的なレベル/ズーム調整（公式想定用途）。テスター(App13)の値送りや一覧操作には十分。
-- **課題が出やすい用途**: SDR(App10) の周波数微調整など連続的な細かい制御。1 ステップの増分が大きいと「粗い／届かない」のジレンマが生じやすい。
-- **緩和策**: ①回転加速（速回しで増分拡大）②内蔵ボタンによる調整桁切替（MHz↔kHz↔Hz）③**複数ノブの役割分担**④モード切替トグル。
-- ⚠️ AB 二相のデコード逓倍（×2/×4）で実効分解能を上げられる可能性があるが、内蔵 STM32F030 ファームが返す値が公称 12 か逓倍後かは**実機・API 要確認**。
-
-##### Scroll Unit ×2 による粗・微 2 ノブ構成（採用方針）
-
-分解能の粗さを「粗調整ノブ＋微調整ノブ」の役割分担で吸収する。当初の Chain Encoder ×2 構想を I2C 接続の Scroll Unit で実現するもので、Cap 使用/非使用を問わず PaHUB 経由で一貫して使える。
-
-| | 左: ノブ A | 右: ノブ B |
-|---|---|---|
-| PaHUB チャネル | CH1（0x40） | CH2（0x40） |
-| 役割 | 粗調整（例: MHz 桁） | 微調整（例: kHz 桁） |
-| 内蔵ボタン | 桁送り/モード切替 | 確定/ミュート 等 |
-
-実装上のポイント:
-
-- **左右の識別は PaHUB チャネルで行う**。同じ 0x40 でもホストが MUX を CH1/CH2 に切り替えて読むため区別可能。`shared/input_encoder/` に「チャネル番号 → ノブ役割」のマッピングを持たせる。
-- **ポーリング順序**: CH1 選択 → ノブ A 読取 → CH2 選択 → ノブ B 読取 を 1 ループで回す（チャネル切替は I2C 1 バイト書込みで軽量）。
-- **物理配置（左右）とチャネル番号の対応は配線時に固定**し、ドライバ設定と一致させる（左右逆挿しで操作が入れ替わる）。
-- 役割分担で粗・微を分けるため**回転加速は任意**。入れればさらに快適。
 
 **【推奨②・要検証】Cap LoRa-1262 の Grove(G8/G9 I2C) を活用**
 
@@ -343,6 +317,7 @@ CardputerZero 内蔵の 46 キーマトリクスキーボードで周波数調�
 |------|------|-----------|
 | Grove Converter (U208) | 2→1 受動結合 + USB 給電 | 信号パススルーのみ。USB-UART 変換機能なし。9.8mm 間隔制約あり |
 | USB TypeC2Grove | USB→5V 給電のみ | データ通信不可。給電補助にしか使えない |
+| Scroll Unit ×2 構成（PaHUB CH1/CH2 分離） | I2C 0x40 ホイール ×2 を粗・微 2 ノブとして使う | CoreS3 経由 Chain Encoder ×2（§1.6.1）が第一推奨に格上げされ、Cap 装着時の制約が解消したため不要となった（2026-06-19 撤回）。直結方式時のフォールバックとしても CoreS3 不使用なら Chain Encoder ×2 を EXT 直結すれば足りる |
 | Grove T (U039-B) | 1→2 受動 Y 分岐 | 新規通信経路を作らない。同一信号を分けるだけ |
 | PaHUB v2.1 | I2C 1→6ch MUX | （これは採用。ただし I2C アドレス衝突回避用であり UART 増設はできない） |
 
@@ -3596,9 +3571,8 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
   - 🔴 **Cap（A/B）装着時はこの UART が Cap に占有されるため Chain Encoder は併用不可**（§1.5）
   - Chain Encoder が使えるのは **Cap 非装着アプリ（App10 / App11 / App13）のみ**
   - HY2.0-4P → 2.54mm ピンソケット変換ハーネスの製作要件確定
-- [x] **[I2C エンコーダ採用方針確定]**（2026-06-19）Cap 使用アプリの多ノブ UI は **I2C エンコーダ（Unit Encoder 0x40 / Unit 8Encoder 0x41 / Unit Scroll 0x40 / Unit ExtEncoder 0x59）を PaHUB 経由で接続**する方針に決定。I2C は Cap の UART/SPI と独立のため Cap 併用可。詳細は §1.5
-- [ ] **[I2C・最優先]** Unit Scroll / Unit Encoder（ともに 0x40 固定）を PaHUB の別チャネルに割り当て、INA226-10A と同一バス上で衝突なく読めるか実機 `i2cdetect` で検証。INA226-10A の実 I2C アドレスを併せて確定
-- [ ] **[I2C]** テスター(App13)で Unit Scroll を UI とする実装の PoC（PaHUB チャネル割当例: CH0=INA226 / CH1=Scroll Unit / CH2-4=予備）
+- [x] **[I2C エンコーダ採用方針 (撤回 2026-06-19)]** 当初は Cap 使用アプリの多ノブ UI を I2C エンコーダ（Unit Encoder/Scroll/ExtEncoder）+ PaHUB 構成とする方針だったが、**CoreS3 経由 Chain Encoder ×2 の第一推奨化（§1.6.1）により撤回**。直結方式（CoreS3 不使用）でも、Cap 使用アプリではキーボード操作にフォールバックする方針に変更
+- [ ] **[I2C・直結方式時のみ]** INA226-10A（CH0）と MLX90614/NCIR（CH1）の同一 PaHUB バス上での衝突有無を実機 `i2cdetect` で確認。INA226-10A の実 I2C アドレスも併せて確定（CoreS3 経由方式では PaHUB を使わないため本 TODO は直結フォールバック運用時にのみ実施）
 - [ ] **[Cap-Grove・要検証]** [Cap LoRa-1262](https://docs.m5stack.com/en/cap/Cap_LoRa-1262) の **HY2.0-4P（G8/G9 I2C・PI4IOE5V6408 用）** が CardputerZero（CM0 機）で独立 I2C として機能するか実機検証。機能すれば Cap 装着のまま Cap 上 Grove に I2C エンコーダを直結できる。⚠️ 公式ピンマップは Cardputer-Adv 用のため動作保証なし。PI4IOE5V6408 のアドレスとエンコーダ 0x40 の衝突有無も確認
 - [ ] **[Cap-Grove]** [Cap CC1101](https://docs.m5stack.com/en/cap/Cap_CC1101) の Grove インターフェースの I2C ピンアサインを M5Stack 公式へ問い合わせ（ドキュメント非公開）
 - [x] **[回路図確定 2026-06-19]** CardputerZero 回路図 P08 を読解し、**Grove(I2C/UART) と EXT(Cap-Bus) は同一の I2C1(G2/G3)・UART(G14/G15) を共有**することを確定。`GROVE_SW` は L=UART / H=I2C1 のモード切替。→ Cap 装着時は UART も I2C1 も Cap 経由の同一バスとなる
@@ -3614,7 +3588,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
   - 公式 Arduino ライブラリのソースを参照し、Linux Python からアクセス可能な実装を確定
   - HANDOFF §3 App10「Python 読み取りサンプル」のコマンド仕様（0xAA55... 8byte）は**仮**のため要更新
 - [ ] **[App 10]** Chain Encoder × 2 連結時のアドレス割り当て・識別ロジックの検証
-- [ ] **[共通]** `shared/input_encoder/` の抽象 API が **UART バックエンド（Chain Encoder）と I2C バックエンド（Unit Encoder 系）の両方**を切り替えられる設計になっているか早期検証（App 10=Chain Encoder / App 13=Scroll Unit で PoC）
+- [ ] **[共通]** `shared/input_encoder/` の抽象 API が **CoreS3 経由バックエンド（USB CDC / JSON）と EXT UART 直結バックエンド（Chain Encoder）の両方**を切り替えられる設計になっているか早期検証（第一推奨= CoreS3 経由・App10/App13/App15 共通 / 代替= EXT UART 直結・Cap 非装着アプリのみ）
 
 ### 9.2 ソフトウェア・ツールチェーン検証
 
