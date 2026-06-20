@@ -3708,16 +3708,16 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | 購入 | # | 品目 | 数量 | 単価 (税込) | 小計 | 用途 |
 |------|---|------|------|-----------|------|------|
 | [x] | 1 | CardputerZero 標準版 (KS 出資済み) | 1 | (出資済) | — | 本体 |
-| [ ] | 2 | Cap LoRa-1262 (Cap A) | 1 | ¥2,838 | ¥2,838 | App 01 / 02 / 05 |
-| [ ] | 3 | Cap CC1101 (Cap B) | 1 | 価格未確定 | ¥?,??? | App 03 / 04 / 08 / 09 |
-| [ ] | 4 | M5Stack Chain Encoder | 2 | ¥1,122 | ¥2,244 | 物理 UI（第一推奨=CoreS3 Port C 接続 / 代替=EXT 直結。App 01 / 10 / 11 / 13 / 15） |
-| [ ] | 4b | M5Stack CoreS3（入力フロントエンド・第一推奨） | 1 | ¥?,??? | ¥?,??? | INA226 / Chain Encoder / MLX90614 を集約し USB で CardputerZero へ（§1.6.1）。内蔵バッテリ自己給電 |
-| [ ] | 4c | USB-A↔USB-C データケーブル（CoreS3↔CardputerZero） | 1 | ¥500 | ¥500 | CoreS3 フロントエンド連携。給電競合回避のためデータ専用が望ましい |
-| [ ] | 4d | [M5Stack Hub Unit (U006・受動 1→3 Grove 分岐ハブ)](https://www.switch-science.com/products/5696) | 1 | ¥528 | ¥528 | **CoreS3 Port A I2C を 1→3 受動分岐**し INA226 (App13) と MLX90614 (App15) を同居させる。受動 (チップなし) のためソフト変更不要・アドレス衝突がない本構成では MUX 不要 |
+| [x] | 2 | Cap LoRa-1262 (Cap A) (KS 出資済み) | 1 | (出資済)  | - | App 01 / 02 / 05 |
+| [x] | 3 | Cap CC1101 (Cap B)  (KS 出資済み)| 1 | (出資済)  | - | App 03 / 04 / 08 / 09 |
+| [x] | 4 | M5Stack Chain Encoder | 2 | ¥1,122 | ¥2,244 | 物理 UI（第一推奨=CoreS3 Port C 接続 / 代替=EXT 直結。App 01 / 10 / 11 / 13 / 15） |
+| [x] | 4b | M5Stack CoreS3（入力フロントエンド・第一推奨） | 1 | ¥?,??? | ¥?,??? | INA226 / Chain Encoder / MLX90614 を集約し USB で CardputerZero へ（§1.6.1）。内蔵バッテリ自己給電 |
+| [x] | 4c | USB-A↔USB-C データケーブル（CoreS3↔CardputerZero） | 1 | ¥500 | ¥500 | CoreS3 フロントエンド連携。給電競合回避のためデータ専用が望ましい |
+| [x] | 4d | [M5Stack Hub Unit (U006・受動 1→3 Grove 分岐ハブ)](https://www.switch-science.com/products/5696) | 1 | ¥528 | ¥528 | **CoreS3 Port A I2C を 1→3 受動分岐**し INA226 (App13) と MLX90614 (App15) を同居させる。受動 (チップなし) のためソフト変更不要・アドレス衝突がない本構成では MUX 不要 |
 | [ ] | 5 | M5Stack C6L Meshtastic Unit | 1 | ¥4,290 | ¥4,290 | 自宅 LoRa ゲートウェイ (App 02 / 05) |
-| [ ] | 6 | RTL-SDR Blog V4 (アンテナキット同梱版) | 1 | $30–40 (≒¥4,500–6,000) | ¥6,000 | App 10 SDR 受信 |
+| [x] | 6 | RTL-SDR Blog V4 (アンテナキット同梱版) | 1 | $30–40 (≒¥4,500–6,000) | ¥6,000 | App 10 SDR 受信 |
 | [ ] | 7 | USB-C 充電器 + ケーブル (C6L 常時給電用) | 1 | ¥1,000 | ¥1,000 | C6L 常時稼働 |
-| [ ] | 13a | [M5Stack Unit INA226-10A (絶縁型 ±10A)](https://www.switch-science.com/products/10735) | 1 | ¥1,584 | ¥1,584 | App 13 テスター（第一推奨=CoreS3 Port A 接続 / 代替=PaHUB I2C 直結） |
+| [x] | 13a | [M5Stack Unit INA226-10A (絶縁型 ±10A)](https://www.switch-science.com/products/10735) | 1 | ¥1,584 | ¥1,584 | App 13 テスター（第一推奨=CoreS3 Port A 接続 / 代替=PaHUB I2C 直結） |
 | [ ] | 13b | [M5Stack PaHUB v2.1 (Port A I2C 拡張ハブ)](https://www.switch-science.com/products/10192) | 1 | ¥1,122 | ¥1,122 | ※**直結方式の場合のみ必須**。CoreS3 経由なら不要（将来 I2C センサ多数拡張時に有用） |
 | [ ] | 13c | HY2.0-4P → 2.54mm ピンソケット変換ハーネス（自作 or 市販 Grove ケーブル切断） | 1 | ¥300 | ¥300 | ※**EXT 直結方式の場合のみ**。Chain Encoder を EXT 2.54-14P UART (Pin 12/14) に接続。CoreS3 経由なら不要 |
 | [ ] | 13d | IC テストフック（グラバークリップ）赤・黒 | 2 本 | ¥300〜600 | ¥600 | App 13 プローブ先端（IC ピン・基板ランド掴み） |
@@ -3725,8 +3725,8 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | [ ] | 13f | 熱収縮チューブ φ3〜5mm | 少量 | ¥200 | ¥200 | App 13 抵抗内蔵部の絶縁 |
 | [ ] | 13g | リード線 AWG22 単線 赤・黒 | 各 50cm | ¥300 | ¥300 | App 13 プローブケーブル本体 |
 | [ ] | 13h | 棒端子（フェルール）AWG22 用 + 簡易圧着工具 | 1 セット | ¥2,000 | ¥2,000 | App 13 端子台への線端処理（撚り線使用時推奨） |
-| [ ] | 13i | VH3.96-4P プラガブル端子台 単体（**用途別モジュール化用**） | 2〜3 個 | ¥150 | ¥450 | App 13 結線パターン別プローブの常時固定用（INA226-10A 付属品と同形状、別途入手） |
-| [ ] | 15a | [M5Stack NCIR Unit (MLX90614)](https://www.switch-science.com/products/5220) | 1 | ¥3,729 | ¥3,729 | App 15 非接触温度計（第一推奨=CoreS3 Port A I2C 同居・Hub Unit 経由 / 代替=PaHUB CH1 直結で App 13 と並列運用） |
+| [x] | 13i | VH3.96-4P プラガブル端子台 単体（**用途別モジュール化用**） | 2〜3 個 | ¥150 | ¥450 | App 13 結線パターン別プローブの常時固定用（INA226-10A 付属品と同形状、別途入手） |
+| [x] | 15a | [M5Stack NCIR Unit (MLX90614)](https://www.switch-science.com/products/5220) | 1 | ¥3,729 | ¥3,729 | App 15 非接触温度計（第一推奨=CoreS3 Port A I2C 同居・Hub Unit 経由 / 代替=PaHUB CH1 直結で App 13 と並列運用） |
 | | | **必須小計** | | | **約 ¥27,000 + Cap B 価格** | |
 
 ### 推奨（あると便利）
