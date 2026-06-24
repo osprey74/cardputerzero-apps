@@ -23,6 +23,7 @@
 #include <M5Unified.h>
 #include <Wire.h>
 #include <M5Chain.h>   // Chain Encoder (Port C UART デイジーチェーン)
+#include <WiFi.h>      // 能力プローブ用 (起動時 1 回の AP スキャン)
 #include <math.h>
 #include <string.h>
 
@@ -384,6 +385,94 @@ static void drawDashboard() {
 }
 
 // ---------------------------------------------------------------------------
+// 能力プローブ (起動時 1 回): CoreS3 が単体で何を持っているかを列挙ログ出力。
+// 表示ダッシュボードには影響しない (setup 末尾で 1 回だけ呼ぶ)。
+// ---------------------------------------------------------------------------
+
+static const char *imuName(m5::imu_t t) {
+  switch (t) {
+    case m5::imu_sh200q:  return "SH200Q";
+    case m5::imu_mpu6050: return "MPU6050";
+    case m5::imu_mpu6886: return "MPU6886";
+    case m5::imu_mpu9250: return "MPU9250";
+    case m5::imu_bmi270:  return "BMI270";
+    case m5::imu_unknown: return "unknown";
+    default:              return "none";
+  }
+}
+
+// 内部 I2C アドレス → CoreS3 既知デバイス名。
+static const char *internalI2CName(uint8_t a) {
+  switch (a) {
+    case 0x10: return "BMM150(mag)";
+    case 0x21: return "GC0308(camera)";
+    case 0x23: return "LTR-553(prox/ALS)";
+    case 0x34: return "AXP2101(PMIC)";
+    case 0x36: return "AW88298(spk-amp)";
+    case 0x38: return "FT6336(touch)";
+    case 0x40: return "ES7210(mic-adc)";
+    case 0x51: return "BM8563(RTC)";
+    case 0x58: return "AW9523(IO-exp)";
+    case 0x68: return "BMI270(IMU)";
+    default:   return "?";
+  }
+}
+
+static void probeCapabilities() {
+  Serial.println("{\"log\":\"cap_probe_begin\"}");
+
+  // ---- ボード種別 (CoreS3 / CoreS3 SE の判別) ----
+  auto b = M5.getBoard();
+  const char *bname =
+      (b == m5gfx::board_t::board_M5StackCoreS3)   ? "CoreS3" :
+      (b == m5gfx::board_t::board_M5StackCoreS3SE) ? "CoreS3_SE" : "other";
+  Serial.printf("{\"log\":\"cap_board\",\"board\":\"%s\",\"enum\":%d}\n", bname, (int)b);
+
+  // ---- SoC / メモリ ----
+  Serial.printf("{\"log\":\"cap_soc\",\"psram_bytes\":%u,\"flash_bytes\":%u,"
+                "\"free_heap\":%u,\"free_psram\":%u,\"cpu_mhz\":%u}\n",
+                (unsigned)ESP.getPsramSize(), (unsigned)ESP.getFlashChipSize(),
+                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(),
+                (unsigned)ESP.getCpuFreqMHz());
+
+  // ---- 液晶 ----
+  Serial.printf("{\"log\":\"cap_display\",\"w\":%d,\"h\":%d,\"touch\":%d}\n",
+                M5.Display.width(), M5.Display.height(), M5.Display.touch() ? 1 : 0);
+
+  // ---- IMU / Touch / RTC / Speaker / Mic ----
+  Serial.printf("{\"log\":\"cap_imu\",\"enabled\":%d,\"type\":\"%s\"}\n",
+                M5.Imu.isEnabled() ? 1 : 0, imuName(M5.Imu.getType()));
+  Serial.printf("{\"log\":\"cap_touch\",\"enabled\":%d}\n", M5.Touch.isEnabled() ? 1 : 0);
+  Serial.printf("{\"log\":\"cap_rtc\",\"enabled\":%d}\n", M5.Rtc.isEnabled() ? 1 : 0);
+  Serial.printf("{\"log\":\"cap_audio\",\"speaker\":%d,\"mic\":%d}\n",
+                M5.Speaker.isEnabled() ? 1 : 0, M5.Mic.isEnabled() ? 1 : 0);
+
+  // ---- 内部 I2C バス列挙 (近接センサ LTR-553=0x23 / カメラ等の有無を確認) ----
+  Serial.print("{\"log\":\"cap_internal_i2c\",\"found\":[");
+  int n = 0;
+  for (uint8_t a = 0x08; a < 0x78; a++) {
+    if (M5.In_I2C.scanID(a)) {
+      if (n) Serial.print(",");
+      Serial.printf("{\"addr\":\"0x%02X\",\"name\":\"%s\"}", a, internalI2CName(a));
+      n++;
+    }
+  }
+  Serial.printf("],\"count\":%d}\n", n);
+
+  // ---- Wi-Fi (無線の動作確認: AP スキャン) ----
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  int aps = WiFi.scanNetworks();   // ブロッキング (~数秒)
+  Serial.printf("{\"log\":\"cap_wifi\",\"scan_ok\":%d,\"ap_count\":%d,\"mac\":\"%s\"}\n",
+                aps >= 0 ? 1 : 0, aps >= 0 ? aps : 0, WiFi.macAddress().c_str());
+  WiFi.scanDelete();
+  WiFi.mode(WIFI_OFF);   // プローブ後は無線を落として通常動作へ
+
+  // ---- BLE は ESP32-S3 標準搭載 (ラジオ共用)。別途初期化が必要なため有無のみ明記 ----
+  Serial.println("{\"log\":\"cap_ble\",\"supported\":1,\"note\":\"ESP32-S3 builtin\"}");
+
+  Serial.println("{\"log\":\"cap_probe_end\"}");
+}
 
 void setup() {
   auto cfg = M5.config();
@@ -410,6 +499,8 @@ void setup() {
   delay(300);
   Wire.begin(PORT_A_SDA, PORT_A_SCL, 100000);  // 実機確定: SDA=G2 / SCL=G1
   ina226Init();  // Config + Calibration 書込み (電流/電力読取の前提)
+
+  probeCapabilities();  // 起動時 1 回: CoreS3 単体の能力を列挙ログ出力 (表示には影響なし)
 }
 
 void loop() {
