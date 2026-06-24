@@ -156,6 +156,10 @@ enum Page { PAGE_METER = 0, PAGE_INFO, PAGE_SYS, PAGE_COUNT };
 static int  g_page = PAGE_METER;
 static bool g_redraw = true;                 // ページ切替直後など即時再描画フラグ
 static constexpr int SWIPE_THRESHOLD = 50;   // スワイプと判定する水平移動量 [px]
+// セクション末尾テキストの下端から次セクション見出しまでの余白 [px]。
+// METER (INA→NCIR / NCIR→ENC) が 12px なので全ページこれに揃える。
+// 各セクション最終行の増分 = テキスト高(8×サイズ) + SEC_GAP とする。
+static constexpr int SEC_GAP = 12;
 
 // ---- Wi-Fi / NTP (INFO 画面) -----------------------------------------------
 // WiFiMulti に登録された AP のうち電波の強い既知 AP へ自動接続。AP が 1 つも
@@ -509,10 +513,11 @@ static void drawInfo() {
   }
 
   // ---- 室温 (NCIR amb) ----
+  // CLOCK セクションの最終行 → 次の WEATHER 見出しまでを METER と同じ余白に揃える。
   if (!isnan(g_r.t_amb)) {
     snprintf(buf, sizeof(buf), "%.1fC", g_r.t_amb);
     drawField(x + 4, y, "room ", buf, COL_ACCENT, 2, 2);
-    y += 26;
+    y += 16 + SEC_GAP;   // size2 テキスト(16px) + セクション余白
   }
 
   // ---- 天気 (気象庁) ----
@@ -581,7 +586,8 @@ static void drawSys() {
     drawField(x + 4, y, "gw     ", buf, COL_LABEL, 1, 2); y += 20;
   }
   snprintf(buf, sizeof(buf), "%s", WiFi.macAddress().c_str());
-  drawField(x + 4, y, "mac    ", buf, COL_LABEL, 1, 1); y += 18;
+  // NETWORK セクションの最終行 → 次の SYSTEM 見出しまでを METER と同じ余白に揃える。
+  drawField(x + 4, y, "mac    ", buf, COL_LABEL, 1, 1); y += 8 + SEC_GAP;  // size1(8px)+余白
 
   // ---- システム ----
   y = drawSection(x, y, W - 12, "SYSTEM");
