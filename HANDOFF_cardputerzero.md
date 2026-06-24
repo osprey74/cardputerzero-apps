@@ -446,6 +446,8 @@ CoreS3 に以下のユニットを接続し、CardputerZero へ USB 経由で値
    - ⚠️ Port B の「V」は GPIO 制御の 5V ではなく**常時出力の Grove 電源ライン**（CoreS3 の AXP2101 電源経路由来）。導通チェックのような常時 5V 用途には合致するが、GPIO で ON/OFF はできない。
    - ⚠️ Port B 5V の最大供給電流は公式未確認。パターン 3 は 1kΩ 制限の微小電流のため問題ないと見込まれるが、実機で電圧・電流確認のこと。
    - ⚠️ 導通チェックの 5V は DUT（被測定物）側に流れるため、CoreS3 電源系と DUT が電気的に繋がる（CardputerZero からは USB により絶縁）。DUT の電位状態に注意。
+7. **⚠️ Hub Unit (U006) は I2C MUX ではない**: U006 は Grove を物理的に **1→3 分岐する受動スプリッタ**であり、PaHUB（PCA9548A の I2C チャンネル MUX）とは別物。3 分岐すべてが**同一の 4 線（同一 I2C バス）を共有**するだけなので、(1) チャンネル選択・バス絶縁はできない、(2) **アドレスが衝突しない I2C デバイス同士の同居専用**（今回 INA226=0x41 / MLX90614=0x5A で成立）、(3) UART と I2C を混在させることはできない（同一線を奪い合うため）。
+8. **🔬 実機検証済み (2026-06-24)**: `firmware/cores3-frontend/` にて Port A 同居の INA226（Mfg ID=0x5449/Die ID=0x2260・校正 CAL=3200/Current_LSB=0.32mA で電圧/電流/電力読取）と MLX90614（実温度読取）を確認。Chain Encoder ×2 も Port C で M5Chain ライブラリ（115200bps・device id 1 始まり・`getEncoderIncValue`/`getEncoderButtonStatus`）により**ライブ検証済み**：デイジーチェーン列挙（enc_num=2・CHAIN_OK）、上流 id=1／下流 id=2 の回転増分と押下を正しく取得。未接続時は CHAIN_TIMEOUT で `enc:[]` に degrade。
 
 **データフロー（実装イメージ）**
 

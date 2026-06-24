@@ -17,6 +17,7 @@
 
 #include <M5Unified.h>
 #include <Wire.h>
+#include <M5Chain.h>   // Chain Encoder (Port C UART デイジーチェーン)
 
 // ---- Port A (I2C) ----------------------------------------------------------
 // ⚠️ 実機確定 (2026-06-24): Port A は SDA=G2 / SCL=G1。
@@ -35,11 +36,22 @@ static constexpr uint8_t INA226_ADDR = 0x41;  // §2.x「0x41 固定」/ 0x40-0x
 static constexpr uint8_t MLX_ADDR    = 0x5A;  // MLX90614 既定
 
 // INA226 レジスタ
+static constexpr uint8_t INA_REG_CONFIG = 0x00;
 static constexpr uint8_t INA_REG_BUS_V  = 0x02;
 static constexpr uint8_t INA_REG_POWER  = 0x03;
 static constexpr uint8_t INA_REG_CURRENT= 0x04;
+static constexpr uint8_t INA_REG_CAL    = 0x05;
 static constexpr uint8_t INA_REG_MFG_ID = 0xFE;  // 期待値 0x5449 (TI)
 static constexpr uint8_t INA_REG_DIE_ID = 0xFF;  // 期待値 0x2260
+
+// INA226-10A 校正 (HANDOFF §3/§8: シャント 5mΩ・±10A・分解能 0.32mA)
+//   Current_LSB = 0.32mA, CAL = 0.00512 / (Current_LSB × R_shunt)
+//               = 0.00512 / (0.00032 × 0.005) = 3200
+//   Power_LSB   = 25 × Current_LSB = 0.008 W/bit  (最大 ±10.49A)
+static constexpr uint16_t INA226_CONFIG       = 0x4527;  // 連続(shunt+bus)/平均16/変換1.1ms
+static constexpr uint16_t INA226_CAL          = 3200;
+static constexpr float    INA226_CURRENT_LSB_A= 0.00032f;
+static constexpr float    INA226_POWER_LSB_W  = 0.008f;
 
 // MLX90614 RAM レジスタ
 static constexpr uint8_t MLX_REG_T_AMB = 0x06;
@@ -49,7 +61,10 @@ static uint32_t g_last_send_ms = 0;
 static constexpr uint32_t SEND_INTERVAL_MS = 200;  // 5Hz
 
 static uint32_t g_last_scan_ms = 0;
-static constexpr uint32_t SCAN_INTERVAL_MS = 2000;  // 2s 毎に I2C バスを再列挙 (配線確認用)
+static constexpr uint32_t SCAN_INTERVAL_MS = 2000;  // 2s 毎に I2C バス再列挙 + Chain 列挙 (配線確認用)
+
+static uint16_t g_enc_num = 0;  // Chain バス上の Encoder ノード数 (デイジーチェーン)
+static Chain chain;             // M5Chain バスマスタ (Port C UART)
 
 // 16bit ワード読み出し (MSB first / INA226 等)。成功時 true。
 static bool readWord16(uint8_t addr, uint8_t reg, uint16_t &out) {
@@ -74,6 +89,27 @@ static bool readWordLE(uint8_t addr, uint8_t reg, uint16_t &out) {
   (void)Wire.read();  // PEC (TODO: 検証)
   out = (uint16_t(hi) << 8) | lo;
   return true;
+}
+
+// 16bit ワード書込み (MSB first / INA226 等)。成功時 true。
+static bool writeWord16(uint8_t addr, uint8_t reg, uint16_t val) {
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  Wire.write(uint8_t(val >> 8));
+  Wire.write(uint8_t(val & 0xFF));
+  return Wire.endTransmission() == 0;
+}
+
+// INA226 を初期化 (Config + Calibration 書込み)。Mfg/Die ID を確認ログ出力。
+static void ina226Init() {
+  uint16_t mfg = 0, die = 0;
+  readWord16(INA226_ADDR, INA_REG_MFG_ID, mfg);
+  readWord16(INA226_ADDR, INA_REG_DIE_ID, die);
+  bool ok_cfg = writeWord16(INA226_ADDR, INA_REG_CONFIG, INA226_CONFIG);
+  bool ok_cal = writeWord16(INA226_ADDR, INA_REG_CAL, INA226_CAL);
+  Serial.printf("{\"log\":\"ina226_init\",\"mfg_id\":\"0x%04X\",\"die_id\":\"0x%04X\","
+                "\"cfg_ok\":%d,\"cal_ok\":%d}\n",
+                mfg, die, ok_cfg ? 1 : 0, ok_cal ? 1 : 0);
 }
 
 // 指定ピンで I2C を初期化しバスを列挙。検出数を返す。
@@ -104,10 +140,11 @@ void setup() {
   M5.Display.println("CoreS3 frontend");
 
   Serial.begin(115200);   // USB CDC
-  Serial2.begin(ENC_BAUD, SERIAL_8N1, PORT_C_RX, PORT_C_TX);  // Chain Encoder
+  chain.begin(&Serial2, ENC_BAUD, PORT_C_RX, PORT_C_TX);  // Chain Encoder (Port C)
 
   delay(300);
-  Wire.begin(PORT_A_SDA, PORT_A_SCL, 100000);  // 設計上の既定 (G1/G2)
+  Wire.begin(PORT_A_SDA, PORT_A_SCL, 100000);  // 実機確定: SDA=G2 / SCL=G1
+  ina226Init();  // Config + Calibration 書込み (電流/電力読取の前提)
 }
 
 void loop() {
@@ -115,43 +152,70 @@ void loop() {
 
   const uint32_t now = millis();
 
-  // 配線確認用: 2s 毎に I2C バスを再列挙 (リセット不要でライブ観測)。
+  // 配線確認用: 2s 毎に I2C バスを再列挙 + INA226 ID を読取 (リセット不要でライブ観測)。
   if (now - g_last_scan_ms >= SCAN_INTERVAL_MS) {
     g_last_scan_ms = now;
     i2cScanOn(PORT_A_SDA, PORT_A_SCL);  // 実機確定: SDA=G2 / SCL=G1
+    uint16_t mfg = 0, die = 0;
+    readWord16(INA226_ADDR, INA_REG_MFG_ID, mfg);  // 期待 0x5449 (TI)
+    readWord16(INA226_ADDR, INA_REG_DIE_ID, die);  // 期待 0x2260
+    Serial.printf("{\"log\":\"ina226_id\",\"mfg_id\":\"0x%04X\",\"die_id\":\"0x%04X\"}\n", mfg, die);
+
+    // Chain バス上の Encoder ノード数を列挙 (繋げばここに反映される)
+    uint16_t n = 0;
+    chain_status_t st = chain.getDeviceNum(&n);
+    if (st == CHAIN_OK) g_enc_num = n;
+    Serial.printf("{\"log\":\"chain_enum\",\"status\":%d,\"enc_num\":%u}\n", (int)st, g_enc_num);
   }
 
   if (now - g_last_send_ms < SEND_INTERVAL_MS) return;
   g_last_send_ms = now;
 
-  // ---- INA226 ----
+  // ---- INA226 (校正済み: 電圧/電流/電力) ----
   float v = NAN, i = NAN, p = NAN;
   uint16_t raw;
   if (readWord16(INA226_ADDR, INA_REG_BUS_V, raw)) {
     v = raw * 0.00125f;  // Bus Voltage LSB = 1.25mV
   }
-  // TODO: 電流/電力は Calibration レジスタ設定後に確定。今は生値を載せない。
+  if (readWord16(INA226_ADDR, INA_REG_CURRENT, raw)) {
+    i = int16_t(raw) * INA226_CURRENT_LSB_A;  // 符号付き (双方向)
+  }
+  if (readWord16(INA226_ADDR, INA_REG_POWER, raw)) {
+    p = raw * INA226_POWER_LSB_W;  // Power は符号なし
+  }
 
   // ---- MLX90614 ----
   float t_obj = NAN, t_amb = NAN;
   if (readWordLE(MLX_ADDR, MLX_REG_T_OBJ, raw)) t_obj = raw * 0.02f - 273.15f;
   if (readWordLE(MLX_ADDR, MLX_REG_T_AMB, raw)) t_amb = raw * 0.02f - 273.15f;
 
-  // ---- Chain Encoder (Port C UART) ----
-  // TODO: デイジーチェーンのフレーム/コマンドを実機で確定し、delta/btn を抽出。
-  //       現状は受信生バイトを破棄し、プレースホルダの空配列を送る。
-  while (Serial2.available()) Serial2.read();
+  // ---- Chain Encoder (Port C UART・デイジーチェーン) ----
+  // M5Chain ライブラリで各ノードの増分(delta)と押下状態を読取り JSON 配列化。
+  // device id は 1 始まり (id=1 が Master 直近のノード)。
+  char encbuf[160];
+  int off = snprintf(encbuf, sizeof(encbuf), "[");
+  for (uint16_t id = 1; id <= g_enc_num && off < (int)sizeof(encbuf) - 40; id++) {
+    int16_t inc = 0;
+    uint8_t btn = 0;
+    chain.getEncoderIncValue(id, &inc);     // 前回読取からの増分
+    chain.getEncoderButtonStatus(id, &btn); // ノブ押下状態 (生値)
+    off += snprintf(encbuf + off, sizeof(encbuf) - off,
+                    "%s{\"id\":%u,\"delta\":%d,\"btn\":%u}", id > 1 ? "," : "", id, inc, btn);
+  }
+  snprintf(encbuf + off, sizeof(encbuf) - off, "]");
 
   // ---- JSON 1 行送信 ----
-  char buf[192];
+  char buf[320];
   snprintf(buf, sizeof(buf),
-           "{\"ina\":{\"v\":%.3f},\"ncir\":{\"t_obj\":%.2f,\"t_amb\":%.2f},\"enc\":[]}",
-           v, t_obj, t_amb);
+           "{\"ina\":{\"v\":%.3f,\"i\":%.4f,\"p\":%.4f},"
+           "\"ncir\":{\"t_obj\":%.2f,\"t_amb\":%.2f},\"enc\":%s}",
+           v, i, p, t_obj, t_amb, encbuf);
   Serial.println(buf);
 
   // ---- タッチ液晶 (簡易表示) ----
-  M5.Display.fillRect(0, 40, 320, 60, TFT_BLACK);
+  M5.Display.fillRect(0, 40, 320, 90, TFT_BLACK);
   M5.Display.setCursor(0, 40);
-  M5.Display.printf("V: %.3f\n", v);
+  M5.Display.printf("V: %.3f V\n", v);
+  M5.Display.printf("I: %.1f mA\n", i * 1000.0f);
   M5.Display.printf("T: %.2f C\n", t_obj);
 }

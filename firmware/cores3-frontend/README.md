@@ -8,8 +8,8 @@ M5Stack CoreS3 (ESP32-S3) 用ファームウェア。CardputerZero の**入力�
 ## 確定構成 (§1.6.1)
 
 | CoreS3 ポート | 接続 | 通信 | GPIO |
-|---|---|---|---|
-| Port A (赤) | INA226-10A + MLX90614 (Hub Unit U006 で 1→3 分岐し同居) | I2C | SDA=G1 / SCL=G2 |
+| --- | --- | --- | --- |
+| Port A (赤) | INA226-10A + MLX90614 (Hub Unit U006 で 1→3 分岐し同居) | I2C | SDA=G2 / SCL=G1 |
 | Port C (青) | Chain Encoder ×2 (デイジーチェーン) | UART | RX=G18 / TX=G17 |
 | Port B | App13 導通チェック 5V/GND | 電源のみ | — |
 | USB-C | CardputerZero へ JSON 送信 | USB CDC | — |
@@ -42,14 +42,16 @@ pio device monitor              # シリアルモニタ (115200)
 ### 確定済み (2026-06-24)
 
 - [x] **Port A I2C ピン順 = SDA=G2 / SCL=G1**（設計書の G1/G2 は誤り・訂正済み）
-- [x] **INA226 検出 = 0x41**（i2c_scan）。通信成立、測定端子未接続時 v=0V
-- [x] **MLX90614 検出 = 0x5A**、Hub Unit U006 同居で衝突なし、実温度の読取確認 (t_obj/t_amb)
+- [x] **INA226 = 0x41**、Mfg ID=`0x5449`/Die ID=`0x2260`（TI INA226 同定）
+- [x] **INA226 校正**（CAL=3200 / Current_LSB=0.32mA / Power_LSB=8mW）→ 電圧/電流/電力 読取（無負荷で 0）
+- [x] **MLX90614 = 0x5A**、Hub Unit U006 同居で衝突なし、実温度の読取確認 (t_obj/t_amb)
+- [x] **Chain Encoder ×2** = M5Chain ライブラリ連携（115200bps・device id 1 始まり・`getEncoderIncValue`/`getEncoderButtonStatus`）。**ライブ検証済み**: デイジーチェーン列挙 enc_num=2(CHAIN_OK)、上流 id=1／下流 id=2 の回転増分(delta)・押下(btn) を正しく取得。未接続時は CHAIN_TIMEOUT で `enc:[]` に degrade
 - [x] PlatformIO ビルド → USB-C 書込み (COM5) → USB CDC で JSON 送信まで動作
+
+> ⚠️ **Hub Unit U006 は受動 Grove スプリッタ**（PaHUB のような I2C MUX ではない）。3 分岐は同一バス共有のため、アドレス非衝突の I2C デバイス同居専用。UART と I2C は混在不可。
 
 ### 残 TODO
 
-- [ ] INA226 Mfg ID=`0x5449`/Die ID=`0x2260` の読出し確認 (デバイス同定の最終確証)
-- [ ] INA226 校正レジスタ設定 → 電流/電力の確定 (現状は電圧のみ)
+- [ ] INA226 実負荷での電流/電力精度確認（DUT を端子に直列接続）
 - [ ] MLX90614 PEC 検証
-- [ ] Chain Encoder デイジーチェーン UART プロトコル/baud の確定、delta/btn 抽出
 - [ ] CoreS3 が CardputerZero(USB Host) に CDC(`/dev/ttyACM*`) として認識されること (本体到着後)
