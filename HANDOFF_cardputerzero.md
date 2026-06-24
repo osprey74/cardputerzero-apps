@@ -45,6 +45,7 @@
 | 2026-06-19 | **【重大訂正】Cap と Chain Encoder の同時併用は不可能であることが公式ピンマップ照合で判明**。3 点の公式ドキュメント（[CardputerZero](https://docs.m5stack.com/ja/CardputerZero) / [Cap LoRa-1262](https://docs.m5stack.com/en/cap/Cap_LoRa-1262) / [Cap CC1101](https://docs.m5stack.com/en/cap/Cap_CC1101)）を直接読解した結果、従来「上部 Cap スロット」と「2.54mm UART ヘッダ（EXT 2.54-14P）」を**別ポートとして扱っていたのは誤り**であり、両者は**同一の 14 ピン物理バス（= Cap-Bus = EXT 2.54-14P）**であることが確定。Cap 装着時はこのバスの全ピン（SPI/UART/I2C/電源）が Cap に占有されるため、同じ Pin 12/14（G15/G14 = UART）を使う Chain Encoder と**物理的に共存できない**。特に Cap LoRa-1262 は GPS が G14/G15 UART を使用し Chain Encoder と完全衝突。§1.2〜1.4 を全面改訂し「Cap-Bus = EXT 同一」「Cap 常駐時 Chain Encoder 併用不可」を明記。§1.4 早見表の CC1101 受信感度・アンテナ等を公式値に訂正。代替案（Grove UART / キーボード操作 / I2C エンコーダ）を §1.5 として新設。Chain Encoder を前提とする App01/10/11 の物理 UI 記述に「Cap 非装着時のみ」の条件を付記。§9.1 に回路図 PDF での Grove/EXT UART 排他確認 TODO を追加（総司様ご指摘より） |
 | 2026-06-19 | **App13 導通チェックの 5V 取得を CoreS3 Port B（黒・Grove 電源ライン）から行う構成を追加**。公式マニュアルで CoreS3 の Port A/B/C が GND/5V/GPIO 結線と確認（Grove は全ポート共通で 5V/GND を持つ）。Port B のデータピン（G8/G9）を使わず**電源ライン 5V/GND のみを App13 パターン 3（端子台 C）の給電に流用**できる。これにより PaHUB CH5 からの 5V 取得（直結方式の名残）が不要になり、App13 が CoreS3 完結型に。§1.6.1 の接続表・構成図・ポイント整理、App13 パターン 3 配線・端子台 C モジュール表を更新（第一推奨=CoreS3 Port B / 代替=PaHUB CH5）。⚠️ Port B 5V は常時出力の電源ライン（GPIO 制御不可）・供給電流上限は実機確認・DUT が CoreS3 電源系と導通する点に注意 |
 | 2026-06-24 | **Chain Encoder の UID 個体識別を実装・実機確定**。`chain.getUID()`（4バイト UID）で各ノードを識別し、ファーム内テーブルと突合して役割(色)を**配線順非依存で恒久固定**。確定 UID = 赤 `4E001B00` / 青 `78001C00`。送信 JSON 各エンコーダ要素に `role`(R/B)・`uid` を追加、液晶は RED/BLUE を該当色表示。`firmware/cores3-frontend/src/main.cpp` 更新・COM5 書込み・ライブ検証済み（id1→RED/id2→BLUE 解決確認）。詳細は §1.6.1 注記9 |
+| 2026-06-24 | **`shared/cores3_bridge/`（CoreS3 受信ブリッジ）を新規実装**。実機到着前に着手可能な第一推奨経路の受信側。CoreS3 が送る JSON を機種非依存データモデルに変換する Python ライブラリ（`models.py`/`parse.py`/`reader.py`/`cli.py` ＋ tests）。Chain Encoder は `frame.encoder(role=/uid=)` で配線順非依存に個体取得、`nan`/`inf` を `null` 正規化。単体テスト 8 件＋実機 COM5 ライブ検証済み。§9.4 の cores3_bridge TODO を ✅ に更新 |
 | 2026-06-19 | **HANDOFF 全体査読し「CoreS3 併用案＝第一推奨」で齟齬を解消**。方針決定（CoreS3 フロントエンド方式を第一推奨／直結方式は代替・旧案として残す）に基づき以下を修正: §1.6 冒頭にアーキテクチャ方針バナーを追加／§1.5 を「直結方式（代替/旧案）の運用方針」と位置づけ明記／App10 物理 UI に CoreS3 経由（第一推奨）と EXT 直結（代替）の 2 構成を併記／App13 に接続方式の方針注記を追加し PaHUB・端子台系を「直結方式の参照情報」と明記／App01 衛星リスト送りを「CoreS3 経由なら Cap A 使用でも可」に更新／`shared/` ツリーに `cores3_bridge/` を追加し input_encoder・ina226 を 2 バックエンド化（CoreS3 経由＝第一推奨 / 直結＝代替）／CLAUDE.md のデバイス接続・制約・共有ドライバを更新／§9.4 ドライバ API 設計を多バックエンド化／購入リストに CoreS3・データ専用ケーブルを追加し PaHUB・変換ハーネスを「直結方式の場合のみ」と注記／Phase 1.5 を CoreS3 経由優先に改訂し Phase 1.55（CoreS3 連携確立）を新設／Cap B 表記を公式名「Cap CC1101」に統一 |
 
 ---
@@ -3710,11 +3711,11 @@ CardputerZero 実機到着前に ClockworkPi uConsole (CM4 / Debian 11 / Python 
 - [ ] `shared/rf_cc1101/` ドライバの API 設計 (App04 で使用)
 - [ ] `shared/ina226/` ドライバの API 設計（App 13 で使用、将来 App 02 / App 10 の消費電流測定に転用検討）
   - **バックエンド 2 系統**: 第一推奨=CoreS3 経由（`shared/cores3_bridge/` から JSON で電圧/電流/電力を受信）／ 代替=Grove I2C 直結（PaHUB CH0 経由）
-- [ ] `shared/cores3_bridge/` ドライバの API 設計（**CoreS3 フロントエンド連携・第一推奨経路**）
-  - USB CDC (`/dev/ttyACM*`) を開き、CoreS3 が送る JSON（`{"ina":{...},"enc":[...]}`）を行単位でパース
-  - `input_encoder` / `ina226` のバックエンドとして値を供給
-  - 再接続・タイムアウト・不正行スキップのハンドリング
-  - CardputerZero は USB Host モード固定が前提
+- [x] `shared/cores3_bridge/` ドライバの API 設計・実装（**CoreS3 フロントエンド連携・第一推奨経路**）✅ 2026-06-24 実装＆実機検証済み
+  - USB CDC (`COM5` / `/dev/ttyACM*`) を開き、CoreS3 が送る JSON（`{"bat":..,"ina":..,"ncir":..,"enc":[..]}`）を行単位でパース。`models.py`(純データクラス)＋`parse.py`(純パーサ・`nan`/`inf`→`null` 正規化)＋`reader.py`(`CoreS3Reader`/pyserial)＋`cli.py`(`--json`/`--watch`) の 4 層構成
+  - **Chain Encoder は `frame.encoder(role="R"|"B")` / `uid` で個体を束ねられる**（配線順非依存。UID 解決済み role を活用）。`input_encoder` / `ina226` のバックエンドとして値を供給予定
+  - 不正行スキップ・タイムアウト・診断ログ(`LogLine`)分離をハンドリング。単体テスト 8 件（実機・pyserial 不要）＋実機 COM5 ライブ検証済み
+  - ⚠️ 残: 再接続（切断後の自動 reopen）、`input_encoder`/`ina226` 抽象 API への接続。CardputerZero は USB Host モード固定が前提（実機到着後に `/dev/ttyACM*` 認識確認）
 - [ ] `shared/pahub/` ドライバの API 設計（PCA9548A チャネル切替、`select_channel(ch)` / `enable_channels(mask)` 等）※**直結方式の場合のみ使用**
 - [ ] `shared/input_encoder/` 共通入力ドライバの API 設計
   - **バックエンド 2 系統（切替式）**: 第一推奨=**CoreS3 経由**（`shared/cores3_bridge/` 経由で Encoder 値を受信。Cap 装着の有無に関わらず利用可）／ 代替=**EXT 2.54-14P UART 直結**（Cap 非装着アプリのみ）

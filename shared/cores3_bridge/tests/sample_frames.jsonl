@@ -1,0 +1,7 @@
+{"log":"i2c_scan","sda":2,"scl":1,"found":["0x41","0x5A"],"count":2}
+{"log":"ina226_id","mfg_id":"0x5449","die_id":"0x2260"}
+{"log":"chain_enum","status":0,"enc_num":2}
+{"log":"chain_uid","id":1,"ok":1,"uid":"78001C00","ident":1,"name":"BLUE"}
+{"bat":{"pct":100,"chg":0,"v":4.12},"ina":{"v":0.000,"i":0.0000,"p":0.0000},"ncir":{"t_obj":28.53,"t_amb":31.37},"enc":[{"id":1,"role":"B","uid":"78001C00","cnt":-24,"delta":0,"btn":0},{"id":2,"role":"R","uid":"4E001B00","cnt":39,"delta":1,"btn":1}]}
+{"bat":{"pct":85,"chg":1,"v":4.05},"ina":{"v":5.012,"i":0.1230,"p":0.6160},"ncir":{"t_obj":36.50,"t_amb":24.10},"enc":[{"id":1,"role":"R","uid":"4E001B00","cnt":12,"delta":1,"btn":0},{"id":2,"role":"B","uid":"78001C00","cnt":-3,"delta":0,"btn":1}]}
+{"bat":{"pct":-1,"chg":-1,"v":4.00},"ina":{"v":nan,"i":nan,"p":nan},"ncir":{"t_obj":nan,"t_amb":nan},"enc":[]}
