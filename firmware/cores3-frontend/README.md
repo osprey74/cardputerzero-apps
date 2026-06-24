@@ -47,9 +47,9 @@ CoreS3 液晶 (rotation=0 / 縦 240×320) に全計測値を常時表示する�
 [▮85% CHG]          4.05V     ← バッテリー残量/充電状態/電圧
 ─────────────────────────
 INA226  DC METER
-  5.012 V                     ← INA226 を大きく表示 (測定試験を実機目視)
-  123.4 mA                       (電流は mA/A・電力は mW/W を自動レンジ)
-  0.617 W
+  V 5.012 V                   ← INA226 を大きく表示 (測定試験を実機目視)
+  I 123.4 mA                     (電流は mA/A・電力は mW/W を自動レンジ)
+  P 0.617 W
 NCIR  MLX90614
   obj 36.5C / amb 24.1C
 ENCODER  x2
@@ -81,11 +81,11 @@ pio device monitor              # シリアルモニタ (115200)
 - [x] **MLX90614 = 0x5A**、Hub Unit U006 同居で衝突なし、実温度の読取確認 (t_obj/t_amb)
 - [x] **Chain Encoder ×2** = M5Chain ライブラリ連携（115200bps・device id 1 始まり・`getEncoderIncValue`/`getEncoderButtonStatus`）。**ライブ検証済み**: デイジーチェーン列挙 enc_num=2(CHAIN_OK)、上流 id=1／下流 id=2 の回転増分(delta)・押下(btn) を正しく取得。未接続時は CHAIN_TIMEOUT で `enc:[]` に degrade
 - [x] PlatformIO ビルド → USB-C 書込み (COM5) → USB CDC で JSON 送信まで動作
+- [x] **INA226 実負荷精度**: 1kΩ + 3.6V Li-ion を OUT 端子に直列接続し検証。V=4.289V / I≈4.29mA（理論 4.289V÷1kΩ）/ P≈16mW（理論 ~19mW を Power_LSB=8mW で量子化）と一致。CAL=3200 校正を実負荷で確定（※10A 用シャントを数 mA で使うため低電流域は量子化が粗い）
 
 > ⚠️ **Hub Unit U006 は受動 Grove スプリッタ**（PaHUB のような I2C MUX ではない）。3 分岐は同一バス共有のため、アドレス非衝突の I2C デバイス同居専用。UART と I2C は混在不可。
 
 ### 残 TODO
 
-- [ ] INA226 実負荷での電流/電力精度確認（DUT を端子に直列接続）
 - [ ] MLX90614 PEC 検証
 - [ ] CoreS3 が CardputerZero(USB Host) に CDC(`/dev/ttyACM*`) として認識されること (本体到着後)

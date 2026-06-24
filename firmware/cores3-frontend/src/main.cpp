@@ -98,6 +98,8 @@ static constexpr uint16_t COL_ACCENT = 0x07FF;  // シアン (セクション見
 static constexpr uint16_t COL_OK     = 0x07E0;  // グリーン (充電/良好)
 static constexpr uint16_t COL_WARN   = 0xFD20;  // オレンジ (低残量)
 static constexpr uint16_t COL_DIM    = 0x4208;  // 罫線
+static constexpr uint16_t COL_E1     = 0xF800;  // 赤 (Encoder 1)
+static constexpr uint16_t COL_E2     = 0x349F;  // 青 (Encoder 2)
 
 // ---------------------------------------------------------------------------
 // I2C 低レベル
@@ -262,27 +264,27 @@ static void drawDashboard() {
 
   // ---- INA226 (測定試験のメイン: 大きく表示) --------------------------------
   y = drawSection(x, y, W - 12, "INA226  DC METER");
-  // V
+  // V (先頭に "V:" ラベル)
   if (isnan(g_r.ina_v)) snprintf(val, sizeof(val), "---");
   else                  snprintf(val, sizeof(val), "%.3f V", g_r.ina_v);
   g_canvas.setTextSize(3);
   g_canvas.setTextColor(COL_VALUE, COL_BG);
   g_canvas.setCursor(x + 4, y);
-  g_canvas.print(val);
+  g_canvas.print("V "); g_canvas.print(val);
   y += 30;
-  // I
+  // I (先頭に "I:" ラベル)
   fmtCurrent(val, sizeof(val), g_r.ina_i);
   g_canvas.setTextSize(3);
   g_canvas.setTextColor(COL_ACCENT, COL_BG);
   g_canvas.setCursor(x + 4, y);
-  g_canvas.print(val);
+  g_canvas.print("I "); g_canvas.print(val);
   y += 30;
-  // P
+  // P (先頭に "P:" ラベル)
   fmtPower(val, sizeof(val), g_r.ina_p);
   g_canvas.setTextSize(3);
   g_canvas.setTextColor(COL_OK, COL_BG);
   g_canvas.setCursor(x + 4, y);
-  g_canvas.print(val);
+  g_canvas.print("P "); g_canvas.print(val);
   y += 36;
 
   // ---- NCIR -----------------------------------------------------------------
@@ -310,8 +312,10 @@ static void drawDashboard() {
       chain.getEncoderButtonStatus(id, &btn);
       char line[24];
       snprintf(line, sizeof(line), "E%u %+ld", id, (long)g_enc_count[id]);
+      // E1=赤 / E2=青 / それ以降は白
+      uint16_t encColor = (id == 1) ? COL_E1 : (id == 2) ? COL_E2 : COL_VALUE;
       g_canvas.setTextSize(2);
-      g_canvas.setTextColor(COL_VALUE, COL_BG);
+      g_canvas.setTextColor(encColor, COL_BG);
       g_canvas.setCursor(x + 4, y);
       g_canvas.print(line);
       // ボタン状態インジケータ (押下=塗り円)
