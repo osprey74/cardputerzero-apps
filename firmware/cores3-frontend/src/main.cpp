@@ -13,20 +13,26 @@
 //           {"id":2,"role":"B","uid":"E5F6A7B8","cnt":-3,"delta":0,"btn":1}]}
 //    ※ id=チェーン上の位置(1始まり)・role/uid=個体識別(配線順非依存・UID で確定)
 //
-//   液晶 (常時表示・左右スワイプで 2 ページ切替・下部にページドット):
+//   液晶 (常時表示・左右スワイプで 3 ページ切替・下部にページドット):
 //     [METER] バッテリ% / 充電 / 電圧 + INA226 V/I/P 大表示 + NCIR + エンコーダ
-//     [INFO ] NTP 時計 (JST) + Wi-Fi 状態 (SSID/RSSI/IP/MAC)
+//     [INFO ] NTP 時計 (JST) + 室温 (NCIR amb) + 天気 (気象庁 forecast JSON)
+//     [SYS  ] ネットワーク詳細 (SSID/RSSI/IP/GW/MAC) + システム (uptime/heap/psram/fw)
 //   ちらつき防止に M5Canvas (オフスクリーン・スプライト) へ描画し一括転送する。
-//   Wi-Fi 認証情報は src/secrets.h (gitignore 済み) に記入。未設定なら INFO は
+//   Wi-Fi 認証情報は src/secrets.h (gitignore 済み) に記入。未設定なら INFO/SYS は
 //   "not configured" を表示し JSON 送信・METER は通常動作する。
 
 #include <M5Unified.h>
 #include <Wire.h>
 #include <M5Chain.h>   // Chain Encoder (Port C UART デイジーチェーン)
 #include <WiFi.h>      // INFO 画面: Wi-Fi 接続 + NTP 時計
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>   // INFO 天気: 気象庁 forecast JSON パース
 #include <time.h>
 #include <math.h>
 #include <string.h>
+#include <limits.h>
+#include <esp_heap_caps.h>   // PSRAM 確保 (ArduinoJson allocator)
 
 // Wi-Fi 認証情報 (secrets.h は .gitignore 済み)。無ければ空で吸収しビルド可。
 #if __has_include("secrets.h")
@@ -144,8 +150,10 @@ static uint8_t g_enc_uid[ENC_MAX + 1][4] = {{0}};
 static bool    g_enc_uid_ok[ENC_MAX + 1] = {false};
 static int8_t  g_enc_ident[ENC_MAX + 1]  = {-1};  // ENC_IDENTITY index / -1=unknown
 
+#define FW_VERSION "0.3.0"
+
 // ---- 画面ページ (左右スワイプで切替) ---------------------------------------
-enum Page { PAGE_METER = 0, PAGE_INFO, PAGE_COUNT };
+enum Page { PAGE_METER = 0, PAGE_INFO, PAGE_SYS, PAGE_COUNT };
 static int  g_page = PAGE_METER;
 static bool g_redraw = true;                 // ページ切替直後など即時再描画フラグ
 static constexpr int SWIPE_THRESHOLD = 50;   // スワイプと判定する水平移動量 [px]
@@ -158,6 +166,32 @@ static int      g_wifi_state = WIFI_OFF_STATE;
 static uint32_t g_wifi_last_try_ms = 0;
 static bool     g_ntp_started = false;
 static constexpr uint32_t WIFI_RETRY_MS = 10000;  // 切断時の再接続間隔
+
+// ---- 天気 (気象庁 forecast JSON・INFO 画面) --------------------------------
+// area=016000 (石狩・空知・後志 / 札幌管区)。API キー不要・HTTPS。
+#define WX_AREA "016000"
+#define WX_PLACE "Sapporo"
+static constexpr uint32_t WX_INTERVAL_MS = 30UL * 60 * 1000;  // 30 分毎に更新
+struct WeatherDay {
+  char cat[8];   // "Sunny"/"Cloudy"/"Rain"/"Snow"/"-"
+  int  tmax, tmin;   // ℃ (INT_MIN = 無し)
+  int  pop;          // 降水確率 % (-1 = 無し)
+};
+static bool        g_wx_ok = false;
+static WeatherDay  g_wx_today = {"-", INT_MIN, INT_MIN, -1};
+static WeatherDay  g_wx_tom   = {"-", INT_MIN, INT_MIN, -1};
+static int         g_wx_now_temp = INT_MIN;   // 直近気温
+static uint32_t    g_wx_last_ms = 0;
+static char        g_wx_upd[6] = "--:--";     // 取得時刻 HH:MM
+
+// ArduinoJson を PSRAM に確保する Allocator (本体ヒープを圧迫しない)。
+struct PsramAllocator : ArduinoJson::Allocator {
+  void *allocate(size_t n) override { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM); }
+  void  deallocate(void *p) override { heap_caps_free(p); }
+  void *reallocate(void *p, size_t n) override {
+    return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM);
+  }
+};
 
 // ---------------------------------------------------------------------------
 // I2C 低レベル
@@ -421,34 +455,35 @@ static void drawMeter() {
   }
 }
 
-// INFO ページ: NTP 時計 + Wi-Fi 状態。
+// INFO ページ: NTP 時計 (JST) + 室温 (NCIR amb) + 天気 (気象庁)。
 static void drawInfo() {
   const int W = g_canvas.width();
-  char buf[40];
+  char buf[40], line[40];
 
   g_canvas.fillScreen(COL_BG);
   int x = 6, y = 4;
 
-  y = drawSection(x, y, W - 12, "INFO  CLOCK / WIFI");
-
-  // ---- 時計 (NTP 同期時のみ) ----
+  // ---- 時計 (NTP 同期時のみ・曜日 日=赤/土=青) ----
+  y = drawSection(x, y, W - 12, "CLOCK  (JST)");
   if (g_wifi_state == WIFI_NTP_OK) {
     struct tm t;
     if (getLocalTime(&t, 0)) {
       static const char *wd[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
-      snprintf(buf, sizeof(buf), "%04d-%02d-%02d %s",
-               t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, wd[t.tm_wday % 7]);
+      snprintf(buf, sizeof(buf), "%04d-%02d-%02d ", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
       g_canvas.setTextSize(2);
       g_canvas.setTextColor(COL_LABEL, COL_BG);
       g_canvas.setCursor(x + 4, y);
       g_canvas.print(buf);
-      y += 24;
+      uint16_t wcol = (t.tm_wday == 0) ? COL_E1 : (t.tm_wday == 6) ? COL_E2 : COL_LABEL;
+      g_canvas.setTextColor(wcol, COL_BG);
+      g_canvas.print(wd[t.tm_wday % 7]);
+      y += 26;
       snprintf(buf, sizeof(buf), "%02d:%02d:%02d", t.tm_hour, t.tm_min, t.tm_sec);
       g_canvas.setTextSize(4);
       g_canvas.setTextColor(COL_VALUE, COL_BG);
       g_canvas.setCursor(x + 4, y);
       g_canvas.print(buf);
-      y += 44;
+      y += 42;
     }
   } else {
     g_canvas.setTextSize(2);
@@ -456,40 +491,100 @@ static void drawInfo() {
     g_canvas.setCursor(x + 4, y);
     g_canvas.print(g_wifi_state == WIFI_CONNECTED_NO_NTP ? "NTP sync..." :
                    WIFI_CONFIGURED ? "no time yet" : "no wifi cfg");
-    y += 30;
+    y += 28;
   }
 
-  // ---- Wi-Fi 状態 ----
+  // ---- 室温 (NCIR amb) ----
+  if (!isnan(g_r.t_amb)) {
+    snprintf(buf, sizeof(buf), "%.1fC", g_r.t_amb);
+    drawField(x + 4, y, "room ", buf, COL_ACCENT, 2, 2);
+    y += 26;
+  }
+
+  // ---- 天気 (気象庁) ----
+  snprintf(buf, sizeof(buf), "WEATHER  %s", WX_PLACE);
+  y = drawSection(x, y, W - 12, buf);
+  if (g_wx_ok) {
+    // 今日 (カテゴリ + 直近気温)
+    if (g_wx_now_temp != INT_MIN) snprintf(line, sizeof(line), "%s %dC", g_wx_today.cat, g_wx_now_temp);
+    else                         snprintf(line, sizeof(line), "%s", g_wx_today.cat);
+    drawField(x + 4, y, "now ", line, COL_VALUE, 2, 2); y += 22;
+    if (g_wx_today.pop >= 0) {
+      snprintf(line, sizeof(line), "%d%%", g_wx_today.pop);
+      drawField(x + 4, y, "pop ", line, COL_LABEL, 2, 2); y += 22;
+    }
+    // 明日 (カテゴリ + 最高/最低)
+    if (g_wx_tom.tmax != INT_MIN || g_wx_tom.tmin != INT_MIN) {
+      char hi[8] = "--", lo[8] = "--";
+      if (g_wx_tom.tmax != INT_MIN) snprintf(hi, sizeof(hi), "%d", g_wx_tom.tmax);
+      if (g_wx_tom.tmin != INT_MIN) snprintf(lo, sizeof(lo), "%d", g_wx_tom.tmin);
+      snprintf(line, sizeof(line), "%s %s/%s", g_wx_tom.cat, hi, lo);
+    } else {
+      snprintf(line, sizeof(line), "%s", g_wx_tom.cat);
+    }
+    drawField(x + 4, y, "tom ", line, COL_VALUE, 2, 2); y += 22;
+    // 取得時刻
+    snprintf(line, sizeof(line), "upd %s", g_wx_upd);
+    g_canvas.setTextSize(1);
+    g_canvas.setTextColor(COL_DIM, COL_BG);
+    g_canvas.setCursor(x + 4, y);
+    g_canvas.print(line); y += 14;
+  } else {
+    g_canvas.setTextSize(1);
+    g_canvas.setTextColor(COL_LABEL, COL_BG);
+    g_canvas.setCursor(x + 4, y);
+    g_canvas.print(g_wifi_state >= WIFI_CONNECTED_NO_NTP ? "fetching..." : "(needs wifi)");
+    y += 14;
+  }
+}
+
+// SYS ページ: ネットワーク詳細 + システム情報。
+static void drawSys() {
+  const int W = g_canvas.width();
+  char buf[48];
+
+  g_canvas.fillScreen(COL_BG);
+  int x = 6, y = 4;
+
+  // ---- ネットワーク ----
   y = drawSection(x, y, W - 12, "NETWORK");
   const char *st =
-      !WIFI_CONFIGURED               ? "not configured" :
-      g_wifi_state == WIFI_CONNECTING? "connecting..." :
+      !WIFI_CONFIGURED                ? "not configured" :
+      g_wifi_state == WIFI_CONNECTING ? "connecting..." :
       (g_wifi_state >= WIFI_CONNECTED_NO_NTP) ? "connected" : "down";
   uint16_t stcol = (g_wifi_state >= WIFI_CONNECTED_NO_NTP) ? COL_OK :
                    WIFI_CONFIGURED ? COL_WARN : COL_LABEL;
-  drawField(x + 4, y, "stat ", st, stcol, 2, 2);
-  y += 24;
-
+  drawField(x + 4, y, "stat ", st, stcol, 2, 2); y += 24;
   if (g_wifi_state >= WIFI_CONNECTED_NO_NTP) {
-    // SSID
     snprintf(buf, sizeof(buf), "%.18s", WiFi.SSID().c_str());
     drawField(x + 4, y, "ssid ", buf, COL_VALUE, 1, 2); y += 20;
-    // RSSI
     snprintf(buf, sizeof(buf), "%d dBm", WiFi.RSSI());
     drawField(x + 4, y, "rssi ", buf, COL_VALUE, 1, 2); y += 20;
-    // IP
     snprintf(buf, sizeof(buf), "%s", WiFi.localIP().toString().c_str());
     drawField(x + 4, y, "ip   ", buf, COL_VALUE, 1, 2); y += 20;
+    snprintf(buf, sizeof(buf), "%s", WiFi.gatewayIP().toString().c_str());
+    drawField(x + 4, y, "gw   ", buf, COL_LABEL, 1, 2); y += 20;
   }
-  // MAC (常に表示)
   snprintf(buf, sizeof(buf), "%s", WiFi.macAddress().c_str());
-  drawField(x + 4, y, "mac  ", buf, COL_LABEL, 1, 1); y += 16;
+  drawField(x + 4, y, "mac  ", buf, COL_LABEL, 1, 1); y += 18;
+
+  // ---- システム ----
+  y = drawSection(x, y, W - 12, "SYSTEM");
+  uint32_t s = millis() / 1000;
+  snprintf(buf, sizeof(buf), "%02u:%02u:%02u", (unsigned)(s / 3600), (unsigned)((s / 60) % 60), (unsigned)(s % 60));
+  drawField(x + 4, y, "up   ", buf, COL_VALUE, 1, 2); y += 20;
+  snprintf(buf, sizeof(buf), "%u KB", (unsigned)(ESP.getFreeHeap() / 1024));
+  drawField(x + 4, y, "heap ", buf, COL_VALUE, 1, 2); y += 20;
+  snprintf(buf, sizeof(buf), "%.1f MB", ESP.getFreePsram() / 1048576.0);
+  drawField(x + 4, y, "psram", buf, COL_VALUE, 1, 2); y += 20;
+  drawField(x + 4, y, "fw   ", FW_VERSION, COL_ACCENT, 1, 2); y += 20;
 }
 
 // 現在ページを描画 → ページドット → 一括転送。
 static void drawCurrentPage() {
   switch (g_page) {
     case PAGE_INFO:  drawInfo();  break;
+    case PAGE_SYS:   drawSys();   break;
     case PAGE_METER:
     default:         drawMeter(); break;
   }
@@ -519,6 +614,117 @@ static void handleTouch() {
 // ---------------------------------------------------------------------------
 // Wi-Fi / NTP の状態遷移 (非ブロッキング)。loop から毎回呼ぶ。
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 天気: 気象庁 forecast JSON を取得・パース (INFO 画面)。
+// ---------------------------------------------------------------------------
+
+// 天気コード先頭桁 → カテゴリ (1=晴/2=曇/3=雨/4=雪)。日本語フォント不要。
+static const char *wxCat(const char *code) {
+  if (!code || !code[0]) return "-";
+  switch (code[0]) {
+    case '1': return "Sunny";
+    case '2': return "Cloudy";
+    case '3': return "Rain";
+    case '4': return "Snow";
+    default:  return "-";
+  }
+}
+
+// 気象庁 forecast JSON を取得して g_wx_* を更新。NTP 同期後に呼ぶ (日付計算に必要)。
+static void fetchWeather() {
+  WiFiClientSecure client;
+  client.setInsecure();   // 証明書検証スキップ (公開天気データの表示用途)
+  HTTPClient http;
+  http.setTimeout(8000);
+  const char *url = "https://www.jma.go.jp/bosai/forecast/data/forecast/" WX_AREA ".json";
+  if (!http.begin(client, url)) {
+    Serial.println("{\"log\":\"wx\",\"ok\":0,\"err\":\"begin\"}");
+    return;
+  }
+  int code = http.GET();
+  if (code != 200) {
+    Serial.printf("{\"log\":\"wx\",\"ok\":0,\"http\":%d}\n", code);
+    http.end();
+    return;
+  }
+
+  static PsramAllocator psramAlloc;
+  JsonDocument doc(&psramAlloc);
+  DeserializationError err = deserializeJson(doc, http.getStream());
+  http.end();
+  if (err) {
+    Serial.printf("{\"log\":\"wx\",\"ok\":0,\"json\":\"%s\"}\n", err.c_str());
+    return;
+  }
+
+  JsonArray root = doc.as<JsonArray>();
+  if (root.isNull() || root.size() < 1) {
+    Serial.println("{\"log\":\"wx\",\"ok\":0,\"err\":\"shape\"}");
+    return;
+  }
+  JsonArray ts = root[0]["timeSeries"].as<JsonArray>();
+  if (ts.isNull() || ts.size() < 3) {
+    Serial.println("{\"log\":\"wx\",\"ok\":0,\"err\":\"ts\"}");
+    return;
+  }
+
+  // ---- 今日/明日の日付文字列 (NTP 時刻から) ----
+  char todayStr[11] = "", tomStr[11] = "";
+  struct tm t;
+  if (getLocalTime(&t, 0)) {
+    strftime(todayStr, sizeof(todayStr), "%Y-%m-%d", &t);
+    time_t tt = mktime(&t) + 86400;
+    struct tm t2;
+    localtime_r(&tt, &t2);
+    strftime(tomStr, sizeof(tomStr), "%Y-%m-%d", &t2);
+  }
+
+  // ---- 天気コード (ts[0]: 今日/明日/明後日) ----
+  auto wxReset = [](WeatherDay &d) {
+    d.cat[0] = '-'; d.cat[1] = '\0'; d.tmax = INT_MIN; d.tmin = INT_MIN; d.pop = -1;
+  };
+  wxReset(g_wx_today);
+  wxReset(g_wx_tom);
+  g_wx_now_temp = INT_MIN;
+  JsonObject wxArea = ts[0]["areas"][0];
+  strncpy(g_wx_today.cat, wxCat(wxArea["weatherCodes"][0]), sizeof(g_wx_today.cat) - 1);
+  strncpy(g_wx_tom.cat,   wxCat(wxArea["weatherCodes"][1]), sizeof(g_wx_tom.cat) - 1);
+
+  // ---- 気温 (ts[2]: 札幌・00:00=最低 / 09:00=最高) ----
+  JsonArray tDefs = ts[2]["timeDefines"].as<JsonArray>();
+  JsonArray temps = ts[2]["areas"][0]["temps"].as<JsonArray>();
+  for (size_t i = 0; i < tDefs.size(); i++) {
+    const char *td = tDefs[i];
+    const char *tv = temps[i];
+    if (!td || !tv || !tv[0]) continue;
+    int val = atoi(tv);
+    int hh = atoi(td + 11);  // "....T HH:.." の時
+    if (todayStr[0] && strncmp(td, todayStr, 10) == 0) g_wx_now_temp = val;  // 今日の直近
+    if (tomStr[0]   && strncmp(td, tomStr, 10) == 0) {
+      if (hh < 6) g_wx_tom.tmin = val; else g_wx_tom.tmax = val;
+    }
+  }
+
+  // ---- 降水確率 (ts[1]: 今日/明日の最大) ----
+  JsonArray pDefs = ts[1]["timeDefines"].as<JsonArray>();
+  JsonArray pops  = ts[1]["areas"][0]["pops"].as<JsonArray>();
+  for (size_t i = 0; i < pDefs.size(); i++) {
+    const char *pd = pDefs[i];
+    const char *pv = pops[i];
+    if (!pd || !pv || !pv[0]) continue;
+    int v = atoi(pv);
+    if (todayStr[0] && strncmp(pd, todayStr, 10) == 0 && v > g_wx_today.pop) g_wx_today.pop = v;
+    if (tomStr[0]   && strncmp(pd, tomStr, 10) == 0 && v > g_wx_tom.pop)     g_wx_tom.pop = v;
+  }
+
+  if (getLocalTime(&t, 0)) snprintf(g_wx_upd, sizeof(g_wx_upd), "%02d:%02d", t.tm_hour, t.tm_min);
+  g_wx_ok = true;
+  Serial.printf("{\"log\":\"wx\",\"ok\":1,\"today\":\"%s\",\"tom\":\"%s\","
+                "\"tom_max\":%d,\"tom_min\":%d,\"now\":%d,\"today_pop\":%d,\"tom_pop\":%d}\n",
+                g_wx_today.cat, g_wx_tom.cat, g_wx_tom.tmax, g_wx_tom.tmin,
+                g_wx_now_temp, g_wx_today.pop, g_wx_tom.pop);
+}
+
 // 状態遷移を 1 回だけログ出力 (NTP 同期確認・Wi-Fi デバッグ用)。
 static void logWifiTransition(int from, int to) {
   if (from == to) return;
@@ -608,6 +814,15 @@ void loop() {
   // タッチ (左右スワイプでページ送り) と Wi-Fi/NTP は毎ループ処理し応答性を確保。
   handleTouch();
   wifiTask();
+
+  // 天気: NTP 同期後、初回 + 30 分毎に取得 (HTTPS なので数秒ブロックする)。
+  if (g_wifi_state == WIFI_NTP_OK &&
+      (g_wx_last_ms == 0 || now - g_wx_last_ms >= WX_INTERVAL_MS)) {
+    g_wx_last_ms = now;
+    fetchWeather();
+    g_redraw = true;
+  }
+
   if (g_redraw) {           // ページ切替直後は即時再描画してキビキビ動かす。
     g_redraw = false;
     drawCurrentPage();
