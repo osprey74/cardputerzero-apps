@@ -39,6 +39,9 @@
 | 2026-06-13 | **BCL ログモードの全仕様確定（運用方針 A〜⑤ 全パラメータ決定）**: 1 受信 1 ノート方式・案 ③（録音は Mac Mini に scp 転送して永続保存・CZ 側削除）・アンテナはプリセット選択方式・SFI は NOAA SWPC から 1 時間キャッシュ・App 01 GPS 連携で受信地点座標取得。Markdown テンプレート最終確定（機材 + 受信記録 + 録音ファイル Mac Mini パス記載）。既知局 DB 初期 15 局（日本短波・北海道中波・国際短波局）登録。UI フロー設計確定（ノブA でフロー進行、ノブB で SINPO 値） |
 | 2026-06-13 | **App 13 パターン 3 給電経路を EXT Pin 4/6 → PaHUB CH5 に変更**（総司様ご指摘より）。当初設計では EXT 2.54-14P の Pin 4 (GND) / Pin 6 (5V OUT) から端子台 C への給電を想定していたが、これらは Chain Encoder #1 の電源ピンとして占有されており物理的にバッティングするため、PaHUB v2.1 の空きチャネル CH5 から Grove ケーブル経由で 5V/GND を取り出す方式に変更。結線図ポンチ画・配線サマリー表・パターン 3 結線図・用途別端子台モジュール表を更新。§9.1 に「PaHUB の電源スルー配線確認」TODO を追加 |
 | 2026-06-13 | **PaHUB v2.1 の電源スルー配線を公式回路図で確認・確定**。[公式回路図 PNG](https://static-cdn.m5stack.com/resource/docs/products/unit/Unit-PaHub2.1/img-103440a9-d7e4-4aab-b784-825aa9b35614.png) を直接読解し、各 Grove 出力ポート J1〜J6 の VCC/GND が全 CH 共通バスとしてスルー配線されていること、入力 J7 の 5V がそのまま CH0〜CH5 の Pin 3 へ届くことを確認。HT7533 LDO で生成される 3.3V は PCA9548A 内部 + SDA/SCL プルアップ専用で Grove ポートには出力されない。§9.1 該当 TODO を ✅ 確認済みに移行。§8 に PaHUB 公式ドキュメント・回路図 PNG・PCA9548A データシート URL を追加。App 13 パターン 3 結線図の注記から「※要実機確認」を確定情報に格上げ |
+| 2026-06-17 | **App 10 BCL ログモードを ClockworkPi uConsole (CM4) で先行構築・実機 e2e 検証成功**。サブプロジェクト [`apps/sdr-receiver/bcl_log/`](apps/sdr-receiver/bcl_log/) を新設（Python 3.9 / `feat/app10-bcl-uconsole` ブランチ）。CardputerZero 実機到着前に UpNote x-callback-url 連携・Tailscale 経由 Mac Mini SSH ディスパッチ・既知局 DB 検索・`_pending/` キュー・Markdown 本文生成を機種非依存ロジックとして実装。Win 開発機 → uConsole (`100.85.21.75`) → Mac Mini (`100.108.134.69`) → UpNote.app への全経路 e2e ノート投稿に成功（タイトル / 本文 / タグ / ノートブック指定すべて期待通り）。実機検証で判明した不具合 1 件を修正: **リモート zsh が URL 内 `&` をシェル区切りとして解釈**するため、`upnote.dispatch()` で `shlex.quote()` によるリモートコマンド側エスケープを必須化。CZ 用 LVGL UI は実機到着後に同モジュールを共通コアとして再利用予定。録音 (rtl_fm) / NOAA SWPC / GPS 連携は uConsole 版では未実装（手動運用） |
+| 2026-06-17 | **RTL-SDR Blog V4 を uConsole 上で動作確認・実装の `scripts/setup_rtlsdr.sh` を本格化**。`rtl-sdr-blog` 公式ドライバの自動ビルドスクリプト（DVB ブラックリスト → initramfs 更新 → cmake/make → udev ルール反映）を実装し uConsole で実行成功。`rtl_test -t` で `RTLSDRBlog, Blog V4` / `Rafael Micro R828D tuner` / `RTL-SDR Blog V4 Detected` を確認。**重要な HW 制約を発見**: ClockworkPi uConsole の USB-C ポートは **電源入力専用 (データ非対応)** であり、RTL-SDR V4 (USB-C 端子) をそのまま挿しても `lsusb` に現れない。USB-C → USB-A 変換アダプタ経由で USB-A ポートに接続することでエニュメレーション成功。RTL-SDR Blog 多目的ダイポール (長エレメント 93cm 水平展開) で AIR-G' 80.4 MHz FM の音声受信を確認（札幌市内）。短波 BCL 用途には本ダイポールキットは非効率のため、別途 HF 専用アンテナを検討中 |
+| 2026-06-17 | **uConsole バッテリーインジケータ精度問題を発見・OCV ベースの代替モニタを実装**。AXP223 PMIC ドライバ (`axp20x_battery`) の電圧→容量カーブが粗く、`sysfs capacity` が高電圧帯で 99-100% に張り付く現象を実機計測で確認（4.05V / 放電 3.7W で sysfs=99% / OCV 再計算=83% / 乖離 +16%）。対処として `scripts/uconsole_battery.py` (CLI: 1 行表示 / `--json` / `--compare` / `--watch`) と `scripts/uconsole_battery_hud.py` (GTK フロート HUD・画面隅常駐・残量に応じた色変化・残時間表示) を新設。LXPanel が `_NET_SYSTEM_TRAY_S0` 未登録かつ SNI ホスト未提供のため通常のトレイインジケータが表示できないことを実機検証で発見し、`Gdk.Monitor.get_workarea()` ベースの 4 隅選択可能フロートウィンドウに方針変更（autostart 設定済み）。本ツール群は uConsole 専用だが、CZ 実機到着後に同等 PMIC が搭載されていれば再利用可能 |
 | 2026-06-19 | **【重大訂正】Cap と Chain Encoder の同時併用は不可能であることが公式ピンマップ照合で判明**。3 点の公式ドキュメント（[CardputerZero](https://docs.m5stack.com/ja/CardputerZero) / [Cap LoRa-1262](https://docs.m5stack.com/en/cap/Cap_LoRa-1262) / [Cap CC1101](https://docs.m5stack.com/en/cap/Cap_CC1101)）を直接読解した結果、従来「上部 Cap スロット」と「2.54mm UART ヘッダ（EXT 2.54-14P）」を**別ポートとして扱っていたのは誤り**であり、両者は**同一の 14 ピン物理バス（= Cap-Bus = EXT 2.54-14P）**であることが確定。Cap 装着時はこのバスの全ピン（SPI/UART/I2C/電源）が Cap に占有されるため、同じ Pin 12/14（G15/G14 = UART）を使う Chain Encoder と**物理的に共存できない**。特に Cap LoRa-1262 は GPS が G14/G15 UART を使用し Chain Encoder と完全衝突。§1.2〜1.4 を全面改訂し「Cap-Bus = EXT 同一」「Cap 常駐時 Chain Encoder 併用不可」を明記。§1.4 早見表の CC1101 受信感度・アンテナ等を公式値に訂正。代替案（Grove UART / キーボード操作 / I2C エンコーダ）を §1.5 として新設。Chain Encoder を前提とする App01/10/11 の物理 UI 記述に「Cap 非装着時のみ」の条件を付記。§9.1 に回路図 PDF での Grove/EXT UART 排他確認 TODO を追加（総司様ご指摘より） |
 | 2026-06-19 | **App13 導通チェックの 5V 取得を CoreS3 Port B（黒・Grove 電源ライン）から行う構成を追加**。公式マニュアルで CoreS3 の Port A/B/C が GND/5V/GPIO 結線と確認（Grove は全ポート共通で 5V/GND を持つ）。Port B のデータピン（G8/G9）を使わず**電源ライン 5V/GND のみを App13 パターン 3（端子台 C）の給電に流用**できる。これにより PaHUB CH5 からの 5V 取得（直結方式の名残）が不要になり、App13 が CoreS3 完結型に。§1.6.1 の接続表・構成図・ポイント整理、App13 パターン 3 配線・端子台 C モジュール表を更新（第一推奨=CoreS3 Port B / 代替=PaHUB CH5）。⚠️ Port B 5V は常時出力の電源ライン（GPIO 制御不可）・供給電流上限は実機確認・DUT が CoreS3 電源系と導通する点に注意 |
 | 2026-06-19 | **HANDOFF 全体査読し「CoreS3 併用案＝第一推奨」で齟齬を解消**。方針決定（CoreS3 フロントエンド方式を第一推奨／直結方式は代替・旧案として残す）に基づき以下を修正: §1.6 冒頭にアーキテクチャ方針バナーを追加／§1.5 を「直結方式（代替/旧案）の運用方針」と位置づけ明記／App10 物理 UI に CoreS3 経由（第一推奨）と EXT 直結（代替）の 2 構成を併記／App13 に接続方式の方針注記を追加し PaHUB・端子台系を「直結方式の参照情報」と明記／App01 衛星リスト送りを「CoreS3 経由なら Cap A 使用でも可」に更新／`shared/` ツリーに `cores3_bridge/` を追加し input_encoder・ina226 を 2 バックエンド化（CoreS3 経由＝第一推奨 / 直結＝代替）／CLAUDE.md のデバイス接続・制約・共有ドライバを更新／§9.4 ドライバ API 設計を多バックエンド化／購入リストに CoreS3・データ専用ケーブルを追加し PaHUB・変換ハーネスを「直結方式の場合のみ」と注記／Phase 1.5 を CoreS3 経由優先に改訂し Phase 1.55（CoreS3 連携確立）を新設／Cap B 表記を公式名「Cap CC1101」に統一 |
@@ -3654,6 +3657,35 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 10 BCL]** 「内容」自由入力 UI 実装（46 キー、空欄も可）
 - [ ] **[App 10 BCL]** `_pending/` ディレクトリの一括再送スクリプトの設計（接続復帰検知の方法含む）
 - [ ] **[App 10 BCL]** 既知局 DB 拡充（受信実績に応じてユーザが追加するワークフロー）
+
+#### BCL ログモード uConsole 先行構築（`feat/app10-bcl-uconsole` / [`apps/sdr-receiver/bcl_log/`](apps/sdr-receiver/bcl_log/)）
+
+CardputerZero 実機到着前に ClockworkPi uConsole (CM4 / Debian 11 / Python 3.9.2) で
+ロジック層を先行構築・検証。Tailscale 上の uConsole (`100.85.21.75`) ↔ Mac Mini
+(`100.108.134.69`) 連携を確立。
+
+- [x] **[uConsole]** Win → uConsole の SSH 鍵認証設定（`~/.ssh/id_ed25519_uconsole` + `~/.ssh/config` の Host `uconsole`）
+- [x] **[uConsole]** uConsole → Mac Mini の SSH 鍵認証設定（`~/.ssh/id_ed25519_macmini`、`ssh-copy-id` 経由で登録）
+- [x] **[uConsole]** `bcl_log` パッケージ実装（`upnote.py` / `ssh_target.py` / `stations.py` / `markdown_template.py` / `pending.py` / `config.py` / `cli.py`）
+- [x] **[uConsole]** 既知局 YAML DB 初期 15 局のロード + 周波数近傍検索（3925 kHz でラジオ NIKKEI 第1 を抽出確認）
+- [x] **[uConsole]** Rich ベースのターミナル UI 実装（`new` / `resend` / `list` 3 サブコマンド）
+- [x] **[uConsole]** **e2e 実機テスト成功** (2026-06-17 11:33 JST) — Win → uConsole → Mac Mini → UpNote `BCL_LogBook` への自動ノート投稿。タイトル・本文・タグすべて期待通りレンダリング
+- [x] **[uConsole]** リモート zsh が URL 内 `&` をシェル区切りとして解釈する不具合を修正（`upnote.dispatch()` で `shlex.quote()` 必須化）
+- [x] **[uConsole]** `~/.config/cardputerzero/bcl_config.yaml` ローダー実装
+- [x] **[uConsole]** `_pending/` JSON キュー実装（`bcl_log resend` で一括再送）
+- [x] **[uConsole]** `scripts/setup_rtlsdr.sh` 実装（rtl-sdr-blog 公式ドライバの自動ビルド: DVB ブラックリスト → initramfs 更新 → cmake → udev ルール反映）
+- [x] **[uConsole]** RTL-SDR Blog V4 動作確認 (`rtl_test -t` で R828D + V4 Detected を確認・2026-06-17)
+- [x] **[uConsole]** **HW 制約発見**: USB-C ポートはデータ非対応・電源入力専用 → USB-A への接続経路に変更
+- [x] **[uConsole]** FM 80.4 MHz (AIR-G' 札幌) 音声受信成功・ダイポールキット 93cm 水平展開 (2026-06-17)
+- [ ] **[uConsole]** HF 用アンテナ選定・整備（短波 BCL 用、ダイポールキットでは不足）
+- [ ] **[uConsole]** GQRX 手動録音ファイルの scp 転送機能（現状は録音ファイル名を `bcl_log new` で手入力）
+- [ ] **[uConsole]** NOAA SWPC `wwv.txt` 取得・キャッシュ実装（現状は SFI/K-index 未記載）
+- [ ] **[uConsole]** App 01 GPS 連携（現状は `default_location` 固定）
+- [ ] **[uConsole]** 既知局未マッチ時の「新規局を DB に追加」ワークフロー
+
+> uConsole 版のロジックモジュール (`bcl_log/`) は機種非依存。CardputerZero 実機到着後は
+> `cli.py` を LVGL 版 UI に差し替え、`core/` 相当のモジュール群はそのまま再利用する想定。
+
 - [ ] **[2.6]** fcitx5-mozc + 46 キーレイアウトでの IME 切替動作検証
 - [ ] **[2.6]** LVGL アプリ内日本語入力の実装方針確定 (簡易ローマ字 / fcitx5 IPC / Mac 委譲のいずれか)
 

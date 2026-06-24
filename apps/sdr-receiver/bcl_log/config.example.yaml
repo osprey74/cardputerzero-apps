@@ -1,0 +1,52 @@
+# bcl_config.yaml — App 10 BCL ログモード (uConsole 先行構築版)
+# 配置先: ~/.config/cardputerzero/bcl_config.yaml
+
+mac_mini:
+  hostname: mac-mini             # Tailscale MagicDNS
+  ip:       100.108.134.69       # MagicDNS 不通時のフォールバック (Mac Mini Tailscale 固定 IP)
+  user:     so4330
+
+upnote:
+  notebook: BCL_LogBook          # note/new は名前指定（notebookId 不可）
+  tag:      BCL                  # URL 末尾配置必須
+
+bcl:
+  default_receiver: RTL-SDR Blog V4 + GQRX
+  default_location:
+    name: 札幌市
+    lat:  43.0618
+    lng:  141.3545
+
+  antennas:
+    - { id: longwire_15m, name: 15m ロングワイヤー, notes: 屋外、北西方向 }
+    - { id: dipole_7mhz,  name: 7MHz ダイポール,    notes: 自作、給電点 3m }
+    - { id: active_loop,  name: アクティブループ,    notes: MLA-30+ 室内設置 }
+    - { id: whip,         name: 付属ホイップ,        notes: ドングル直付 }
+  current_antenna: longwire_15m
+
+  qsl_status_options:
+    - 未送付
+    - 送付済
+    - 受領済
+    - 不要
+
+  recording:
+    enabled:                      false      # uConsole 先行版: GQRX 側手動録音
+    local_dir:                    /home/osprey74/bcl_recordings
+    remote_dir:                   /Users/so4330/BCL_Recordings
+    format:                       mp3
+    bitrate:                      64k
+    duration_sec:                 60
+    transfer_method:              scp
+    cleanup_local_after_transfer: true
+    retry_on_failure:             false
+
+  propagation:
+    enabled:       false                    # uConsole 先行版: 後続実装
+    source:        https://services.swpc.noaa.gov/text/wwv.txt
+    cache_ttl_min: 60
+    offline_use_cache: true
+
+storage:
+  log_dir:     /home/osprey74/bcl_logs
+  pending_dir: /home/osprey74/bcl_logs/_pending
