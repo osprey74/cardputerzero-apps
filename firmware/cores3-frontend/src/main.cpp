@@ -1,0 +1,157 @@
+// CardputerZero 入力フロントエンド (M5Stack CoreS3 / ESP32-S3)
+// HANDOFF_cardputerzero.md §1.6.1 確定構成の雛形。
+//
+//   Port A (I2C, SDA=G1 / SCL=G2) : INA226-10A (0x41) + MLX90614 (0x5A)
+//                                   ※Hub Unit U006 で 1→3 受動分岐し同居
+//   Port C (UART, RX=G18 / TX=G17): Chain Encoder ×2 (デイジーチェーン)
+//   USB CDC (Serial)              : 下記 JSON を 1 行/周期で CardputerZero へ送信
+//
+//   送信 JSON 例:
+//   {"ina":{"v":5.01,"i":0.123,"p":0.616},"ncir":{"t_obj":36.5,"t_amb":24.1},
+//    "enc":[{"id":0,"delta":1,"btn":0},{"id":1,"delta":0,"btn":1}]}
+//
+// ⚠️ 実機未確定 (HANDOFF §1.6.1 / §9): INA226 実アドレス・校正値、MLX90614 PEC、
+//    Chain Encoder のデイジーチェーン UART プロトコル/baud、USB CDC の Host 認識。
+//    本ファイルは「ビルドが通り、I2C スキャン + 生レジスタ読取 + JSON 送信の
+//    骨格が動く」ことを目的とした雛形であり、各 TODO は実機検証後に確定する。
+
+#include <M5Unified.h>
+#include <Wire.h>
+
+// ---- Port A (I2C) ----------------------------------------------------------
+// ⚠️ 実機確定 (2026-06-24): Port A は SDA=G2 / SCL=G1。
+//    §1.6.1 の表 (SDA=G1/SCL=G2) は誤りで、ESPHome 記述 (G2/G1) が正。
+//    この順で INA226(0x41) と MLX90614(0x5A) を検出。
+static constexpr int PORT_A_SDA = 2;   // G2
+static constexpr int PORT_A_SCL = 1;   // G1
+
+// ---- Port C (UART, Chain Encoder) ------------------------------------------
+static constexpr int PORT_C_RX = 18;   // G18
+static constexpr int PORT_C_TX = 17;   // G17
+static constexpr uint32_t ENC_BAUD = 115200;  // TODO: 実機で確定
+
+// ---- I2C アドレス (HANDOFF §1.6.1) -----------------------------------------
+static constexpr uint8_t INA226_ADDR = 0x41;  // §2.x「0x41 固定」/ 0x40-0x4F 帯。要 i2cdetect
+static constexpr uint8_t MLX_ADDR    = 0x5A;  // MLX90614 既定
+
+// INA226 レジスタ
+static constexpr uint8_t INA_REG_BUS_V  = 0x02;
+static constexpr uint8_t INA_REG_POWER  = 0x03;
+static constexpr uint8_t INA_REG_CURRENT= 0x04;
+static constexpr uint8_t INA_REG_MFG_ID = 0xFE;  // 期待値 0x5449 (TI)
+static constexpr uint8_t INA_REG_DIE_ID = 0xFF;  // 期待値 0x2260
+
+// MLX90614 RAM レジスタ
+static constexpr uint8_t MLX_REG_T_AMB = 0x06;
+static constexpr uint8_t MLX_REG_T_OBJ = 0x07;
+
+static uint32_t g_last_send_ms = 0;
+static constexpr uint32_t SEND_INTERVAL_MS = 200;  // 5Hz
+
+static uint32_t g_last_scan_ms = 0;
+static constexpr uint32_t SCAN_INTERVAL_MS = 2000;  // 2s 毎に I2C バスを再列挙 (配線確認用)
+
+// 16bit ワード読み出し (MSB first / INA226 等)。成功時 true。
+static bool readWord16(uint8_t addr, uint8_t reg, uint16_t &out) {
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return false;  // repeated start
+  if (Wire.requestFrom((int)addr, 2) != 2) return false;
+  uint8_t hi = Wire.read();
+  uint8_t lo = Wire.read();
+  out = (uint16_t(hi) << 8) | lo;
+  return true;
+}
+
+// MLX90614 は SMBus (LSB first, PEC 付き)。ここでは PEC 未検証の簡易読み。
+static bool readWordLE(uint8_t addr, uint8_t reg, uint16_t &out) {
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom((int)addr, 3) != 3) return false;  // lo, hi, pec
+  uint8_t lo = Wire.read();
+  uint8_t hi = Wire.read();
+  (void)Wire.read();  // PEC (TODO: 検証)
+  out = (uint16_t(hi) << 8) | lo;
+  return true;
+}
+
+// 指定ピンで I2C を初期化しバスを列挙。検出数を返す。
+// ⚠️ Port A の SDA/SCL 順は設計書内で矛盾（§1.6.1=G1/G2 vs ESPHome=G2/G1）。
+//    両順を試して、どちらで応答するかを実機で確定する。
+static int i2cScanOn(int sda, int scl) {
+  Wire.end();
+  delay(5);
+  Wire.begin(sda, scl, 100000);
+  Serial.printf("{\"log\":\"i2c_scan\",\"sda\":%d,\"scl\":%d,\"found\":[", sda, scl);
+  int n = 0;
+  for (uint8_t a = 0x08; a < 0x78; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) {
+      if (n) Serial.print(",");
+      Serial.printf("\"0x%02X\"", a);
+      n++;
+    }
+  }
+  Serial.printf("],\"count\":%d}\n", n);
+  return n;
+}
+
+void setup() {
+  auto cfg = M5.config();
+  M5.begin(cfg);
+  M5.Display.setTextSize(2);
+  M5.Display.println("CoreS3 frontend");
+
+  Serial.begin(115200);   // USB CDC
+  Serial2.begin(ENC_BAUD, SERIAL_8N1, PORT_C_RX, PORT_C_TX);  // Chain Encoder
+
+  delay(300);
+  Wire.begin(PORT_A_SDA, PORT_A_SCL, 100000);  // 設計上の既定 (G1/G2)
+}
+
+void loop() {
+  M5.update();
+
+  const uint32_t now = millis();
+
+  // 配線確認用: 2s 毎に I2C バスを再列挙 (リセット不要でライブ観測)。
+  if (now - g_last_scan_ms >= SCAN_INTERVAL_MS) {
+    g_last_scan_ms = now;
+    i2cScanOn(PORT_A_SDA, PORT_A_SCL);  // 実機確定: SDA=G2 / SCL=G1
+  }
+
+  if (now - g_last_send_ms < SEND_INTERVAL_MS) return;
+  g_last_send_ms = now;
+
+  // ---- INA226 ----
+  float v = NAN, i = NAN, p = NAN;
+  uint16_t raw;
+  if (readWord16(INA226_ADDR, INA_REG_BUS_V, raw)) {
+    v = raw * 0.00125f;  // Bus Voltage LSB = 1.25mV
+  }
+  // TODO: 電流/電力は Calibration レジスタ設定後に確定。今は生値を載せない。
+
+  // ---- MLX90614 ----
+  float t_obj = NAN, t_amb = NAN;
+  if (readWordLE(MLX_ADDR, MLX_REG_T_OBJ, raw)) t_obj = raw * 0.02f - 273.15f;
+  if (readWordLE(MLX_ADDR, MLX_REG_T_AMB, raw)) t_amb = raw * 0.02f - 273.15f;
+
+  // ---- Chain Encoder (Port C UART) ----
+  // TODO: デイジーチェーンのフレーム/コマンドを実機で確定し、delta/btn を抽出。
+  //       現状は受信生バイトを破棄し、プレースホルダの空配列を送る。
+  while (Serial2.available()) Serial2.read();
+
+  // ---- JSON 1 行送信 ----
+  char buf[192];
+  snprintf(buf, sizeof(buf),
+           "{\"ina\":{\"v\":%.3f},\"ncir\":{\"t_obj\":%.2f,\"t_amb\":%.2f},\"enc\":[]}",
+           v, t_obj, t_amb);
+  Serial.println(buf);
+
+  // ---- タッチ液晶 (簡易表示) ----
+  M5.Display.fillRect(0, 40, 320, 60, TFT_BLACK);
+  M5.Display.setCursor(0, 40);
+  M5.Display.printf("V: %.3f\n", v);
+  M5.Display.printf("T: %.2f C\n", t_obj);
+}

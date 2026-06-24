@@ -337,13 +337,15 @@ CardputerZero（Raspberry Pi CM0 = Linux 機）と **M5Stack CoreS3（ESP32-S3 �
 
 | ポート | 色 | 機能 | GPIO | 排他関係 |
 |--------|----|------|------|----------|
-| Port A | 赤 | I2C | SDA=G1 / SCL=G2 | 独立（Port B/C と同時使用可） |
+| Port A | 赤 | I2C | SDA=G2 / SCL=G1 | 独立（Port B/C と同時使用可） |
 | Port B | 黒 | GPIO/ADC・DAC | G8 / G9 | 独立 |
 | Port C | 青 | UART | RX=G18 / TX=G17 | 独立 |
 
 > ✅ **CardputerZero との決定的な違い**: CardputerZero の Grove は I2C/UART が同一ピン（G2/G3・G14/G15）で**排他**だったが、**CoreS3 は Port A(I2C)・Port C(UART) が別 GPIO のため同時使用できる**。これが CoreS3 をフロントエンドにする最大の利点。
 > 内蔵デバイス（BMI270=0x68 / AXP2101 / AW9523 / BMM150 等）は**別系統の内部 I2C バス**にあり、外部 Port A(G1/G2) とは分離。外部 I2C ユニット追加時のアドレス衝突は原則回避される（最終確認は実機 `i2cdetect`）。
 > 出典: [ESPHome CoreS3](https://devices.esphome.io/devices/m5stack-cores3/)（Port A=G2/G1, B=G9/G8, C=G18/G17）／ [M5Stack Community](https://community.m5stack.com/topic/5583/)（実機: GPIO1/2=外部I2C, PC_RX=G18/PC_TX=G17=2nd serial）
+>
+> 🔬 **実機確定（2026-06-24）**: CoreS3 + INA226 + MLX90614（Hub Unit U006 経由・Port A）を `firmware/cores3-frontend/` のスキャンファームで検証。**Port A の I2C ピン順は `SDA=G2 / SCL=G1`**（ESPHome 記述が正、当初の表記 `SDA=G1/SCL=G2` は誤りだったため訂正）。この順で **INA226=0x41 / MLX90614=0x5A** を検出（アドレス衝突なし・Hub Unit 同居 OK）。逆順では検出ゼロ。
 
 #### 役割分担の考え方
 
@@ -399,7 +401,7 @@ CoreS3 に以下のユニットを接続し、CardputerZero へ USB 経由で値
 
 | 接続先ポート | ユニット | 台数 | 通信 | CoreS3 GPIO |
 |--------------|----------|:---:|------|-------------|
-| **Port A（赤・I2C）** | M5Stack INA226 電流電圧測定ユニット ±10A レンジ | 1 | I2C | SDA=G1 / SCL=G2 |
+| **Port A（赤・I2C）** | M5Stack INA226 電流電圧測定ユニット ±10A レンジ | 1 | I2C | SDA=G2 / SCL=G1 |
 | **Port C（青・UART）** | M5Stack Chain Encoder（デイジーチェーン） | 2 | UART | RX=G18 / TX=G17 |
 | **Port B（黒・GPIO）** | （App13 導通チェック用）5V/GND 電源取り出し | — | 電源ラインのみ | 5V / GND（G8/G9 は未使用） |
 
@@ -3267,6 +3269,8 @@ osprey74/cardputerzero-apps/
 │   ├── tester/                 # App 13 [Grove I2C INA226]
 │   ├── qr-toolkit/             # App 14 [本体 IMX219 カメラ・標準版限定]
 │   └── ncir-thermometer/       # App 15 [第一推奨=CoreS3 Port A I2C (Hub Unit U006 経由・INA226 同居) / 代替=PaHUB CH1 直結]
+├── firmware/
+│   └── cores3-frontend/        # CoreS3(ESP32-S3) 入力フロントエンド・ファーム (PlatformIO / Arduino + M5Unified)。§1.6.1。INA226+MLX90614+Chain Encoder を読み USB CDC で JSON 送信。CardputerZero 側 shared/cores3_bridge/ の送信元
 ├── shared/
 │   ├── lora_sx1262/            # SX1262 共通ドライバ [Cap A]
 │   ├── gnss_at6668/            # AT6668 共通ドライバ [Cap A]

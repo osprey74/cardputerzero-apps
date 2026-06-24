@@ -20,6 +20,9 @@ env/
 dist/
 build/
 
+# PlatformIO (CoreS3 firmware build dir / downloaded deps)
+.pio/
+
 # czdev / LVGL build artifacts
 *.bin
 *.elf
