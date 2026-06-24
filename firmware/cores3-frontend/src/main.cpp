@@ -164,9 +164,7 @@ static WiFiMulti wifiMulti;
 static bool     g_wifi_configured = false;   // setup で登録 AP 数 > 0 なら true
 enum WifiState { WIFI_OFF_STATE = 0, WIFI_CONNECTING, WIFI_CONNECTED_NO_NTP, WIFI_NTP_OK };
 static int      g_wifi_state = WIFI_OFF_STATE;
-static uint32_t g_wifi_last_try_ms = 0;
 static bool     g_ntp_started = false;
-static constexpr uint32_t WIFI_RETRY_MS = 10000;  // 切断時の再接続間隔
 
 // secrets.h の AP 群を WiFiMulti に登録し、登録数を返す。
 // 新形式 WIFI_APS (X-macro) を優先、無ければ旧形式 WIFI_SSID を 1 件登録。
@@ -570,30 +568,34 @@ static void drawSys() {
       (g_wifi_state >= WIFI_CONNECTED_NO_NTP) ? "connected" : "down";
   uint16_t stcol = (g_wifi_state >= WIFI_CONNECTED_NO_NTP) ? COL_OK :
                    g_wifi_configured ? COL_WARN : COL_LABEL;
-  drawField(x + 4, y, "stat ", st, stcol, 2, 2); y += 24;
+  // 項目名は最長ラベル+2 で左詰めし、値との間に半角 2 空き以上を確保して揃える。
+  drawField(x + 4, y, "stat   ", st, stcol, 2, 2); y += 24;
   if (g_wifi_state >= WIFI_CONNECTED_NO_NTP) {
     snprintf(buf, sizeof(buf), "%.18s", WiFi.SSID().c_str());
-    drawField(x + 4, y, "ssid ", buf, COL_VALUE, 1, 2); y += 20;
+    drawField(x + 4, y, "ssid   ", buf, COL_VALUE, 1, 2); y += 20;
     snprintf(buf, sizeof(buf), "%d dBm", WiFi.RSSI());
-    drawField(x + 4, y, "rssi ", buf, COL_VALUE, 1, 2); y += 20;
+    drawField(x + 4, y, "rssi   ", buf, COL_VALUE, 1, 2); y += 20;
     snprintf(buf, sizeof(buf), "%s", WiFi.localIP().toString().c_str());
-    drawField(x + 4, y, "ip   ", buf, COL_VALUE, 1, 2); y += 20;
+    drawField(x + 4, y, "ip     ", buf, COL_VALUE, 1, 2); y += 20;
     snprintf(buf, sizeof(buf), "%s", WiFi.gatewayIP().toString().c_str());
-    drawField(x + 4, y, "gw   ", buf, COL_LABEL, 1, 2); y += 20;
+    drawField(x + 4, y, "gw     ", buf, COL_LABEL, 1, 2); y += 20;
   }
   snprintf(buf, sizeof(buf), "%s", WiFi.macAddress().c_str());
-  drawField(x + 4, y, "mac  ", buf, COL_LABEL, 1, 1); y += 18;
+  drawField(x + 4, y, "mac    ", buf, COL_LABEL, 1, 1); y += 18;
 
   // ---- システム ----
   y = drawSection(x, y, W - 12, "SYSTEM");
   uint32_t s = millis() / 1000;
   snprintf(buf, sizeof(buf), "%02u:%02u:%02u", (unsigned)(s / 3600), (unsigned)((s / 60) % 60), (unsigned)(s % 60));
-  drawField(x + 4, y, "up   ", buf, COL_VALUE, 1, 2); y += 20;
-  snprintf(buf, sizeof(buf), "%u KB", (unsigned)(ESP.getFreeHeap() / 1024));
-  drawField(x + 4, y, "heap ", buf, COL_VALUE, 1, 2); y += 20;
-  snprintf(buf, sizeof(buf), "%.1f MB", ESP.getFreePsram() / 1048576.0);
-  drawField(x + 4, y, "psram", buf, COL_VALUE, 1, 2); y += 20;
-  drawField(x + 4, y, "fw   ", FW_VERSION, COL_ACCENT, 1, 2); y += 20;
+  drawField(x + 4, y, "up     ", buf, COL_VALUE, 1, 2); y += 20;
+  // heap/psram は「空き / 合計」で表示 (getFreeHeap=現在の空き・getHeapSize=合計)。
+  snprintf(buf, sizeof(buf), "%u/%u KB",
+           (unsigned)(ESP.getFreeHeap() / 1024), (unsigned)(ESP.getHeapSize() / 1024));
+  drawField(x + 4, y, "heap   ", buf, COL_VALUE, 1, 2); y += 20;
+  snprintf(buf, sizeof(buf), "%.1f/%.1f MB",
+           ESP.getFreePsram() / 1048576.0, ESP.getPsramSize() / 1048576.0);
+  drawField(x + 4, y, "psram  ", buf, COL_VALUE, 1, 2); y += 20;
+  drawField(x + 4, y, "fw     ", FW_VERSION, COL_ACCENT, 1, 2); y += 20;
 }
 
 // 現在ページを描画 → ページドット → 一括転送。
@@ -759,37 +761,42 @@ static void logWifiTransition(int from, int to) {
   }
 }
 
-static void wifiTask() {
-  if (!g_wifi_configured) { g_wifi_state = WIFI_OFF_STATE; return; }
+// ネットワークタスク (core 0 常駐)。Wi-Fi 接続・NTP・天気取得をここで行い、
+// メインループ (core 1: 表示・センサ・JSON) をブロックしない。wifiMulti.run() や
+// HTTPS は数秒ブロックするが core 0 内に閉じるためダッシュボードは滑らかなまま。
+static void netTask(void *) {
+  for (;;) {
+    if (!g_wifi_configured) { vTaskDelay(pdMS_TO_TICKS(1000)); continue; }
 
-  const int prev_state = g_wifi_state;
-  const uint32_t now = millis();
-  wl_status_t ws = WiFi.status();
+    const int prev_state = g_wifi_state;
+    if (WiFi.status() == WL_CONNECTED) {
+      if (!g_ntp_started) {
+        configTzTime("JST-9", "ntp.nict.jp", "pool.ntp.org");  // JST (UTC+9)
+        g_ntp_started = true;
+      }
+      if (g_wifi_state < WIFI_CONNECTED_NO_NTP) g_wifi_state = WIFI_CONNECTED_NO_NTP;
+      struct tm t;
+      if (getLocalTime(&t, 0) && (t.tm_year + 1900) >= 2020) g_wifi_state = WIFI_NTP_OK;
+      logWifiTransition(prev_state, g_wifi_state);
 
-  if (ws == WL_CONNECTED) {
-    if (!g_ntp_started) {
-      // JST (UTC+9)。NTP は NICT + pool を指定。
-      configTzTime("JST-9", "ntp.nict.jp", "pool.ntp.org");
-      g_ntp_started = true;
-    }
-    if (g_wifi_state < WIFI_CONNECTED_NO_NTP) g_wifi_state = WIFI_CONNECTED_NO_NTP;
-    // NTP 同期判定: 年が 2020 以降なら同期済みとみなす。
-    struct tm t;
-    if (getLocalTime(&t, 0) && (t.tm_year + 1900) >= 2020) g_wifi_state = WIFI_NTP_OK;
-  } else {
-    g_ntp_started = false;
-    if (g_wifi_state == WIFI_NTP_OK || g_wifi_state == WIFI_CONNECTED_NO_NTP)
-      g_wifi_state = WIFI_CONNECTING;  // 切断 → 再接続待ち
-    // 初回 or リトライ間隔ごとに wifiMulti.run() (登録 AP をスキャンし最強の既知 AP へ)。
-    if (g_wifi_state == WIFI_OFF_STATE ||
-        (now - g_wifi_last_try_ms >= WIFI_RETRY_MS)) {
-      g_wifi_last_try_ms = now;
-      g_wifi_state = WIFI_CONNECTING;
-      wifiMulti.run(5000);  // スキャン + 接続 (数秒ブロック)。最も電波の強い登録 AP を選ぶ
+      // 天気: NTP 同期後、初回 + 30 分毎に取得 (HTTPS は数秒ブロック・core 0 内)。
+      if (g_wifi_state == WIFI_NTP_OK &&
+          (g_wx_last_ms == 0 || millis() - g_wx_last_ms >= WX_INTERVAL_MS)) {
+        g_wx_last_ms = millis();
+        fetchWeather();
+        g_redraw = true;
+      }
+      vTaskDelay(pdMS_TO_TICKS(500));
+    } else {
+      g_ntp_started = false;
+      if (g_wifi_state != WIFI_CONNECTING) {
+        g_wifi_state = WIFI_CONNECTING;
+        logWifiTransition(prev_state, g_wifi_state);
+      }
+      wifiMulti.run(8000);  // スキャン + 接続 (ブロックするが core 0 内に閉じる)
+      vTaskDelay(pdMS_TO_TICKS(500));
     }
   }
-
-  logWifiTransition(prev_state, g_wifi_state);  // 状態が変わった時のみログ出力
 }
 
 // ---------------------------------------------------------------------------
@@ -825,6 +832,10 @@ void setup() {
   g_wifi_configured = (aps > 0);
   if (g_wifi_configured) WiFi.mode(WIFI_STA);
   Serial.printf("{\"log\":\"wifi_cfg\",\"ap_count\":%d}\n", aps);
+
+  // ネットワーク処理は core 0 のバックグラウンドタスクへ (メインループを止めない)。
+  // HTTPS/TLS でスタックを使うため余裕を持って 20KB 確保。
+  xTaskCreatePinnedToCore(netTask, "net", 20480, nullptr, 1, nullptr, 0);
 }
 
 void loop() {
@@ -832,19 +843,11 @@ void loop() {
 
   const uint32_t now = millis();
 
-  // タッチ (左右スワイプでページ送り) と Wi-Fi/NTP は毎ループ処理し応答性を確保。
+  // タッチ (左右スワイプでページ送り) を毎ループ処理し応答性を確保。
+  // Wi-Fi 接続・NTP・天気取得は netTask (core 0) が担当しメインループを止めない。
   handleTouch();
-  wifiTask();
 
-  // 天気: NTP 同期後、初回 + 30 分毎に取得 (HTTPS なので数秒ブロックする)。
-  if (g_wifi_state == WIFI_NTP_OK &&
-      (g_wx_last_ms == 0 || now - g_wx_last_ms >= WX_INTERVAL_MS)) {
-    g_wx_last_ms = now;
-    fetchWeather();
-    g_redraw = true;
-  }
-
-  if (g_redraw) {           // ページ切替直後は即時再描画してキビキビ動かす。
+  if (g_redraw) {           // ページ切替・天気更新時は即時再描画してキビキビ動かす。
     g_redraw = false;
     drawCurrentPage();
   }
