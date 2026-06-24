@@ -9,7 +9,9 @@
 //   送信 JSON 例:
 //   {"bat":{"pct":85,"chg":1,"v":4.05},
 //    "ina":{"v":5.01,"i":0.123,"p":0.616},"ncir":{"t_obj":36.5,"t_amb":24.1},
-//    "enc":[{"id":1,"cnt":12,"delta":1,"btn":0},{"id":2,"cnt":-3,"delta":0,"btn":1}]}
+//    "enc":[{"id":1,"role":"R","uid":"A1B2C3D4","cnt":12,"delta":1,"btn":0},
+//           {"id":2,"role":"B","uid":"E5F6A7B8","cnt":-3,"delta":0,"btn":1}]}
+//    ※ id=チェーン上の位置(1始まり)・role/uid=個体識別(配線順非依存・UID で確定)
 //
 //   液晶 (常時表示ダッシュボード):
 //     ・最上段  : バッテリー残量% + 充電状態 + バッテリ電圧 (M5.Power / AXP2101)
@@ -22,6 +24,7 @@
 #include <Wire.h>
 #include <M5Chain.h>   // Chain Encoder (Port C UART デイジーチェーン)
 #include <math.h>
+#include <string.h>
 
 // ---- Port A (I2C) ----------------------------------------------------------
 // ⚠️ 実機確定 (2026-06-24): Port A は SDA=G2 / SCL=G1。
@@ -101,6 +104,35 @@ static constexpr uint16_t COL_DIM    = 0x4208;  // 罫線
 static constexpr uint16_t COL_E1     = 0xF800;  // 赤 (Encoder 1)
 static constexpr uint16_t COL_E2     = 0x349F;  // 青 (Encoder 2)
 
+// ---- Chain Encoder 個体識別 (UID ベース・配線順非依存) ----------------------
+// 各 Chain ノードは STM32 固有 UID を持つ。getUID(id, UID_TYPE_4_BYTE, ...) で
+// 読み出し、下表の既知 UID と突き合わせて「役割(色)」を物理位置によらず固定する。
+// ※ chain.getUID() のドキュメント上、id は「チェーン上の位置 (1 始まり)」を指す。
+//    id だけだとケーブル接続順を入れ替えると赤/青が入れ替わるため UID で恒久固定する。
+//
+// 【UID 採取手順】初回はプレースホルダ(全ゼロ)。書込み後シリアルの
+//    {"log":"chain_uid","id":..,"uid":"XXXXXXXX",..} を確認し、上流(赤)・下流(青)
+//    の UID を下記 uid[] に記入して再ビルド・再書込みする。
+//    ゼロのままのエントリは「未設定」として突合をスキップする (誤マッチ防止)。
+struct EncoderIdentity {
+  uint8_t     uid[4];   // STM32 固有 UID 先頭 4 バイト (全ゼロ = 未設定)
+  const char *name;     // 表示名 (色の意味)
+  uint16_t    color;    // 表示色
+  char        role;     // JSON 用 役割コード
+};
+static const EncoderIdentity ENC_IDENTITY[] = {
+  // 実機採取 (2026-06-24): id=1(上流) UID=4E001B00 / id=2(下流) UID=78001C00。
+  // 以後この UID で色を固定するため、ケーブル接続順を入れ替えても赤/青は不変。
+  {{0x4E, 0x00, 0x1B, 0x00}, "RED",  COL_E1, 'R'},   // 物理:赤 (採取時:上流)
+  {{0x78, 0x00, 0x1C, 0x00}, "BLUE", COL_E2, 'B'},   // 物理:青 (採取時:下流)
+};
+static constexpr size_t ENC_IDENTITY_N = sizeof(ENC_IDENTITY) / sizeof(ENC_IDENTITY[0]);
+
+// 位置 id(1始まり) ごとの UID 採取結果と解決済み identity インデックス。
+static uint8_t g_enc_uid[ENC_MAX + 1][4] = {{0}};
+static bool    g_enc_uid_ok[ENC_MAX + 1] = {false};
+static int8_t  g_enc_ident[ENC_MAX + 1]  = {-1};  // ENC_IDENTITY index / -1=unknown
+
 // ---------------------------------------------------------------------------
 // I2C 低レベル
 // ---------------------------------------------------------------------------
@@ -168,6 +200,22 @@ static int i2cScanOn(int sda, int scl) {
   }
   Serial.printf("],\"count\":%d}\n", n);
   return n;
+}
+
+// 指定位置 id の Chain ノードから 4 バイト UID を読み出す。成功時 true。
+static bool getEncoderUID4(uint16_t id, uint8_t out[4]) {
+  uint8_t op = 0;
+  return chain.getUID(id, UID_TYPE_4_BYTE, out, 4, &op) == CHAIN_OK && op == 1;
+}
+
+// UID を既知テーブルと突合し identity インデックスを返す。未設定(全ゼロ)entry は無視。
+static int8_t resolveIdentity(const uint8_t uid[4]) {
+  for (size_t i = 0; i < ENC_IDENTITY_N; i++) {
+    const uint8_t *u = ENC_IDENTITY[i].uid;
+    if ((u[0] | u[1] | u[2] | u[3]) == 0) continue;  // 未設定 (プレースホルダ)
+    if (memcmp(u, uid, 4) == 0) return (int8_t)i;
+  }
+  return -1;
 }
 
 // ---------------------------------------------------------------------------
@@ -310,10 +358,15 @@ static void drawDashboard() {
     for (uint16_t id = 1; id <= g_enc_num && id <= ENC_MAX && y < g_canvas.height() - 18; id++) {
       uint8_t btn = 0;
       chain.getEncoderButtonStatus(id, &btn);
+      // UID で解決した役割があれば色・名前を個体固定 (配線順非依存)。
+      // 未解決時は従来の位置ベース (id1=赤 / id2=青) にフォールバック。
+      int8_t idn = g_enc_ident[id];
+      uint16_t encColor = (idn >= 0) ? ENC_IDENTITY[idn].color
+                        : (id == 1) ? COL_E1 : (id == 2) ? COL_E2 : COL_VALUE;
+      const char *nm = (idn >= 0) ? ENC_IDENTITY[idn].name : nullptr;
       char line[24];
-      snprintf(line, sizeof(line), "E%u %+ld", id, (long)g_enc_count[id]);
-      // E1=赤 / E2=青 / それ以降は白
-      uint16_t encColor = (id == 1) ? COL_E1 : (id == 2) ? COL_E2 : COL_VALUE;
+      if (nm) snprintf(line, sizeof(line), "%s %+ld", nm, (long)g_enc_count[id]);
+      else    snprintf(line, sizeof(line), "E%u %+ld", id, (long)g_enc_count[id]);
       g_canvas.setTextSize(2);
       g_canvas.setTextColor(encColor, COL_BG);
       g_canvas.setCursor(x + 4, y);
@@ -377,6 +430,19 @@ void loop() {
     chain_status_t st = chain.getDeviceNum(&n);
     if (st == CHAIN_OK) g_enc_num = (n <= ENC_MAX) ? n : ENC_MAX;
     Serial.printf("{\"log\":\"chain_enum\",\"status\":%d,\"enc_num\":%u}\n", (int)st, g_enc_num);
+
+    // 各ノードの UID を採取 → 既知テーブルと突合し役割(色)を配線順非依存で確定。
+    for (uint16_t id = 1; id <= g_enc_num && id <= ENC_MAX; id++) {
+      uint8_t uid[4] = {0};
+      bool ok = getEncoderUID4(id, uid);
+      g_enc_uid_ok[id] = ok;
+      if (ok) { memcpy(g_enc_uid[id], uid, 4); g_enc_ident[id] = resolveIdentity(uid); }
+      else    { g_enc_ident[id] = -1; }
+      Serial.printf("{\"log\":\"chain_uid\",\"id\":%u,\"ok\":%d,\"uid\":\"%02X%02X%02X%02X\","
+                    "\"ident\":%d,\"name\":\"%s\"}\n",
+                    id, ok ? 1 : 0, uid[0], uid[1], uid[2], uid[3], (int)g_enc_ident[id],
+                    g_enc_ident[id] >= 0 ? ENC_IDENTITY[g_enc_ident[id]].name : "?");
+    }
   }
 
   if (now - g_last_send_ms < SEND_INTERVAL_MS) return;
@@ -405,22 +471,27 @@ void loop() {
   // ---- Chain Encoder (Port C UART・デイジーチェーン) ----
   // delta を積算して累積カウント(g_enc_count)を更新しつつ JSON 配列化。
   // device id は 1 始まり (id=1 が Master 直近のノード)。
-  char encbuf[200];
+  char encbuf[360];
   int off = snprintf(encbuf, sizeof(encbuf), "[");
-  for (uint16_t id = 1; id <= g_enc_num && id <= ENC_MAX && off < (int)sizeof(encbuf) - 56; id++) {
+  for (uint16_t id = 1; id <= g_enc_num && id <= ENC_MAX && off < (int)sizeof(encbuf) - 96; id++) {
     int16_t inc = 0;
     uint8_t btn = 0;
     chain.getEncoderIncValue(id, &inc);     // 前回読取からの増分
     chain.getEncoderButtonStatus(id, &btn); // ノブ押下状態 (生値)
     g_enc_count[id] += inc;
+    // 個体識別: role(R/B/…) と uid を併記 (受信側が配線順によらず個体を束ねられる)。
+    char role = (g_enc_ident[id] >= 0) ? ENC_IDENTITY[g_enc_ident[id]].role : '?';
     off += snprintf(encbuf + off, sizeof(encbuf) - off,
-                    "%s{\"id\":%u,\"cnt\":%ld,\"delta\":%d,\"btn\":%u}",
-                    id > 1 ? "," : "", id, (long)g_enc_count[id], inc, btn);
+                    "%s{\"id\":%u,\"role\":\"%c\",\"uid\":\"%02X%02X%02X%02X\","
+                    "\"cnt\":%ld,\"delta\":%d,\"btn\":%u}",
+                    id > 1 ? "," : "", id, role,
+                    g_enc_uid[id][0], g_enc_uid[id][1], g_enc_uid[id][2], g_enc_uid[id][3],
+                    (long)g_enc_count[id], inc, btn);
   }
   snprintf(encbuf + off, sizeof(encbuf) - off, "]");
 
   // ---- JSON 1 行送信 ----
-  char buf[420];
+  char buf[600];
   snprintf(buf, sizeof(buf),
            "{\"bat\":{\"pct\":%d,\"chg\":%d,\"v\":%.2f},"
            "\"ina\":{\"v\":%.3f,\"i\":%.4f,\"p\":%.4f},"
