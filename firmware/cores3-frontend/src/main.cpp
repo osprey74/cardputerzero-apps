@@ -57,8 +57,8 @@ static constexpr float    INA226_POWER_LSB_W  = 0.008f;
 static constexpr uint8_t MLX_REG_T_AMB = 0x06;
 static constexpr uint8_t MLX_REG_T_OBJ = 0x07;
 
-// 表示の向き (M5GFX: 0/1/2/3 = 90°刻み・時計回り)。0 から 180°回転で 2。
-static constexpr uint8_t DISPLAY_ROTATION = 2;
+// 表示の向き (M5GFX: 0/1/2/3 = 90°刻み・時計回り)。既定1(横) から左90°で 0。
+static constexpr uint8_t DISPLAY_ROTATION = 0;
 
 static uint32_t g_last_send_ms = 0;
 static constexpr uint32_t SEND_INTERVAL_MS = 200;  // 5Hz
