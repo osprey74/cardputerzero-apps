@@ -1,0 +1,2 @@
+# Wi-Fi 認証情報 (実値はコミットしない)。secrets.h.example をコピーして使う。
+src/secrets.h

@@ -13,18 +13,29 @@
 //           {"id":2,"role":"B","uid":"E5F6A7B8","cnt":-3,"delta":0,"btn":1}]}
 //    ※ id=チェーン上の位置(1始まり)・role/uid=個体識別(配線順非依存・UID で確定)
 //
-//   液晶 (常時表示ダッシュボード):
-//     ・最上段  : バッテリー残量% + 充電状態 + バッテリ電圧 (M5.Power / AXP2101)
-//     ・INA226  : V / I / P を大きく表示 (測定試験を実機目視で行うため)
-//     ・NCIR    : t_obj / t_amb
-//     ・ENC     : 各ノードの累積カウント + ボタン状態
+//   液晶 (常時表示・左右スワイプで 2 ページ切替・下部にページドット):
+//     [METER] バッテリ% / 充電 / 電圧 + INA226 V/I/P 大表示 + NCIR + エンコーダ
+//     [INFO ] NTP 時計 (JST) + Wi-Fi 状態 (SSID/RSSI/IP/MAC)
 //   ちらつき防止に M5Canvas (オフスクリーン・スプライト) へ描画し一括転送する。
+//   Wi-Fi 認証情報は src/secrets.h (gitignore 済み) に記入。未設定なら INFO は
+//   "not configured" を表示し JSON 送信・METER は通常動作する。
 
 #include <M5Unified.h>
 #include <Wire.h>
 #include <M5Chain.h>   // Chain Encoder (Port C UART デイジーチェーン)
+#include <WiFi.h>      // INFO 画面: Wi-Fi 接続 + NTP 時計
+#include <time.h>
 #include <math.h>
 #include <string.h>
+
+// Wi-Fi 認証情報 (secrets.h は .gitignore 済み)。無ければ空で吸収しビルド可。
+#if __has_include("secrets.h")
+  #include "secrets.h"
+#endif
+#ifndef WIFI_SSID
+  #define WIFI_SSID ""
+  #define WIFI_PASS ""
+#endif
 
 // ---- Port A (I2C) ----------------------------------------------------------
 // ⚠️ 実機確定 (2026-06-24): Port A は SDA=G2 / SCL=G1。
@@ -132,6 +143,21 @@ static constexpr size_t ENC_IDENTITY_N = sizeof(ENC_IDENTITY) / sizeof(ENC_IDENT
 static uint8_t g_enc_uid[ENC_MAX + 1][4] = {{0}};
 static bool    g_enc_uid_ok[ENC_MAX + 1] = {false};
 static int8_t  g_enc_ident[ENC_MAX + 1]  = {-1};  // ENC_IDENTITY index / -1=unknown
+
+// ---- 画面ページ (左右スワイプで切替) ---------------------------------------
+enum Page { PAGE_METER = 0, PAGE_INFO, PAGE_COUNT };
+static int  g_page = PAGE_METER;
+static bool g_redraw = true;                 // ページ切替直後など即時再描画フラグ
+static constexpr int SWIPE_THRESHOLD = 50;   // スワイプと判定する水平移動量 [px]
+
+// ---- Wi-Fi / NTP (INFO 画面) -----------------------------------------------
+// secrets.h 未設定 (空 SSID) なら Wi-Fi 機能は無効。
+static const bool WIFI_CONFIGURED = (sizeof(WIFI_SSID) > 1);  // "" は 1 byte
+enum WifiState { WIFI_OFF_STATE = 0, WIFI_CONNECTING, WIFI_CONNECTED_NO_NTP, WIFI_NTP_OK };
+static int      g_wifi_state = WIFI_OFF_STATE;
+static uint32_t g_wifi_last_try_ms = 0;
+static bool     g_ntp_started = false;
+static constexpr uint32_t WIFI_RETRY_MS = 10000;  // 切断時の再接続間隔
 
 // ---------------------------------------------------------------------------
 // I2C 低レベル
@@ -277,8 +303,22 @@ static void fmtTemp(char *out, size_t n, float c) {
   else          snprintf(out, n, "%.1fC", c);
 }
 
-// ダッシュボード全体を描画 (スプライトへ → pushSprite で一括転送)。
-static void drawDashboard() {
+// 下部ページインジケータ (現在ページを塗り円・他は輪郭)。
+static void drawPageDots() {
+  const int W = g_canvas.width();
+  const int H = g_canvas.height();
+  const int r = 3, gap = 12;
+  int total = PAGE_COUNT * gap;
+  int x0 = (W - total) / 2 + gap / 2;
+  for (int i = 0; i < PAGE_COUNT; i++) {
+    int cx = x0 + i * gap;
+    if (i == g_page) g_canvas.fillCircle(cx, H - 6, r, COL_ACCENT);
+    else             g_canvas.drawCircle(cx, H - 6, r, COL_DIM);
+  }
+}
+
+// METER ページ: バッテリ + INA226 + NCIR + エンコーダ (従来ダッシュボード)。
+static void drawMeter() {
   const int W = g_canvas.width();
   char val[24];
 
@@ -379,8 +419,156 @@ static void drawDashboard() {
       y += 22;
     }
   }
+}
 
+// INFO ページ: NTP 時計 + Wi-Fi 状態。
+static void drawInfo() {
+  const int W = g_canvas.width();
+  char buf[40];
+
+  g_canvas.fillScreen(COL_BG);
+  int x = 6, y = 4;
+
+  y = drawSection(x, y, W - 12, "INFO  CLOCK / WIFI");
+
+  // ---- 時計 (NTP 同期時のみ) ----
+  if (g_wifi_state == WIFI_NTP_OK) {
+    struct tm t;
+    if (getLocalTime(&t, 0)) {
+      static const char *wd[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
+      snprintf(buf, sizeof(buf), "%04d-%02d-%02d %s",
+               t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, wd[t.tm_wday % 7]);
+      g_canvas.setTextSize(2);
+      g_canvas.setTextColor(COL_LABEL, COL_BG);
+      g_canvas.setCursor(x + 4, y);
+      g_canvas.print(buf);
+      y += 24;
+      snprintf(buf, sizeof(buf), "%02d:%02d:%02d", t.tm_hour, t.tm_min, t.tm_sec);
+      g_canvas.setTextSize(4);
+      g_canvas.setTextColor(COL_VALUE, COL_BG);
+      g_canvas.setCursor(x + 4, y);
+      g_canvas.print(buf);
+      y += 44;
+    }
+  } else {
+    g_canvas.setTextSize(2);
+    g_canvas.setTextColor(COL_LABEL, COL_BG);
+    g_canvas.setCursor(x + 4, y);
+    g_canvas.print(g_wifi_state == WIFI_CONNECTED_NO_NTP ? "NTP sync..." :
+                   WIFI_CONFIGURED ? "no time yet" : "no wifi cfg");
+    y += 30;
+  }
+
+  // ---- Wi-Fi 状態 ----
+  y = drawSection(x, y, W - 12, "NETWORK");
+  const char *st =
+      !WIFI_CONFIGURED               ? "not configured" :
+      g_wifi_state == WIFI_CONNECTING? "connecting..." :
+      (g_wifi_state >= WIFI_CONNECTED_NO_NTP) ? "connected" : "down";
+  uint16_t stcol = (g_wifi_state >= WIFI_CONNECTED_NO_NTP) ? COL_OK :
+                   WIFI_CONFIGURED ? COL_WARN : COL_LABEL;
+  drawField(x + 4, y, "stat ", st, stcol, 2, 2);
+  y += 24;
+
+  if (g_wifi_state >= WIFI_CONNECTED_NO_NTP) {
+    // SSID
+    snprintf(buf, sizeof(buf), "%.18s", WiFi.SSID().c_str());
+    drawField(x + 4, y, "ssid ", buf, COL_VALUE, 1, 2); y += 20;
+    // RSSI
+    snprintf(buf, sizeof(buf), "%d dBm", WiFi.RSSI());
+    drawField(x + 4, y, "rssi ", buf, COL_VALUE, 1, 2); y += 20;
+    // IP
+    snprintf(buf, sizeof(buf), "%s", WiFi.localIP().toString().c_str());
+    drawField(x + 4, y, "ip   ", buf, COL_VALUE, 1, 2); y += 20;
+  }
+  // MAC (常に表示)
+  snprintf(buf, sizeof(buf), "%s", WiFi.macAddress().c_str());
+  drawField(x + 4, y, "mac  ", buf, COL_LABEL, 1, 1); y += 16;
+}
+
+// 現在ページを描画 → ページドット → 一括転送。
+static void drawCurrentPage() {
+  switch (g_page) {
+    case PAGE_INFO:  drawInfo();  break;
+    case PAGE_METER:
+    default:         drawMeter(); break;
+  }
+  drawPageDots();
   g_canvas.pushSprite(0, 0);
+}
+
+// ---------------------------------------------------------------------------
+// タッチ: 左右スワイプでページ送り。
+// ---------------------------------------------------------------------------
+static void handleTouch() {
+  if (M5.Touch.getCount() == 0) return;
+  auto d = M5.Touch.getDetail();
+  // フリック確定 or 指離し時に、始点からの水平移動量で判定。
+  if (d.wasFlicked() || d.wasReleased()) {
+    int dx = d.distanceX();
+    if (dx <= -SWIPE_THRESHOLD) {          // 左へスワイプ → 次ページ
+      g_page = (g_page + 1) % PAGE_COUNT;
+      g_redraw = true;
+    } else if (dx >= SWIPE_THRESHOLD) {    // 右へスワイプ → 前ページ
+      g_page = (g_page + PAGE_COUNT - 1) % PAGE_COUNT;
+      g_redraw = true;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wi-Fi / NTP の状態遷移 (非ブロッキング)。loop から毎回呼ぶ。
+// ---------------------------------------------------------------------------
+// 状態遷移を 1 回だけログ出力 (NTP 同期確認・Wi-Fi デバッグ用)。
+static void logWifiTransition(int from, int to) {
+  if (from == to) return;
+  if (to == WIFI_NTP_OK) {
+    struct tm t;
+    char ts[24] = "?";
+    if (getLocalTime(&t, 0))
+      snprintf(ts, sizeof(ts), "%04d-%02d-%02d %02d:%02d:%02d",
+               t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+    Serial.printf("{\"log\":\"wifi\",\"state\":%d,\"ssid\":\"%s\",\"rssi\":%d,"
+                  "\"ip\":\"%s\",\"ntp_time\":\"%s\"}\n",
+                  to, WiFi.SSID().c_str(), WiFi.RSSI(),
+                  WiFi.localIP().toString().c_str(), ts);
+  } else {
+    Serial.printf("{\"log\":\"wifi\",\"state\":%d}\n", to);
+  }
+}
+
+static void wifiTask() {
+  if (!WIFI_CONFIGURED) { g_wifi_state = WIFI_OFF_STATE; return; }
+
+  const int prev_state = g_wifi_state;
+  const uint32_t now = millis();
+  wl_status_t ws = WiFi.status();
+
+  if (ws == WL_CONNECTED) {
+    if (!g_ntp_started) {
+      // JST (UTC+9)。NTP は NICT + pool を指定。
+      configTzTime("JST-9", "ntp.nict.jp", "pool.ntp.org");
+      g_ntp_started = true;
+    }
+    if (g_wifi_state < WIFI_CONNECTED_NO_NTP) g_wifi_state = WIFI_CONNECTED_NO_NTP;
+    // NTP 同期判定: 年が 2020 以降なら同期済みとみなす。
+    struct tm t;
+    if (getLocalTime(&t, 0) && (t.tm_year + 1900) >= 2020) g_wifi_state = WIFI_NTP_OK;
+  } else {
+    g_ntp_started = false;
+    if (g_wifi_state == WIFI_NTP_OK || g_wifi_state == WIFI_CONNECTED_NO_NTP)
+      g_wifi_state = WIFI_CONNECTING;  // 切断 → 再接続待ち
+    // 初回 or リトライ間隔ごとに begin。
+    if (g_wifi_state == WIFI_OFF_STATE ||
+        (now - g_wifi_last_try_ms >= WIFI_RETRY_MS)) {
+      g_wifi_last_try_ms = now;
+      g_wifi_state = WIFI_CONNECTING;
+      WiFi.mode(WIFI_STA);
+      WiFi.begin(WIFI_SSID, WIFI_PASS);
+    }
+  }
+
+  logWifiTransition(prev_state, g_wifi_state);  // 状態が変わった時のみログ出力
 }
 
 // ---------------------------------------------------------------------------
@@ -416,6 +604,14 @@ void loop() {
   M5.update();
 
   const uint32_t now = millis();
+
+  // タッチ (左右スワイプでページ送り) と Wi-Fi/NTP は毎ループ処理し応答性を確保。
+  handleTouch();
+  wifiTask();
+  if (g_redraw) {           // ページ切替直後は即時再描画してキビキビ動かす。
+    g_redraw = false;
+    drawCurrentPage();
+  }
 
   // 配線確認用: 2s 毎に I2C バスを再列挙 + INA226 ID を読取 + Chain ノード列挙。
   if (now - g_last_scan_ms >= SCAN_INTERVAL_MS) {
@@ -500,6 +696,6 @@ void loop() {
            g_r.ina_v, g_r.ina_i, g_r.ina_p, g_r.t_obj, g_r.t_amb, encbuf);
   Serial.println(buf);
 
-  // ---- 液晶ダッシュボード (常時表示) ----
-  drawDashboard();
+  // ---- 液晶 (現在ページを描画) ----
+  drawCurrentPage();
 }
