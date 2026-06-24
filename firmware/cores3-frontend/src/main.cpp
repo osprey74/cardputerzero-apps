@@ -574,7 +574,7 @@ static void drawSys() {
   uint16_t stcol = (g_wifi_state >= WIFI_CONNECTED_NO_NTP) ? COL_OK :
                    g_wifi_configured ? COL_WARN : COL_LABEL;
   // 項目名は最長ラベル+2 で左詰めし、値との間に半角 2 空き以上を確保して揃える。
-  drawField(x + 4, y, "stat   ", st, stcol, 2, 2); y += 24;
+  drawField(x + 4, y, "stat ", st, stcol, 2, 2); y += 24;
   if (g_wifi_state >= WIFI_CONNECTED_NO_NTP) {
     snprintf(buf, sizeof(buf), "%.18s", WiFi.SSID().c_str());
     drawField(x + 4, y, "ssid   ", buf, COL_VALUE, 1, 2); y += 20;
