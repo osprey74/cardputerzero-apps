@@ -57,6 +57,9 @@ static constexpr float    INA226_POWER_LSB_W  = 0.008f;
 static constexpr uint8_t MLX_REG_T_AMB = 0x06;
 static constexpr uint8_t MLX_REG_T_OBJ = 0x07;
 
+// 表示の向き (M5GFX: 0/1/2/3 = 90°刻み・時計回り)。0 から 180°回転で 2。
+static constexpr uint8_t DISPLAY_ROTATION = 2;
+
 static uint32_t g_last_send_ms = 0;
 static constexpr uint32_t SEND_INTERVAL_MS = 200;  // 5Hz
 
@@ -136,6 +139,7 @@ static int i2cScanOn(int sda, int scl) {
 void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
+  M5.Display.setRotation(DISPLAY_ROTATION);  // 左 90° 回転 (既定1 → 0)
   M5.Display.setTextSize(2);
   M5.Display.println("CoreS3 frontend");
 
@@ -213,7 +217,7 @@ void loop() {
   Serial.println(buf);
 
   // ---- タッチ液晶 (簡易表示) ----
-  M5.Display.fillRect(0, 40, 320, 90, TFT_BLACK);
+  M5.Display.fillRect(0, 40, M5.Display.width(), 90, TFT_BLACK);
   M5.Display.setCursor(0, 40);
   M5.Display.printf("V: %.3f V\n", v);
   M5.Display.printf("I: %.1f mA\n", i * 1000.0f);
