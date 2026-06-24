@@ -25,6 +25,7 @@
 #include <Wire.h>
 #include <M5Chain.h>   // Chain Encoder (Port C UART デイジーチェーン)
 #include <WiFi.h>      // INFO 画面: Wi-Fi 接続 + NTP 時計
+#include <WiFiMulti.h> // 複数 AP 登録 (電波の強い既知 AP に自動接続)
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>   // INFO 天気: 気象庁 forecast JSON パース
@@ -34,13 +35,11 @@
 #include <limits.h>
 #include <esp_heap_caps.h>   // PSRAM 確保 (ArduinoJson allocator)
 
-// Wi-Fi 認証情報 (secrets.h は .gitignore 済み)。無ければ空で吸収しビルド可。
+// Wi-Fi 認証情報 (secrets.h は .gitignore 済み)。無ければ未設定として吸収しビルド可。
+//   新形式: secrets.h で WIFI_APS を X("ssid","pass") の並びとして定義 (複数登録可)。
+//   旧形式: WIFI_SSID / WIFI_PASS (単一) も後方互換でサポート。
 #if __has_include("secrets.h")
   #include "secrets.h"
-#endif
-#ifndef WIFI_SSID
-  #define WIFI_SSID ""
-  #define WIFI_PASS ""
 #endif
 
 // ---- Port A (I2C) ----------------------------------------------------------
@@ -159,13 +158,29 @@ static bool g_redraw = true;                 // ページ切替直後など即�
 static constexpr int SWIPE_THRESHOLD = 50;   // スワイプと判定する水平移動量 [px]
 
 // ---- Wi-Fi / NTP (INFO 画面) -----------------------------------------------
-// secrets.h 未設定 (空 SSID) なら Wi-Fi 機能は無効。
-static const bool WIFI_CONFIGURED = (sizeof(WIFI_SSID) > 1);  // "" は 1 byte
+// WiFiMulti に登録された AP のうち電波の強い既知 AP へ自動接続。AP が 1 つも
+// 無ければ Wi-Fi 機能は無効 (g_wifi_configured=false)。
+static WiFiMulti wifiMulti;
+static bool     g_wifi_configured = false;   // setup で登録 AP 数 > 0 なら true
 enum WifiState { WIFI_OFF_STATE = 0, WIFI_CONNECTING, WIFI_CONNECTED_NO_NTP, WIFI_NTP_OK };
 static int      g_wifi_state = WIFI_OFF_STATE;
 static uint32_t g_wifi_last_try_ms = 0;
 static bool     g_ntp_started = false;
 static constexpr uint32_t WIFI_RETRY_MS = 10000;  // 切断時の再接続間隔
+
+// secrets.h の AP 群を WiFiMulti に登録し、登録数を返す。
+// 新形式 WIFI_APS (X-macro) を優先、無ければ旧形式 WIFI_SSID を 1 件登録。
+static int wifiRegisterAPs() {
+  int n = 0;
+#ifdef WIFI_APS
+  #define X(ssid, pass) do { wifiMulti.addAP(ssid, pass); n++; } while (0);
+  WIFI_APS
+  #undef X
+#elif defined(WIFI_SSID)
+  if (sizeof(WIFI_SSID) > 1) { wifiMulti.addAP(WIFI_SSID, WIFI_PASS); n++; }
+#endif
+  return n;
+}
 
 // ---- 天気 (気象庁 forecast JSON・INFO 画面) --------------------------------
 // area=016000 (石狩・空知・後志 / 札幌管区)。API キー不要・HTTPS。
@@ -439,7 +454,8 @@ static void drawMeter() {
                         : (id == 1) ? COL_E1 : (id == 2) ? COL_E2 : COL_VALUE;
       const char *nm = (idn >= 0) ? ENC_IDENTITY[idn].name : nullptr;
       char line[24];
-      if (nm) snprintf(line, sizeof(line), "%s %+ld", nm, (long)g_enc_count[id]);
+      // 名前を 4 桁左詰めで揃え、回転値の桁を縦に揃える ("RED  +0" / "BLUE +0")。
+      if (nm) snprintf(line, sizeof(line), "%-4s %+ld", nm, (long)g_enc_count[id]);
       else    snprintf(line, sizeof(line), "E%u %+ld", id, (long)g_enc_count[id]);
       g_canvas.setTextSize(2);
       g_canvas.setTextColor(encColor, COL_BG);
@@ -490,7 +506,7 @@ static void drawInfo() {
     g_canvas.setTextColor(COL_LABEL, COL_BG);
     g_canvas.setCursor(x + 4, y);
     g_canvas.print(g_wifi_state == WIFI_CONNECTED_NO_NTP ? "NTP sync..." :
-                   WIFI_CONFIGURED ? "no time yet" : "no wifi cfg");
+                   g_wifi_configured ? "no time yet" : "no wifi cfg");
     y += 28;
   }
 
@@ -549,11 +565,11 @@ static void drawSys() {
   // ---- ネットワーク ----
   y = drawSection(x, y, W - 12, "NETWORK");
   const char *st =
-      !WIFI_CONFIGURED                ? "not configured" :
+      !g_wifi_configured                ? "not configured" :
       g_wifi_state == WIFI_CONNECTING ? "connecting..." :
       (g_wifi_state >= WIFI_CONNECTED_NO_NTP) ? "connected" : "down";
   uint16_t stcol = (g_wifi_state >= WIFI_CONNECTED_NO_NTP) ? COL_OK :
-                   WIFI_CONFIGURED ? COL_WARN : COL_LABEL;
+                   g_wifi_configured ? COL_WARN : COL_LABEL;
   drawField(x + 4, y, "stat ", st, stcol, 2, 2); y += 24;
   if (g_wifi_state >= WIFI_CONNECTED_NO_NTP) {
     snprintf(buf, sizeof(buf), "%.18s", WiFi.SSID().c_str());
@@ -744,7 +760,7 @@ static void logWifiTransition(int from, int to) {
 }
 
 static void wifiTask() {
-  if (!WIFI_CONFIGURED) { g_wifi_state = WIFI_OFF_STATE; return; }
+  if (!g_wifi_configured) { g_wifi_state = WIFI_OFF_STATE; return; }
 
   const int prev_state = g_wifi_state;
   const uint32_t now = millis();
@@ -764,13 +780,12 @@ static void wifiTask() {
     g_ntp_started = false;
     if (g_wifi_state == WIFI_NTP_OK || g_wifi_state == WIFI_CONNECTED_NO_NTP)
       g_wifi_state = WIFI_CONNECTING;  // 切断 → 再接続待ち
-    // 初回 or リトライ間隔ごとに begin。
+    // 初回 or リトライ間隔ごとに wifiMulti.run() (登録 AP をスキャンし最強の既知 AP へ)。
     if (g_wifi_state == WIFI_OFF_STATE ||
         (now - g_wifi_last_try_ms >= WIFI_RETRY_MS)) {
       g_wifi_last_try_ms = now;
       g_wifi_state = WIFI_CONNECTING;
-      WiFi.mode(WIFI_STA);
-      WiFi.begin(WIFI_SSID, WIFI_PASS);
+      wifiMulti.run(5000);  // スキャン + 接続 (数秒ブロック)。最も電波の強い登録 AP を選ぶ
     }
   }
 
@@ -804,6 +819,12 @@ void setup() {
   delay(300);
   Wire.begin(PORT_A_SDA, PORT_A_SCL, 100000);  // 実機確定: SDA=G2 / SCL=G1
   ina226Init();  // Config + Calibration 書込み (電流/電力読取の前提)
+
+  // Wi-Fi: secrets.h の AP 群を WiFiMulti に登録 (1 件でもあれば有効)。
+  int aps = wifiRegisterAPs();
+  g_wifi_configured = (aps > 0);
+  if (g_wifi_configured) WiFi.mode(WIFI_STA);
+  Serial.printf("{\"log\":\"wifi_cfg\",\"ap_count\":%d}\n", aps);
 }
 
 void loop() {
