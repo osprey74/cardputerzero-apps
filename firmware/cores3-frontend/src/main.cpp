@@ -149,10 +149,29 @@ static uint8_t g_enc_uid[ENC_MAX + 1][4] = {{0}};
 static bool    g_enc_uid_ok[ENC_MAX + 1] = {false};
 static int8_t  g_enc_ident[ENC_MAX + 1]  = {-1};  // ENC_IDENTITY index / -1=unknown
 
-#define FW_VERSION "0.3.0"
+#define FW_VERSION "0.4.0"   // + IMU 水準器 (LEVEL) / 下げ振り (PLUMB) ページ
+
+// ---- IMU 水準器・下げ振り (内蔵 BMI270) ------------------------------------
+// 単体アプリ firmware/cores3-level と同じ角度ロジック。協働中も CoreS3 画面の
+// スワイプで LEVEL / PLUMB を呼び出せるよう本フロントエンドにページとして統合。
+// ⚠️ 軸符号は cores3-level で実機確定済み (ACC_SIGN_Y=-1 / EDGE_SIGN_*=+1)。
+static constexpr float R2D           = 57.29578f;
+static constexpr float ACCEL_ALPHA   = 0.20f;   // 加速度の指数移動平均係数
+static constexpr float LEVEL_TOL_DEG = 0.5f;    // 「水平」判定の許容角 [deg]
+static constexpr float BUBBLE_FS_DEG = 20.0f;   // 気泡が円の縁に達する傾き [deg]
+static constexpr float ACC_SIGN_X = +1.0f;
+static constexpr float ACC_SIGN_Y = -1.0f;      // 前後反転 (実機確定)
+static constexpr float ACC_SIGN_Z = +1.0f;
+static constexpr float EDGE_SIGN_A = +1.0f;     // EDGE/PLUMB 左右
+static constexpr float EDGE_SIGN_B = +1.0f;     // EDGE 画面法線
+static float g_fax = 0, g_fay = 0, g_faz = 1.0f;   // 平滑化済み加速度 (G)
+static float g_angX = 0, g_angY = 0, g_tilt = 0;   // FLAT 左右/前後/合成傾斜 [deg]
+static float g_edgeA = 0, g_edgeB = 0;             // EDGE(縦置き) 左右/法線 [deg]
+static bool  g_relative = false;                   // タップでゼロ点トグル (LEVEL/PLUMB)
+static float g_offX = 0, g_offY = 0, g_offA = 0, g_offB = 0;
 
 // ---- 画面ページ (左右スワイプで切替) ---------------------------------------
-enum Page { PAGE_METER = 0, PAGE_INFO, PAGE_SYS, PAGE_COUNT };
+enum Page { PAGE_METER = 0, PAGE_INFO, PAGE_SYS, PAGE_LEVEL, PAGE_PLUMB, PAGE_COUNT };
 static int  g_page = PAGE_METER;
 static bool g_redraw = true;                 // ページ切替直後など即時再描画フラグ
 static constexpr int SWIPE_THRESHOLD = 50;   // スワイプと判定する水平移動量 [px]
@@ -604,11 +623,148 @@ static void drawSys() {
   drawField(x + 4, y, "fw     ", FW_VERSION, COL_ACCENT, 1, 2); y += 20;
 }
 
+// ---------------------------------------------------------------------------
+// IMU 水準器・下げ振り (内蔵 BMI270)
+// ---------------------------------------------------------------------------
+
+// 加速度を読み、平滑化して FLAT(g_angX/g_angY/g_tilt) と EDGE(g_edgeA/g_edgeB) を更新。
+static void updateAngles() {
+  float ax, ay, az;
+  if (!M5.Imu.getAccel(&ax, &ay, &az)) return;  // 新データ無しなら前回値を維持
+  ax *= ACC_SIGN_X; ay *= ACC_SIGN_Y; az *= ACC_SIGN_Z;
+  g_fax += ACCEL_ALPHA * (ax - g_fax);
+  g_fay += ACCEL_ALPHA * (ay - g_fay);
+  g_faz += ACCEL_ALPHA * (az - g_faz);
+
+  // FLAT: 底面 (Z 軸) を下とみなす 2 軸の傾き。
+  float rawX = atan2f(g_fax, g_faz) * R2D;
+  float rawY = atan2f(g_fay, g_faz) * R2D;
+  g_angX = rawX - (g_relative ? g_offX : 0.0f);
+  g_angY = rawY - (g_relative ? g_offY : 0.0f);
+  float mag = sqrtf(g_fax * g_fax + g_fay * g_fay + g_faz * g_faz);
+  if (mag > 0.01f) g_tilt = acosf(fabsf(g_faz) / mag) * R2D;
+
+  // EDGE: 手前側面 (前後 Y 軸 |ay|) を下とみなす 2 軸の傾き。
+  float vdown = fabsf(g_fay);
+  float rawA = atan2f(EDGE_SIGN_A * g_fax, vdown) * R2D;
+  float rawB = atan2f(EDGE_SIGN_B * g_faz, vdown) * R2D;
+  g_edgeA = rawA - (g_relative ? g_offA : 0.0f);
+  g_edgeB = rawB - (g_relative ? g_offB : 0.0f);
+}
+
+// 現在の生角度をゼロ点として控える (相対測定の基準)。
+static void captureZero() {
+  g_offX = atan2f(g_fax, g_faz) * R2D;
+  g_offY = atan2f(g_fay, g_faz) * R2D;
+  float vdown = fabsf(g_fay);
+  g_offA = atan2f(EDGE_SIGN_A * g_fax, vdown) * R2D;
+  g_offB = atan2f(EDGE_SIGN_B * g_faz, vdown) * R2D;
+}
+
+// 相対測定中インジケータ (右上の "REL")。
+static void drawRelFlag() {
+  if (!g_relative) return;
+  g_canvas.setTextSize(1);
+  g_canvas.setTextColor(COL_WARN, COL_BG);
+  g_canvas.setCursor(g_canvas.width() - 22, 4);
+  g_canvas.print("REL");
+}
+
+// LEVEL ページ: 底面を水平面とする円形気泡水準器 (縦 240×320 用レイアウト)。
+static void drawLevel() {
+  const int W = g_canvas.width();
+  g_canvas.fillScreen(COL_BG);
+
+  g_canvas.setTextSize(2);
+  g_canvas.setTextColor(COL_ACCENT, COL_BG);
+  g_canvas.setCursor(6, 6);
+  g_canvas.print("LEVEL");
+
+  const int cx = W / 2;
+  const int cy = 150;
+  const int R  = W / 2 - 14;
+  bool level = (fabsf(g_angX) <= LEVEL_TOL_DEG && fabsf(g_angY) <= LEVEL_TOL_DEG);
+  uint16_t ring = level ? COL_OK : COL_DIM;
+
+  g_canvas.drawCircle(cx, cy, R, ring);
+  g_canvas.drawCircle(cx, cy, R / 2, COL_DIM);
+  int tolR = (int)(LEVEL_TOL_DEG / BUBBLE_FS_DEG * (R - 18));
+  if (tolR < 10) tolR = 10;
+  g_canvas.drawCircle(cx, cy, tolR, COL_ACCENT);
+  g_canvas.drawFastHLine(cx - R, cy, 2 * R, ring);
+  g_canvas.drawFastVLine(cx, cy - R, 2 * R, ring);
+
+  // 表示は rotation=0 (既定の横向きから左 90° 回転)。IMU 軸は本体固定なので canvas の
+  // 水平/垂直へ入れ替える。気泡は「高い側」へ動く = 重力方向 (PLUMB の向き) の逆のため、
+  // PLUMB の射影 (gx=g_fay / gy=-g_fax) に対し符号を反転した割当にする。
+  //   画面水平 ← -本体Y(g_angY) / 画面垂直 ← +本体X(g_angX)。
+  float pH = -g_angY;   // 画面水平方向の傾き [deg]
+  float pV =  g_angX;   // 画面垂直方向の傾き [deg]
+  float nx = pH / BUBBLE_FS_DEG; if (nx > 1) nx = 1; if (nx < -1) nx = -1;
+  float ny = pV / BUBBLE_FS_DEG; if (ny > 1) ny = 1; if (ny < -1) ny = -1;
+  const int bR = 18;
+  int bx = cx + (int)(nx * (R - bR));
+  int by = cy + (int)(ny * (R - bR));
+  g_canvas.fillCircle(bx, by, bR, level ? COL_OK : COL_ACCENT);
+  g_canvas.drawCircle(bx, by, bR, COL_VALUE);
+
+  // 数値は画面軸に合わせて表示 (X=画面水平 / Y=画面垂直)。
+  char buf[16];
+  int ty = cy + R + 14;
+  g_canvas.setTextSize(2);
+  g_canvas.setTextColor(COL_LABEL, COL_BG); g_canvas.setCursor(18, ty); g_canvas.print("X");
+  g_canvas.setTextColor(COL_VALUE, COL_BG); snprintf(buf, sizeof(buf), "%+.1f", pH);
+  g_canvas.setCursor(38, ty); g_canvas.print(buf);
+  g_canvas.setTextColor(COL_LABEL, COL_BG); g_canvas.setCursor(W / 2 + 8, ty); g_canvas.print("Y");
+  g_canvas.setTextColor(COL_VALUE, COL_BG); snprintf(buf, sizeof(buf), "%+.1f", pV);
+  g_canvas.setCursor(W / 2 + 28, ty); g_canvas.print(buf);
+  if (level) {
+    g_canvas.setTextColor(COL_OK, COL_BG);
+    g_canvas.setCursor(cx - 30, ty + 24); g_canvas.print("LEVEL");
+  }
+  drawRelFlag();
+}
+
+// PLUMB ページ: 手前側面を下とする縦置きの「下げ振り分銅」(縦 240×320 用)。
+static void drawPlumb() {
+  const int W = g_canvas.width();
+  const int H = g_canvas.height();
+  g_canvas.fillScreen(COL_BG);
+
+  const int cx = W / 2;
+  const int topY = 60;                             // 固定点 (糸の支点) の y
+  g_canvas.drawFastHLine(0, topY, W, COL_VALUE);   // 上部水平線 (白 1px・y=60)
+  g_canvas.drawFastVLine(cx, 0, H, COL_VALUE);     // 左右中央の垂直線 (白 1px)
+
+  // 重力を canvas 平面へ射影し、その方向 (=真の鉛直) へ糸を垂らす (rotation=0 対応)。
+  // 画面水平成分 ← 本体Y(g_fay) / 画面垂直成分(下+) ← -本体X(g_fax)。
+  // ⚠️ 縦持ちで分銅が下へ垂れず横/上へ向く場合は gx/gy の符号を調整する。
+  const int L = 110;                  // 糸長 (< cx=120 で端に触れず自由円弧)
+  float gx = g_fay;                   // 画面水平方向の重力成分 [G]
+  float gy = -g_fax;                  // 画面垂直方向の重力成分 [G]
+  int bx = cx + (int)(L * gx);
+  int by = topY + (int)(L * gy);
+  if (by < topY) by = topY;           // 上下逆さ時に固定点より上へ出ないよう抑える
+  if (bx < 6) bx = 6; if (bx > W - 6) bx = W - 6;
+  g_canvas.drawLine(cx, topY, bx, by, COL_E1);     // 糸 (赤 1px)
+  g_canvas.fillCircle(bx, by, 6, COL_E1);          // 分銅 (直径 約12px)
+
+  float ang = atan2f(gx, gy) * R2D;   // 鉛直からの左右ズレ角
+  char buf[24];
+  snprintf(buf, sizeof(buf), "PLUMB %+.1f", ang);
+  g_canvas.setTextSize(2);
+  g_canvas.setTextColor(fabsf(ang) <= LEVEL_TOL_DEG ? COL_OK : COL_ACCENT, COL_BG);
+  g_canvas.setCursor(4, H - 28);
+  g_canvas.print(buf);
+}
+
 // 現在ページを描画 → ページドット → 一括転送。
 static void drawCurrentPage() {
   switch (g_page) {
     case PAGE_INFO:  drawInfo();  break;
     case PAGE_SYS:   drawSys();   break;
+    case PAGE_LEVEL: drawLevel(); break;
+    case PAGE_PLUMB: drawPlumb(); break;
     case PAGE_METER:
     default:         drawMeter(); break;
   }
@@ -622,14 +778,20 @@ static void drawCurrentPage() {
 static void handleTouch() {
   if (M5.Touch.getCount() == 0) return;
   auto d = M5.Touch.getDetail();
-  // フリック確定 or 指離し時に、始点からの水平移動量で判定。
+  // フリック確定 or 指離し時に、始点からの移動量で判定。
   if (d.wasFlicked() || d.wasReleased()) {
     int dx = d.distanceX();
-    if (dx <= -SWIPE_THRESHOLD) {          // 左へスワイプ → 次ページ
+    int dy = d.distanceY();
+    if (dx <= -SWIPE_THRESHOLD && abs(dx) > abs(dy)) {        // 左へスワイプ → 次ページ
       g_page = (g_page + 1) % PAGE_COUNT;
       g_redraw = true;
-    } else if (dx >= SWIPE_THRESHOLD) {    // 右へスワイプ → 前ページ
+    } else if (dx >= SWIPE_THRESHOLD && abs(dx) > abs(dy)) {  // 右へスワイプ → 前ページ
       g_page = (g_page + PAGE_COUNT - 1) % PAGE_COUNT;
+      g_redraw = true;
+    } else if (abs(dx) < 16 && abs(dy) < 16 && g_page == PAGE_LEVEL) {
+      // タップ: 水準器ページのみゼロ点をトグル (相対測定)。下げ振りは絶対鉛直のため対象外。
+      if (g_relative) g_relative = false;
+      else { captureZero(); g_relative = true; }
       g_redraw = true;
     }
   }
@@ -825,6 +987,7 @@ void setup() {
 
   Serial.begin(115200);   // USB CDC
   chain.begin(&Serial2, ENC_BAUD, PORT_C_RX, PORT_C_TX);  // Chain Encoder (Port C)
+  Serial.printf("{\"log\":\"imu_init\",\"type\":%d}\n", (int)M5.Imu.getType());  // BMI270 確認
 
   // 初期値
   g_r = { NAN, NAN, NAN, NAN, NAN, -1, -1, NAN };
@@ -853,8 +1016,12 @@ void loop() {
   // Wi-Fi 接続・NTP・天気取得は netTask (core 0) が担当しメインループを止めない。
   handleTouch();
 
+  // IMU 角度を毎ループ更新。水準器/下げ振りページは毎ループ描画で滑らかに動かす。
+  updateAngles();
   if (g_redraw) {           // ページ切替・天気更新時は即時再描画してキビキビ動かす。
     g_redraw = false;
+    drawCurrentPage();
+  } else if (g_page == PAGE_LEVEL || g_page == PAGE_PLUMB) {
     drawCurrentPage();
   }
 
