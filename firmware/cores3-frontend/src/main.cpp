@@ -29,6 +29,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>   // INFO 天気: 気象庁 forecast JSON パース
+#include <Preferences.h>   // NVS: INA226 ユニット種別などの永続設定
 #include <time.h>
 #include <math.h>
 #include <string.h>
@@ -67,13 +68,32 @@ static constexpr uint8_t INA_REG_CAL    = 0x05;
 static constexpr uint8_t INA_REG_MFG_ID = 0xFE;  // 期待値 0x5449 (TI)
 static constexpr uint8_t INA_REG_DIE_ID = 0xFF;  // 期待値 0x2260
 
-// INA226-10A 校正 (HANDOFF §3/§8: シャント 5mΩ・±10A・分解能 0.32mA)
-//   Current_LSB = 0.32mA, CAL = 0.00512 / (Current_LSB × R_shunt) = 3200
-//   Power_LSB   = 25 × Current_LSB = 0.008 W/bit
-static constexpr uint16_t INA226_CONFIG       = 0x4527;  // 連続(shunt+bus)/平均16/変換1.1ms
-static constexpr uint16_t INA226_CAL          = 3200;
-static constexpr float    INA226_CURRENT_LSB_A= 0.00032f;
-static constexpr float    INA226_POWER_LSB_W  = 0.008f;
+// ---- INA226 ユニット種別 (HANDOFF §3/§8) -----------------------------------
+// 10A番と1A番は同一 INA226 チップで、違いは基板シャント (5mΩ / 50mΩ) のみ。
+// この抵抗値を読めるレジスタは存在せず、Mfg/Die ID・I2Cアドレスも同一なので
+// チップからの自動判別は不可能。→ 種別を NVS に保持し、METER 画面のタッチで
+// 切り替える運用とする (再ビルド・再フラッシュ不要)。
+// CAL は両者とも 3200 (I_MAX×R_shunt=0.05 で等しい)。生レジスタを物理量へ
+// 換算する Current_LSB / Power_LSB のみ 10 倍異なる。混同すると 1A番が 10倍表示。
+static constexpr uint16_t INA226_CONFIG = 0x4527;  // 連続(shunt+bus)/平均16/変換1.1ms
+static constexpr uint16_t INA226_CAL    = 3200;    // 10A/1A 共通
+
+struct Ina226Unit {
+  const char *name;
+  float current_lsb;  // A/bit
+  float power_lsb;     // W/bit (= 25 × current_lsb)
+};
+static constexpr Ina226Unit INA226_UNITS[] = {
+  { "10A", 0.00032f,  0.008f  },  // 5mΩ : 0.32mA/bit  (広レンジ)
+  { "1A",  0.000032f, 0.0008f },  // 50mΩ: 0.032mA/bit (高分解能)
+};
+static constexpr int INA226_UNIT_COUNT   = sizeof(INA226_UNITS) / sizeof(INA226_UNITS[0]);
+static constexpr int INA226_UNIT_DEFAULT = 1;   // 初回起動時の既定 (1 = 1A番)
+
+static int         g_ina_unit = INA226_UNIT_DEFAULT;  // 現在の種別 index (NVS から復元)
+static Preferences g_prefs;                           // NVS 永続設定
+// METER 画面のユニット種別トグルチップの描画矩形 (タッチ当たり判定に使用)。
+static int16_t g_unit_btn_x = 0, g_unit_btn_y = 0, g_unit_btn_w = 0, g_unit_btn_h = 0;
 
 // MLX90614 RAM レジスタ
 static constexpr uint8_t MLX_REG_T_AMB = 0x06;
@@ -274,9 +294,9 @@ static void ina226Init() {
   readWord16(INA226_ADDR, INA_REG_DIE_ID, die);
   bool ok_cfg = writeWord16(INA226_ADDR, INA_REG_CONFIG, INA226_CONFIG);
   bool ok_cal = writeWord16(INA226_ADDR, INA_REG_CAL, INA226_CAL);
-  Serial.printf("{\"log\":\"ina226_init\",\"mfg_id\":\"0x%04X\",\"die_id\":\"0x%04X\","
+  Serial.printf("{\"log\":\"ina226_init\",\"unit\":\"%s\",\"mfg_id\":\"0x%04X\",\"die_id\":\"0x%04X\","
                 "\"cfg_ok\":%d,\"cal_ok\":%d}\n",
-                mfg, die, ok_cfg ? 1 : 0, ok_cal ? 1 : 0);
+                INA226_UNITS[g_ina_unit].name, mfg, die, ok_cfg ? 1 : 0, ok_cal ? 1 : 0);
 }
 
 // 指定ピンで I2C を初期化しバスを列挙。検出数を返す。
@@ -421,7 +441,22 @@ static void drawMeter() {
   y += 38;
 
   // ---- INA226 (測定試験のメイン: 大きく表示) --------------------------------
+  int ina_hdr_y = y;
   y = drawSection(x, y, W - 12, "INA226  DC METER");
+  // ユニット種別トグルチップ (右上)。タップで 1A/10A を切替し NVS 保存。
+  {
+    const char *un = INA226_UNITS[g_ina_unit].name;
+    int cw = (int)strlen(un) * 12 + 16;  // 文字幅(size2=12px) + 左右パディング
+    int ch = 20;                         // タップしやすいよう拡大
+    int cx = W - 6 - cw;
+    int cy = ina_hdr_y - 5;
+    g_canvas.fillRoundRect(cx, cy, cw, ch, 4, COL_ACCENT);
+    g_canvas.setTextSize(2);
+    g_canvas.setTextColor(COL_BG, COL_ACCENT);
+    g_canvas.setCursor(cx + 8, cy + 3);
+    g_canvas.print(un);
+    g_unit_btn_x = cx; g_unit_btn_y = cy; g_unit_btn_w = cw; g_unit_btn_h = ch;
+  }
   // V (先頭に "V:" ラベル)
   if (isnan(g_r.ina_v)) snprintf(val, sizeof(val), "---");
   else                  snprintf(val, sizeof(val), "%.3f V", g_r.ina_v);
@@ -793,6 +828,16 @@ static void handleTouch() {
       if (g_relative) g_relative = false;
       else { captureZero(); g_relative = true; }
       g_redraw = true;
+    } else if (abs(dx) < 16 && abs(dy) < 16 && g_page == PAGE_METER) {
+      // タップ: INA226 ユニット種別チップ (右上) を押したら 1A/10A をトグルし NVS 保存。
+      const int pad = 16;   // チップ周囲に余裕を持たせ押しやすくする
+      if (d.x >= g_unit_btn_x - pad && d.x <= g_unit_btn_x + g_unit_btn_w + pad &&
+          d.y >= g_unit_btn_y - pad && d.y <= g_unit_btn_y + g_unit_btn_h + pad) {
+        g_ina_unit = (g_ina_unit + 1) % INA226_UNIT_COUNT;
+        g_prefs.putInt("ina_unit", g_ina_unit);
+        Serial.printf("{\"log\":\"ina226_unit\",\"unit\":\"%s\"}\n", INA226_UNITS[g_ina_unit].name);
+        g_redraw = true;
+      }
     }
   }
 }
@@ -992,6 +1037,11 @@ void setup() {
   // 初期値
   g_r = { NAN, NAN, NAN, NAN, NAN, -1, -1, NAN };
 
+  // INA226 ユニット種別を NVS から復元 (無ければ既定=1A番)。以降タッチで切替可能。
+  g_prefs.begin("cores3", false);
+  g_ina_unit = g_prefs.getInt("ina_unit", INA226_UNIT_DEFAULT);
+  if (g_ina_unit < 0 || g_ina_unit >= INA226_UNIT_COUNT) g_ina_unit = INA226_UNIT_DEFAULT;
+
   delay(300);
   Wire.begin(PORT_A_SDA, PORT_A_SCL, 100000);  // 実機確定: SDA=G2 / SCL=G1
   ina226Init();  // Config + Calibration 書込み (電流/電力読取の前提)
@@ -1068,8 +1118,8 @@ void loop() {
   g_r.ina_v = g_r.ina_i = g_r.ina_p = NAN;
   uint16_t raw;
   if (readWord16(INA226_ADDR, INA_REG_BUS_V, raw))   g_r.ina_v = raw * 0.00125f;             // 1.25mV/bit
-  if (readWord16(INA226_ADDR, INA_REG_CURRENT, raw)) g_r.ina_i = int16_t(raw) * INA226_CURRENT_LSB_A;  // 符号付き
-  if (readWord16(INA226_ADDR, INA_REG_POWER, raw))   g_r.ina_p = raw * INA226_POWER_LSB_W;   // 符号なし
+  if (readWord16(INA226_ADDR, INA_REG_CURRENT, raw)) g_r.ina_i = int16_t(raw) * INA226_UNITS[g_ina_unit].current_lsb;  // 符号付き
+  if (readWord16(INA226_ADDR, INA_REG_POWER, raw))   g_r.ina_p = raw * INA226_UNITS[g_ina_unit].power_lsb;   // 符号なし
 
   // ---- MLX90614 ----
   g_r.t_obj = g_r.t_amb = NAN;
