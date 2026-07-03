@@ -6,12 +6,13 @@ App 13 (tester) の事前検証用。CardputerZero 実機到着後、
 PaHUB v2.1 経由で INA226 の各端子 (PIN1=INPUT+ / PIN2=INPUT- /
 PIN3=OUTPUT- / PIN4=OUTPUT+) が物理ラベル通りに動作するかを確認する。
 
-同一筐体で 2 バリエーションが存在し、内蔵シャント値が異なる:
-    - INA226-10A: シャント 5mΩ  / ±10A / Current_LSB ≈ 305µA (広レンジ)
-    - INA226-1A : シャント 50mΩ / ±1A  / Current_LSB ≈ 30.5µA (高分解能)
-CAL 値は両者とも約 3355（I_MAX×R_shunt が等しいため）だが、生の電流/電力
-レジスタを物理量へ換算する Current_LSB が 10 倍違うため、ユニット種別ごとに
-定数を切り替える必要がある。混同すると 1A 版の電流が 10 倍で表示される。
+同一筐体で 2 バリエーションが存在し、内蔵シャント値が異なる (M5 公式 Product
+Compare より。出典: https://shop.m5stack.com/products/ina226-1a-current-voltage-power-monitor-unit):
+    - INA226-10A: シャント 5mΩ  / ±10A / 分解能 0.32mA (広レンジ)
+    - INA226-1A : シャント 80mΩ / ±1A  / 分解能 32µA  (高分解能)
+シャント値が異なるため CAL = 0.00512/(Current_LSB×R_shunt) はユニット毎に別。
+種別を取り違えると電流・電力が誤った倍率で表示される (例: 1A 版に 10A 版の
+CAL を書くと約 1.6 倍過大に読む)。
 
 使い方:
     sudo python3 ina226_terminal_check.py          # 既定 (UNIT 定数に従う)
@@ -64,8 +65,8 @@ REG_DIE_ID       = 0xFF  # 0x2260
 #   R_SHUNT   : 内蔵シャント抵抗値 [Ω]
 #   I_MAX     : 定格フルスケール電流 [A]（Current_LSB 決定に使用）
 UNIT_SPECS = {
-    "10A": {"label": "INA226-10A", "r_shunt": 0.005, "i_max": 10.0},
-    "1A":  {"label": "INA226-1A",  "r_shunt": 0.05,  "i_max": 1.0},
+    "10A": {"label": "INA226-10A", "r_shunt": 0.005, "i_max": 10.0},  # 5mΩ  (M5 公式)
+    "1A":  {"label": "INA226-1A",  "r_shunt": 0.08,  "i_max": 1.0},   # 80mΩ (M5 公式)
 }
 
 

@@ -68,24 +68,31 @@ static constexpr uint8_t INA_REG_CAL    = 0x05;
 static constexpr uint8_t INA_REG_MFG_ID = 0xFE;  // 期待値 0x5449 (TI)
 static constexpr uint8_t INA_REG_DIE_ID = 0xFF;  // 期待値 0x2260
 
-// ---- INA226 ユニット種別 (HANDOFF §3/§8) -----------------------------------
-// 10A番と1A番は同一 INA226 チップで、違いは基板シャント (5mΩ / 50mΩ) のみ。
-// この抵抗値を読めるレジスタは存在せず、Mfg/Die ID・I2Cアドレスも同一なので
-// チップからの自動判別は不可能。→ 種別を NVS に保持し、METER 画面のタッチで
-// 切り替える運用とする (再ビルド・再フラッシュ不要)。
-// CAL は両者とも 3200 (I_MAX×R_shunt=0.05 で等しい)。生レジスタを物理量へ
-// 換算する Current_LSB / Power_LSB のみ 10 倍異なる。混同すると 1A番が 10倍表示。
+// ---- INA226 ユニット種別 (M5 公式仕様) -------------------------------------
+// 10A番と1A番は同一 INA226 チップで、違いは基板シャント値のみ。この抵抗値を
+// 読めるレジスタは存在せず、Mfg/Die ID・I2Cアドレスも同一なのでチップからの
+// 自動判別は不可能。→ 種別を NVS に保持し、METER 画面のタッチで切り替える。
+//
+// M5 公式 Product Compare より:
+//   10A版: シャント 5mΩ  / ±10A / 分解能 0.32mA
+//   1A版 : シャント 80mΩ / ±1A  / 分解能 32µA
+//   出典: https://shop.m5stack.com/products/ina226-1a-current-voltage-power-monitor-unit
+//
+// CAL = 0.00512 / (Current_LSB × R_shunt) はシャント値が異なるためユニット毎に別。
+//   10A: 0.00512/(0.00032 ×0.005) = 3200
+//   1A : 0.00512/(0.000032×0.08 ) = 2000
+// 種別を切り替えたら CAL レジスタも書き直すこと (ina226ApplyCal)。
 static constexpr uint16_t INA226_CONFIG = 0x4527;  // 連続(shunt+bus)/平均16/変換1.1ms
-static constexpr uint16_t INA226_CAL    = 3200;    // 10A/1A 共通
 
 struct Ina226Unit {
   const char *name;
-  float current_lsb;  // A/bit
-  float power_lsb;     // W/bit (= 25 × current_lsb)
+  uint16_t cal;        // Calibration register 値
+  float current_lsb;   // A/bit
+  float power_lsb;      // W/bit (= 25 × current_lsb)
 };
 static constexpr Ina226Unit INA226_UNITS[] = {
-  { "10A", 0.00032f,  0.008f  },  // 5mΩ : 0.32mA/bit  (広レンジ)
-  { "1A",  0.000032f, 0.0008f },  // 50mΩ: 0.032mA/bit (高分解能)
+  { "10A", 3200, 0.00032f,  0.008f  },  // 5mΩ,  0.32mA/bit (広レンジ)
+  { "1A",  2000, 0.000032f, 0.0008f },  // 80mΩ, 0.032mA/bit (高分解能)
 };
 static constexpr int INA226_UNIT_COUNT   = sizeof(INA226_UNITS) / sizeof(INA226_UNITS[0]);
 static constexpr int INA226_UNIT_DEFAULT = 1;   // 初回起動時の既定 (1 = 1A番)
@@ -293,7 +300,7 @@ static void ina226Init() {
   readWord16(INA226_ADDR, INA_REG_MFG_ID, mfg);
   readWord16(INA226_ADDR, INA_REG_DIE_ID, die);
   bool ok_cfg = writeWord16(INA226_ADDR, INA_REG_CONFIG, INA226_CONFIG);
-  bool ok_cal = writeWord16(INA226_ADDR, INA_REG_CAL, INA226_CAL);
+  bool ok_cal = writeWord16(INA226_ADDR, INA_REG_CAL, INA226_UNITS[g_ina_unit].cal);
   Serial.printf("{\"log\":\"ina226_init\",\"unit\":\"%s\",\"mfg_id\":\"0x%04X\",\"die_id\":\"0x%04X\","
                 "\"cfg_ok\":%d,\"cal_ok\":%d}\n",
                 INA226_UNITS[g_ina_unit].name, mfg, die, ok_cfg ? 1 : 0, ok_cal ? 1 : 0);
@@ -835,7 +842,10 @@ static void handleTouch() {
           d.y >= g_unit_btn_y - pad && d.y <= g_unit_btn_y + g_unit_btn_h + pad) {
         g_ina_unit = (g_ina_unit + 1) % INA226_UNIT_COUNT;
         g_prefs.putInt("ina_unit", g_ina_unit);
-        Serial.printf("{\"log\":\"ina226_unit\",\"unit\":\"%s\"}\n", INA226_UNITS[g_ina_unit].name);
+        // シャント値が異なるため CAL レジスタも書き直す (LSB だけの切替では不足)。
+        writeWord16(INA226_ADDR, INA_REG_CAL, INA226_UNITS[g_ina_unit].cal);
+        Serial.printf("{\"log\":\"ina226_unit\",\"unit\":\"%s\",\"cal\":%u}\n",
+                      INA226_UNITS[g_ina_unit].name, INA226_UNITS[g_ina_unit].cal);
         g_redraw = true;
       }
     }
