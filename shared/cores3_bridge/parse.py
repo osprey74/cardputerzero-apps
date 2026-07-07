@@ -6,7 +6,7 @@ import json
 import re
 from typing import Optional, Union
 
-from .models import Battery, Encoder, Frame, LogLine, Power, Temp
+from .models import Battery, Encoder, Frame, LogLine, Mag, Power, Temp
 
 # C 言語の printf("%.3f", NAN) は小文字 "nan"/"inf" を出力するが、これは
 # JSON として不正（Python の json は "NaN"/"Infinity" のみ許容）。値位置に
@@ -33,6 +33,11 @@ def _frame_from_dict(o: dict) -> Frame:
     if isinstance(o.get("ncir"), dict):
         n = o["ncir"]
         ncir = Temp(t_obj=n.get("t_obj"), t_amb=n.get("t_amb"))
+    mag = None
+    if isinstance(o.get("mag"), dict):
+        m = o["mag"]
+        mag = Mag(ok=bool(m.get("ok", 0)), x=m.get("x"), y=m.get("y"),
+                  z=m.get("z"), heading=m.get("heading"))
     encoders = []
     for e in o.get("enc", []) or []:
         if not isinstance(e, dict):
@@ -45,7 +50,7 @@ def _frame_from_dict(o: dict) -> Frame:
             delta=int(e.get("delta", 0)),
             btn=int(e.get("btn", 0)),
         ))
-    return Frame(bat=bat, ina=ina, ncir=ncir, encoders=encoders)
+    return Frame(bat=bat, ina=ina, ncir=ncir, mag=mag, encoders=encoders)
 
 
 def parse_line(line: str) -> Optional[Union[Frame, LogLine]]:

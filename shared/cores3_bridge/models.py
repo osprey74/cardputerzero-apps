@@ -48,6 +48,22 @@ class Temp:
 
 
 @dataclass
+class Mag:
+    """BMM150 地磁気 [µT] と簡易方位。App 16 星座盤の方位アライン用。
+
+    ⚠️ ``heading`` は水平面の生の方位角（傾き補正なし・未キャリブレーション）で、
+    ハード/ソフトアイアン補正前は絶対値をそのまま信用しないこと。軸割当・符号は
+    BMM150 の実装向きに依存し実機で要確認。上位側で ``x/y/z`` から自前補正する前提。
+    """
+
+    ok: bool                    # getMag 成功かつ実データあり
+    x: Optional[float]          # [µT]（未取得は None）
+    y: Optional[float]
+    z: Optional[float]
+    heading: Optional[float]    # 水平面 方位角 [deg]（0=+X 基準・要キャリブレーション）
+
+
+@dataclass
 class Encoder:
     """Chain Encoder 1 ノード。
 
@@ -81,6 +97,7 @@ class Frame:
     bat: Optional[Battery] = None
     ina: Optional[Power] = None
     ncir: Optional[Temp] = None
+    mag: Optional[Mag] = None
     encoders: list[Encoder] = field(default_factory=list)
 
     def encoder(self, *, role: Optional[str] = None,

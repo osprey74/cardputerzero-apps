@@ -15,7 +15,7 @@ _REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
-from shared.cores3_bridge import Frame, LogLine, parse_line, sanitize_json_line  # noqa: E402
+from shared.cores3_bridge import Frame, LogLine, Mag, parse_line, sanitize_json_line  # noqa: E402
 
 _SAMPLES = os.path.join(os.path.dirname(__file__), "sample_frames.jsonl")
 
@@ -66,6 +66,32 @@ def test_encoder_lookup_is_position_independent():
     # uid 引きでも一致
     assert swapped.encoder(uid="4e001b00").role == "R"
     assert set(swapped.by_role.keys()) == {"R", "B"}
+
+
+def test_mag_frame_parses():
+    # 実機 (COM5・2026-07-07) 採取値。BMM150 は getMag 経由で取得可。
+    f = parse_line('{"bat":{"pct":100,"chg":0,"v":4.14},'
+                   '"ina":{"v":0.0,"i":0.0,"p":0.0},'
+                   '"ncir":{"t_obj":28.6,"t_amb":28.6},'
+                   '"mag":{"ok":1,"x":-1520.38,"y":623.75,"z":-9.00,"heading":157.7},'
+                   '"enc":[]}')
+    assert isinstance(f, Frame)
+    assert isinstance(f.mag, Mag)
+    assert f.mag.ok is True
+    assert abs(f.mag.x + 1520.38) < 1e-6 and abs(f.mag.heading - 157.7) < 1e-6
+
+
+def test_mag_absent_is_none():
+    # mag フィールドの無い旧フォーマットでも frame.mag は None で安全。
+    f = parse_line('{"ina":{"v":0.0,"i":0.0,"p":0.0},"enc":[]}')
+    assert isinstance(f, Frame) and f.mag is None
+
+
+def test_mag_unavailable_null_values():
+    # getMag 失敗時 (ok:0・値 null) も落ちない。
+    f = parse_line('{"mag":{"ok":0,"x":null,"y":null,"z":null,"heading":null},"enc":[]}')
+    assert isinstance(f, Frame) and f.mag is not None
+    assert f.mag.ok is False and f.mag.x is None and f.mag.heading is None
 
 
 def test_nan_sanitize_to_null():

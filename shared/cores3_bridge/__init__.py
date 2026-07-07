@@ -7,12 +7,12 @@ Chain Encoder は UID 解決済みの ``role``/``uid`` で個体を束ねられ�
 
 from __future__ import annotations
 
-from .models import Battery, Encoder, Frame, LogLine, Power, Temp
+from .models import Battery, Encoder, Frame, LogLine, Mag, Power, Temp
 from .parse import parse_line, sanitize_json_line
 from .reader import CoreS3Reader, default_port
 
 __all__ = [
-    "Battery", "Encoder", "Frame", "LogLine", "Power", "Temp",
+    "Battery", "Encoder", "Frame", "LogLine", "Mag", "Power", "Temp",
     "parse_line", "sanitize_json_line",
     "CoreS3Reader", "default_port",
 ]

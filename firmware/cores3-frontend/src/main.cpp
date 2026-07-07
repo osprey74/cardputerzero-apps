@@ -130,8 +130,11 @@ struct Readings {
   int   bat_pct;               // 0-100 (-1 unknown)
   int   bat_chg;               // -1 unknown / 0 放電 / 1 充電
   float bat_v;                 // V
+  float mx, my, mz;            // 地磁気 [µT] (BMM150・未取得は NAN)。App16 星座盤の方位アライン用
+  int   mag_ok;                // 1=getMag 成功 / 0=失敗
 };
 static Readings g_r;
+static bool g_mag_available = false;   // 起動時プローブで BMM150 が使えると判定したか
 
 // オフスクリーン描画用スプライト (ちらつき防止)。
 static M5Canvas g_canvas(&M5.Display);
@@ -1283,6 +1286,22 @@ void setup() {
   chain.begin(&Serial2, ENC_BAUD, PORT_C_RX, PORT_C_TX);  // Chain Encoder (Port C)
   Serial.printf("{\"log\":\"imu_init\",\"type\":%d}\n", (int)M5.Imu.getType());  // BMI270 確認
 
+  // 地磁気 (BMM150) プローブ。CoreS3 の BMM150 は BMI270 の補助 I2C 配下のため
+  // メインバスの i2cdetect には出ないが、M5Unified の getMag() 経由なら取得できる想定。
+  // App16 星座盤の方位アライン用に、使えるかどうかをここで一度確定してログ出力する。
+  {
+    float mx = NAN, my = NAN, mz = NAN;
+    M5.update();
+    bool ok = M5.Imu.getMag(&mx, &my, &mz);
+    // 全ゼロや NaN は「実データなし」とみなす (未初期化時に 0 が返ることがある)。
+    bool has_data = ok && (isfinite(mx) && isfinite(my) && isfinite(mz)) &&
+                    (mx != 0.0f || my != 0.0f || mz != 0.0f);
+    g_mag_available = has_data;
+    Serial.printf("{\"log\":\"mag_probe\",\"getmag_ok\":%d,\"has_data\":%d,"
+                  "\"mx\":%.2f,\"my\":%.2f,\"mz\":%.2f}\n",
+                  ok ? 1 : 0, has_data ? 1 : 0, mx, my, mz);
+  }
+
   // 初期値
   g_r = { NAN, NAN, NAN, NAN, NAN, -1, -1, NAN };
 
@@ -1429,14 +1448,34 @@ void loop() {
   }
   snprintf(encbuf + off, sizeof(encbuf) - off, "]");
 
+  // ---- 地磁気 (BMM150) ---- App16 星座盤の方位アライン用に CardputerZero へ流す。
+  g_r.mx = g_r.my = g_r.mz = NAN;
+  g_r.mag_ok = 0;
+  if (g_mag_available) {
+    float mx, my, mz;
+    if (M5.Imu.getMag(&mx, &my, &mz)) {
+      g_r.mx = mx; g_r.my = my; g_r.mz = mz; g_r.mag_ok = 1;
+    }
+  }
+  // 水平面の簡易方位 (deg)。傾き補正なし・要キャリブレーション。受信側で使う目安。
+  // 軸割当と符号は実機で要確認 (BMM150 の実装向きに依存)。
+  float heading = NAN;
+  if (g_r.mag_ok) {
+    heading = atan2f(g_r.my, g_r.mx) * 57.29578f;
+    if (heading < 0) heading += 360.0f;
+  }
+
   // ---- JSON 1 行送信 ----
-  char buf[600];
+  char buf[680];
   snprintf(buf, sizeof(buf),
            "{\"bat\":{\"pct\":%d,\"chg\":%d,\"v\":%.2f},"
            "\"ina\":{\"v\":%.3f,\"i\":%.4f,\"p\":%.4f},"
-           "\"ncir\":{\"t_obj\":%.2f,\"t_amb\":%.2f},\"enc\":%s}",
+           "\"ncir\":{\"t_obj\":%.2f,\"t_amb\":%.2f},"
+           "\"mag\":{\"ok\":%d,\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"heading\":%.1f},"
+           "\"enc\":%s}",
            g_r.bat_pct, g_r.bat_chg, g_r.bat_v,
-           g_r.ina_v, g_r.ina_i, g_r.ina_p, g_r.t_obj, g_r.t_amb, encbuf);
+           g_r.ina_v, g_r.ina_i, g_r.ina_p, g_r.t_obj, g_r.t_amb,
+           g_r.mag_ok, g_r.mx, g_r.my, g_r.mz, heading, encbuf);
   Serial.println(buf);
 
   // ---- 液晶 (現在ページを描画) ----
