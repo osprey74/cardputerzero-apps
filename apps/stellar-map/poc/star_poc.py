@@ -177,9 +177,12 @@ def altaz_to_xy(alt: float, az: float, mirror_ew: bool) -> tuple[float, float]:
 
 
 def mag_to_radius(mag: float) -> int:
-    """実視等級 → ドット半径 [px]。明るい (等級小) ほど大きい。小型 LCD 向けに控えめ (1〜3px)。"""
-    r = 2.6 - 0.45 * mag
-    return max(1, min(3, round(r)))
+    """実視等級 → ドット半径 [px]。明るい (等級小) ほど大きい。小型 LCD 向けに控えめ (1〜2px)。
+
+    1 等星 (mag≲1.5) ≈ 2px、2 等星以下 ≈ 1px。階級の見分けは色 (mag_to_color) で補う。
+    """
+    r = 2.2 - 0.5 * mag
+    return max(1, min(2, round(r)))
 
 
 # ---------------------------------------------------------------------------

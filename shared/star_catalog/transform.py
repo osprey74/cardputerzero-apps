@@ -67,12 +67,13 @@ def altaz_to_plot_xy(alt: float, az: float, cx: float, cy: float, radius: float,
     return cx + r * math.cos(theta), cy + r * math.sin(theta)
 
 
-def mag_to_radius(mag: float, r_min: int = 1, r_max: int = 3) -> int:
+def mag_to_radius(mag: float, r_min: int = 1, r_max: int = 2) -> int:
     """実視等級 → ドット半径 [px]。明るい (等級小) ほど大きい。
 
-    小型 LCD (320×170) 向けに控えめなサイズ (既定 1〜3px)。
+    小型 LCD (320×170) 向けに控えめなサイズ (既定 1〜2px)。
+    1 等星 (mag≲1.5) ≈ 2px、2 等星以下 ≈ 1px。色分け (mag_to_color) で階級を補う。
     """
-    r = round(2.6 - 0.45 * mag)
+    r = round(2.2 - 0.5 * mag)
     return max(r_min, min(r_max, r))
 
 
