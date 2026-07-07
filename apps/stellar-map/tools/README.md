@@ -60,6 +60,17 @@ python build_dso.py --mag-limit 7
 - `dso.bin` 1 レコード(LE・16B): `<fffi` = ra_deg, dec_deg, mag, type（0=other/1=galaxy/2=nebula/3=open/4=globular）。
 - 実績: **330 DSO（146 命名）**。
 
+## `ephem.py` ― 惑星・月・月相（Skyfield サイドカー）
+
+恒星は静的カタログで足りるが、惑星・月は時刻依存のため JPL 天体暦が要る。`ephem.sky_bodies(dt_utc,
+lat, lon, data_dir)` が Skyfield ＋ DE 暦で、惑星（水金火木土）と月の地平座標（Alt/Az）、惑星の
+見かけ等級、月の輝面比（満ち欠け）を返す。`render_catalog.py` から利用（`--no-planets` で無効化）。
+
+- 依存: `skyfield`（MIT）。DE 暦 `de421.bsp`（NASA/JPL・実質パブリックドメイン）は初回のみ
+  `data/raw/` に自動 DL・キャッシュ（gitignore）。
+- Skyfield の `.altaz()` は地心視差を含む地平座標を直接返すため月のように近い天体も正確。
+- 依存導入: `pip install -r requirements.txt`（`Pillow` ＋ `skyfield`）。
+
 ## `render_catalog.py` ― 可視検証
 
 生成した中間形式を `shared/star_catalog` 経由でロードし、320×170 の全天図に描画して
@@ -71,8 +82,9 @@ python render_catalog.py --mag-view 4.0 --dt 2026-12-01T22:00 --lat 35.68 --lon 
 ```
 
 - `--mag-view`：**描画時**の上限等級（カタログは全星保持したまま暗い星を間引く）。
-- `--no-lines` / `--no-dso`：星座線 / DSO を描かない（既定は両方描画。`constellation_lines.json`
-  と `dso.bin` があれば自動で使う）。星座線＝暗いシアン、DSO＝くすんだマゼンタの 2px マーカー。
+- `--no-lines` / `--no-dso` / `--no-planets`：星座線 / DSO / 惑星・月 を描かない（既定は全部描画）。
+  星座線＝暗シアン、DSO＝くすんだマゼンタ、惑星＝ゴールド（ラベル付）、月＝淡白（`Moon`・満ち欠け%）。
+  惑星・月は `skyfield` 導入時のみ（未導入なら警告して他は描画）。
 - `--shape round|square`：星の形。`square`=四角ドット。
 - `--no-aa`：**等倍・AA 無し**で描画（文字は bilevel、四角はピクセル正確）。**実機 LCD の見えに最も近い**。
   - 未指定（既定）は SS=4 のスーパーサンプリングで丸を滑らかに描く（PC プレビュー向き）。

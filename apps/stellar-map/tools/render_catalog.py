@@ -37,6 +37,8 @@ COL_LABEL = (150, 150, 150)
 COL_OK = (0, 200, 80)
 COL_LINE = (40, 90, 110)       # 星座線 (暗いシアン)
 COL_DSO = (200, 120, 200)      # 深宇宙天体マーカー (くすんだマゼンタ)
+COL_PLANET = (255, 215, 120)   # 惑星 (ゴールド)
+COL_MOON = (225, 225, 205)     # 月 (淡い白)
 
 W, H = 320, 170
 CX, CY, R = 85, 85, 80
@@ -73,13 +75,14 @@ def _draw_square_native(d, x: float, y: float, side: int, col) -> None:
 def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
            mirror_ew: bool, mag_view: float,
            shape: str = "round", aa: bool = True,
-           lines=None, dsos=None) -> tuple[Image.Image, int]:
+           lines=None, dsos=None, bodies=None) -> tuple[Image.Image, int]:
     """全天図を描く。
 
     aa=True: SS 倍で描画→LANCZOS 縮小 (丸を滑らかに)。
     aa=False: 等倍・AA 無し (文字は bilevel・四角はピクセル正確)。実機の見えに近い。
     shape: "round"=円 / "square"=四角ドット。
     lines: HIP ペア列 (星座線・None で非描画)。dsos: DSO 列 (None で非描画)。
+    bodies: 惑星・月 (ephem.sky_bodies の戻り・None で非描画)。
     """
     dt_utc = dt_local - timedelta(hours=tz)
     jd = julian_date(dt_utc.year, dt_utc.month, dt_utc.day,
@@ -161,6 +164,30 @@ def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
             rr = mag_to_radius(st.mag) * ss
             d.ellipse([x * ss - rr, y * ss - rr, x * ss + rr, y * ss + rr], fill=col)
 
+    def marker(x, y, side, col):
+        """星/惑星/月と同じ流儀でマーカーを描く（square/no-aa はピクセル正確）。"""
+        if shape == "square" and not aa:
+            _draw_square_native(d, x, y, side, col)
+        else:
+            h = side * ss / 2.0
+            d.rectangle([x * ss - h, y * ss - h, x * ss + h, y * ss + h], fill=col)
+
+    # 惑星・月 (Skyfield)。恒星の上に、ラベル付きで描く。
+    planets_up = 0
+    if bodies:
+        for p in bodies.get("planets", []):
+            if p["alt"] < 0:
+                continue
+            planets_up += 1
+            x, y = altaz_to_plot_xy(p["alt"], p["az"], CX, CY, R, mirror_ew)
+            marker(x, y, max(2, mag_to_square(p["mag"])), COL_PLANET)
+            d.text(((x + 3) * ss, (y - 4) * ss), p["name"], fill=COL_PLANET, font=font_sm)
+        mo = bodies.get("moon")
+        if mo and mo["alt"] >= 0:
+            x, y = altaz_to_plot_xy(mo["alt"], mo["az"], CX, CY, R, mirror_ew)
+            marker(x, y, 3, COL_MOON)
+            d.text(((x + 3) * ss, (y - 4) * ss), "Moon", fill=COL_MOON, font=font_sm)
+
     # 代表星のラベル (地平線上のもののみ)。
     for name in LABEL_STARS:
         st = cat.by_name(name)
@@ -179,13 +206,17 @@ def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
     d.text((px, 24 * ss), dt_local.strftime("%Y-%m-%d %H:%M"), fill=COL_TEXT, font=font)
     d.text((px, 40 * ss), f"lat {lat:+.2f}", fill=COL_TEXT, font=font)
     d.text((px, 54 * ss), f"lon {lon:+.2f}", fill=COL_TEXT, font=font)
-    d.text((px, 72 * ss), f"stars: {visible}", fill=COL_OK, font=font_sm)
-    d.text((px, 84 * ss), f"lines: {lines_drawn}", fill=COL_LABEL, font=font_sm)
-    d.text((px, 96 * ss), f"dso: {dso_drawn}", fill=COL_LABEL, font=font_sm)
-    d.text((px, 112 * ss), f"mag<={mag_view:g}", fill=COL_LABEL, font=font_sm)
+    d.text((px, 70 * ss), f"stars: {visible}", fill=COL_OK, font=font_sm)
+    d.text((px, 82 * ss), f"lines: {lines_drawn}  dso: {dso_drawn}", fill=COL_LABEL, font=font_sm)
+    d.text((px, 94 * ss), f"planets up: {planets_up}", fill=COL_PLANET, font=font_sm)
+    if bodies and bodies.get("moon"):
+        mo = bodies["moon"]
+        wax = "wax" if mo["waxing"] else "wan"
+        d.text((px, 106 * ss), f"Moon {mo['frac'] * 100:.0f}% {wax}", fill=COL_MOON, font=font_sm)
+    d.text((px, 120 * ss), f"mag<={mag_view:g}", fill=COL_LABEL, font=font_sm)
     mode = f"{shape}/{'AA' if aa else 'no-aa'}"
-    d.text((px, 126 * ss), f"mode: {mode}", fill=COL_LABEL, font=font_sm)
-    d.text((px, 150 * ss), "HYG/OpenNGC/Stellarium", fill=COL_LABEL, font=font_sm)
+    d.text((px, 132 * ss), f"mode: {mode}", fill=COL_LABEL, font=font_sm)
+    d.text((px, 150 * ss), "HYG/OpenNGC/Stel/JPL", fill=COL_LABEL, font=font_sm)
 
     if aa:
         img = img.resize((W, H), Image.LANCZOS)
@@ -210,20 +241,30 @@ def main() -> None:
                     help="等倍・AA 無しで描く (文字 bilevel・四角ピクセル正確・実機に近い)")
     ap.add_argument("--no-lines", action="store_true", help="星座線を描かない")
     ap.add_argument("--no-dso", action="store_true", help="深宇宙天体(DSO)を描かない")
+    ap.add_argument("--no-planets", action="store_true", help="惑星・月を描かない")
     ap.add_argument("--out", default=None,
                     help="出力パス (未指定なら hyg_<shape>_<aa|noaa>.png)")
     ap.add_argument("--scale", type=int, default=4)
     args = ap.parse_args()
 
     aa = not args.no_aa
+    dt_local = datetime.fromisoformat(args.dt)
     cat = load_catalog(args.data)
     lines = None if args.no_lines else load_constellation_lines(args.data)
     dsos = None
     if not args.no_dso:
         dsos, _dnames, _dmeta = load_dso(args.data)
-    img, visible = render(cat, datetime.fromisoformat(args.dt), args.tz,
+    bodies = None
+    if not args.no_planets:
+        try:
+            from ephem import sky_bodies   # Skyfield 依存（未導入なら惑星なしで続行）
+            dt_utc = dt_local - timedelta(hours=args.tz)
+            bodies = sky_bodies(dt_utc, args.lat, args.lon, args.data)
+        except Exception as ex:  # noqa: BLE001
+            print(f"[warn] planets/moon 無効 (skyfield?): {ex}")
+    img, visible = render(cat, dt_local, args.tz,
                           args.lat, args.lon, args.mirror_ew, args.mag_view,
-                          args.shape, aa, lines, dsos)
+                          args.shape, aa, lines, dsos, bodies)
     if args.out is None:
         tag = f"{args.shape}_{'aa' if aa else 'noaa'}"
         out = app_root / "poc" / "out" / f"hyg_{tag}.png"

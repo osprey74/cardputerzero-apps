@@ -3860,7 +3860,8 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 16]** RX8130CE RTC（`/dev/rtc`）＋ NTP（`systemd-timesyncd`）＋ AT6668 GNSS UTC の時刻取得系を確立（`shared/gnss_at6668/` を App 01 と共有）
 - [ ] **[App 16]** HDMI 接続検出（`/sys/class/drm/*/status`）→ LCD ⇔ 1080p フルスクリーン・プラネタリウムの自動レイアウト切替
 - [ ] **[App 16・要較正]** BMM150 の方位較正（ハード/ソフトアイアン＋加速度による傾き補正）で heading を実用精度に。CoreS3 非併用時は BMI270 ジャイロ相対追従＋北手動アラインにフォールバック
-- [ ] **[App 16]** 惑星・月・月相の描画（Skyfield ＋ DE ephemeris）と等級ベースの恒星ドットサイズ調整
+- [x] **[App 16]** 惑星・月・月相の描画（2026-07-07・Skyfield 1.54＋DE421）。`tools/ephem.py`＝`sky_bodies(dt_utc,lat,lon)` が惑星(水金火木土)と月の地平座標(Skyfield `.altaz()`・地心視差込み)・惑星等級(`planetary_magnitude`)・月の輝面比/満ち欠けを返す。DE421 は `data/raw/` に自動DL(NASA/JPL・実質PD)。`render_catalog.py` が惑星(ゴールド+ラベル)・月(淡白+満ち欠け%)を描画(`--no-planets`)。2026-07-08 03:30 で Moon 50% wan＋Saturn 等の可視を確認。依存は `tools/requirements.txt`(Pillow+skyfield)。等級ベースのドットサイズ/明るさ調整は実機で最終調整
+- [ ] **[App 16]** 恒星の等級ベース明るさ/サイズの実機微調整（現状は 3 クラスの色＋サイズ）と、星座線/DSO/惑星の実機での密度・ラベル衝突の調整
 
 #### 入力デバイス拡張（Chain Encoder / I2C エンコーダ）
 

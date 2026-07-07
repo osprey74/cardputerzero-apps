@@ -1,0 +1,5 @@
+# App 16 星座盤 前処理・検証ツールの依存
+# build_star_catalog.py / build_constellations.py / build_dso.py は stdlib のみ。
+# render_catalog.py の描画に Pillow、惑星・月 (ephem.py) に skyfield が必要。
+Pillow>=10
+skyfield>=1.50   # 惑星・月・月相 (DE 暦 de421.bsp を data/raw/ に自動DL・NASA/JPL・実質PD)
