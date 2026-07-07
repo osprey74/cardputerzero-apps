@@ -1,4 +1,3 @@
-raw/
-*.bin
-stars_meta.json
-named_stars.json
+# 生成物・生データはコミットしない (CC BY-SA データ束縛回避)。ツールが都度DL・生成する。
+*
+!.gitignore

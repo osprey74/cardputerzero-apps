@@ -33,6 +33,33 @@ python build_star_catalog.py --out-dir /mnt/sdcard/stellar_map/data
 - `hip` は星座線（Stellarium）参照キー。無しは `-1`。太陽（id=0）は除外。
 - 実績: 等級 ≤ 6.5 で **8,920 星 / 固有名 357 件**、`stars.bin` は約 174KB。
 
+## `build_constellations.py` ― 星座線（Stellarium）取込
+
+Stellarium 現代(西洋)星座線を取り込み、HIP 番号ペア列 `constellation_lines.json` を生成する。
+描画側は各 HIP を `stars.bin` の位置に解決して線を引く。
+
+```bash
+python build_constellations.py     # 自動DL→ data/constellation_lines.json
+```
+
+- 出典: Stellarium `western/index.json`（sky culture）。⚠️ **星座線（線分定義）は MIT**
+  （Xalioth 再許諾・[discussion #790](https://github.com/Stellarium/stellarium/discussions/790)）。星座「絵」は別ライセンスのため線のみ抽出。
+- 実績: **88 星座 / 674 線分（HIP ペア）**。
+
+## `build_dso.py` ― 深宇宙天体（OpenNGC）取込
+
+OpenNGC から明るい DSO（Messier 天体、または V/B 等級 ≤ 既定 8.0）を抽出し `dso.bin` ＋
+`dso_meta.json` ＋ `dso_names.json` を生成する。
+
+```bash
+python build_dso.py                 # 自動DL→ 既定 mag<=8.0
+python build_dso.py --mag-limit 7
+```
+
+- 出典: OpenNGC `database_files/NGC.csv`。⚠️ **CC BY-SA 4.0**（© Mattia Verga・表示＋継承）。
+- `dso.bin` 1 レコード(LE・16B): `<fffi` = ra_deg, dec_deg, mag, type（0=other/1=galaxy/2=nebula/3=open/4=globular）。
+- 実績: **330 DSO（146 命名）**。
+
 ## `render_catalog.py` ― 可視検証
 
 生成した中間形式を `shared/star_catalog` 経由でロードし、320×170 の全天図に描画して
@@ -44,6 +71,8 @@ python render_catalog.py --mag-view 4.0 --dt 2026-12-01T22:00 --lat 35.68 --lon 
 ```
 
 - `--mag-view`：**描画時**の上限等級（カタログは全星保持したまま暗い星を間引く）。
+- `--no-lines` / `--no-dso`：星座線 / DSO を描かない（既定は両方描画。`constellation_lines.json`
+  と `dso.bin` があれば自動で使う）。星座線＝暗いシアン、DSO＝くすんだマゼンタの 2px マーカー。
 - `--shape round|square`：星の形。`square`=四角ドット。
 - `--no-aa`：**等倍・AA 無し**で描画（文字は bilevel、四角はピクセル正確）。**実機 LCD の見えに最も近い**。
   - 未指定（既定）は SS=4 のスーパーサンプリングで丸を滑らかに描く（PC プレビュー向き）。

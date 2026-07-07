@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 _RECORD = struct.Struct("<iffff")   # hip, ra_deg, dec_deg, mag, ci
+_DSO = struct.Struct("<fffi")       # ra_deg, dec_deg, mag, type
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,15 @@ class Star:
     dec_deg: float        # 赤緯 [deg]
     mag: float            # 実視等級
     ci: float             # 色指数 B-V (無しは NaN)
+
+
+@dataclass(frozen=True)
+class Dso:
+    """深宇宙天体 (OpenNGC)。type: 0=other/1=galaxy/2=nebula/3=open cluster/4=globular。"""
+    ra_deg: float
+    dec_deg: float
+    mag: float            # 等級 (不明は 99.0)
+    type: int
 
 
 class StarCatalog:
@@ -61,3 +71,29 @@ def load_catalog(data_dir: str | Path) -> StarCatalog:
     if meta_path.exists():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     return StarCatalog(stars, named, meta)
+
+
+def load_dso(data_dir: str | Path) -> tuple[list[Dso], dict, dict]:
+    """dso.bin (+ 任意の names/meta) を読み込む。無ければ ([], {}, {})。"""
+    d = Path(data_dir)
+    p = d / "dso.bin"
+    if not p.exists():
+        return [], {}, {}
+    dsos = [Dso(ra, dec, mag, typ) for ra, dec, mag, typ in _DSO.iter_unpack(p.read_bytes())]
+    names: dict = {}
+    if (d / "dso_names.json").exists():
+        names = json.loads((d / "dso_names.json").read_text(encoding="utf-8"))
+    meta: dict = {}
+    if (d / "dso_meta.json").exists():
+        meta = json.loads((d / "dso_meta.json").read_text(encoding="utf-8"))
+    return dsos, names, meta
+
+
+def load_constellation_lines(data_dir: str | Path) -> list[tuple[int, int]]:
+    """constellation_lines.json の HIP ペア列を読み込む。無ければ []。"""
+    d = Path(data_dir)
+    p = d / "constellation_lines.json"
+    if not p.exists():
+        return []
+    obj = json.loads(p.read_text(encoding="utf-8"))
+    return [(int(a), int(b)) for a, b in obj.get("pairs", [])]

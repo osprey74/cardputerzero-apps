@@ -23,9 +23,9 @@ _REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
-from shared.star_catalog import (altaz_to_plot_xy, julian_date, lst_deg,  # noqa: E402
-                                 load_catalog, mag_to_color, mag_to_radius,
-                                 radec_to_altaz)
+from shared.star_catalog import (altaz_to_plot_xy, julian_date,  # noqa: E402
+                                 load_catalog, load_constellation_lines, load_dso,
+                                 lst_deg, mag_to_color, mag_to_radius, radec_to_altaz)
 
 # osprey74 テーマ
 COL_BG = (0, 0, 0)
@@ -35,6 +35,8 @@ COL_DIR = (255, 165, 0)        # 方位 N/E/S/W (オレンジ)
 COL_TEXT = (235, 235, 235)     # 情報パネル本文
 COL_LABEL = (150, 150, 150)
 COL_OK = (0, 200, 80)
+COL_LINE = (40, 90, 110)       # 星座線 (暗いシアン)
+COL_DSO = (200, 120, 200)      # 深宇宙天体マーカー (くすんだマゼンタ)
 
 W, H = 320, 170
 CX, CY, R = 85, 85, 80
@@ -70,12 +72,14 @@ def _draw_square_native(d, x: float, y: float, side: int, col) -> None:
 
 def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
            mirror_ew: bool, mag_view: float,
-           shape: str = "round", aa: bool = True) -> tuple[Image.Image, int]:
+           shape: str = "round", aa: bool = True,
+           lines=None, dsos=None) -> tuple[Image.Image, int]:
     """全天図を描く。
 
     aa=True: SS 倍で描画→LANCZOS 縮小 (丸を滑らかに)。
     aa=False: 等倍・AA 無し (文字は bilevel・四角はピクセル正確)。実機の見えに近い。
     shape: "round"=円 / "square"=四角ドット。
+    lines: HIP ペア列 (星座線・None で非描画)。dsos: DSO 列 (None で非描画)。
     """
     dt_utc = dt_local - timedelta(hours=tz)
     jd = julian_date(dt_utc.year, dt_utc.month, dt_utc.day,
@@ -103,6 +107,40 @@ def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
         d.text(((CX + dx * (R + 3) - 3) * ss, (CY + dy * (R + 3) - 5) * ss),
                lbl, fill=COL_DIR, font=font_sm)
 
+    def proj(ra: float, dec: float):
+        a, z = radec_to_altaz(ra, dec, lat, lst)
+        xx, yy = altaz_to_plot_xy(a, z, CX, CY, R, mirror_ew)
+        return a, xx, yy
+
+    # 星座線 (両端の星が地平線上のときだけ)。星の下に敷くため先に描く。
+    lines_drawn = 0
+    if lines:
+        for ha, hb in lines:
+            sa, sb = cat.by_hip(ha), cat.by_hip(hb)
+            if not sa or not sb:
+                continue
+            alt_a, xa, ya = proj(sa.ra_deg, sa.dec_deg)
+            alt_b, xb, yb = proj(sb.ra_deg, sb.dec_deg)
+            if alt_a < 0 or alt_b < 0:
+                continue
+            d.line([xa * ss, ya * ss, xb * ss, yb * ss], fill=COL_LINE, width=ss)
+            lines_drawn += 1
+
+    # 深宇宙天体 (DSO) マーカー。2px の別色 (くすんだマゼンタ)。星の下に描く。
+    dso_drawn = 0
+    if dsos:
+        for o in dsos:
+            alt_o, x, y = proj(o.ra_deg, o.dec_deg)
+            if alt_o < 0:
+                continue
+            dso_drawn += 1
+            if shape == "square" and not aa:
+                _draw_square_native(d, x, y, 2, COL_DSO)
+            else:
+                h = 1.0 * ss
+                d.rectangle([x * ss - h, y * ss - h, x * ss + h, y * ss + h], fill=COL_DSO)
+
+    # 恒星 (最前面)。
     visible = 0
     for st in cat.stars:
         if st.mag > mag_view:          # 小型 LCD 向けに暗い星を描画時に間引く
@@ -141,12 +179,13 @@ def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
     d.text((px, 24 * ss), dt_local.strftime("%Y-%m-%d %H:%M"), fill=COL_TEXT, font=font)
     d.text((px, 40 * ss), f"lat {lat:+.2f}", fill=COL_TEXT, font=font)
     d.text((px, 54 * ss), f"lon {lon:+.2f}", fill=COL_TEXT, font=font)
-    d.text((px, 74 * ss), f"loaded: {len(cat)}", fill=COL_LABEL, font=font_sm)
-    d.text((px, 88 * ss), f"up: {visible}", fill=COL_OK, font=font)
-    d.text((px, 108 * ss), f"view mag<={mag_view:g}", fill=COL_LABEL, font=font_sm)
+    d.text((px, 72 * ss), f"stars: {visible}", fill=COL_OK, font=font_sm)
+    d.text((px, 84 * ss), f"lines: {lines_drawn}", fill=COL_LABEL, font=font_sm)
+    d.text((px, 96 * ss), f"dso: {dso_drawn}", fill=COL_LABEL, font=font_sm)
+    d.text((px, 112 * ss), f"mag<={mag_view:g}", fill=COL_LABEL, font=font_sm)
     mode = f"{shape}/{'AA' if aa else 'no-aa'}"
     d.text((px, 126 * ss), f"mode: {mode}", fill=COL_LABEL, font=font_sm)
-    d.text((px, 148 * ss), "HYG v4.1 CC BY-SA", fill=COL_LABEL, font=font_sm)
+    d.text((px, 150 * ss), "HYG/OpenNGC/Stellarium", fill=COL_LABEL, font=font_sm)
 
     if aa:
         img = img.resize((W, H), Image.LANCZOS)
@@ -169,6 +208,8 @@ def main() -> None:
                     help="星の形。round=円 / square=四角ドット")
     ap.add_argument("--no-aa", action="store_true",
                     help="等倍・AA 無しで描く (文字 bilevel・四角ピクセル正確・実機に近い)")
+    ap.add_argument("--no-lines", action="store_true", help="星座線を描かない")
+    ap.add_argument("--no-dso", action="store_true", help="深宇宙天体(DSO)を描かない")
     ap.add_argument("--out", default=None,
                     help="出力パス (未指定なら hyg_<shape>_<aa|noaa>.png)")
     ap.add_argument("--scale", type=int, default=4)
@@ -176,9 +217,13 @@ def main() -> None:
 
     aa = not args.no_aa
     cat = load_catalog(args.data)
+    lines = None if args.no_lines else load_constellation_lines(args.data)
+    dsos = None
+    if not args.no_dso:
+        dsos, _dnames, _dmeta = load_dso(args.data)
     img, visible = render(cat, datetime.fromisoformat(args.dt), args.tz,
                           args.lat, args.lon, args.mirror_ew, args.mag_view,
-                          args.shape, aa)
+                          args.shape, aa, lines, dsos)
     if args.out is None:
         tag = f"{args.shape}_{'aa' if aa else 'noaa'}"
         out = app_root / "poc" / "out" / f"hyg_{tag}.png"
