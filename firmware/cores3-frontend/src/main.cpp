@@ -207,7 +207,7 @@ static float g_offX = 0, g_offY = 0, g_offA = 0, g_offB = 0;
 // 残り時間(大)+経過時間(小)を併記。0 到達後は超過を +MM:SS でカウントアップ。
 // TIMER ページ表示中は省電力のため Wi-Fi/I2C を停止し、他ページへ戻すと再接続する
 // (updateRadioForPage / netTask の g_radio_off を参照)。
-static const int PRESET_MIN[]      = {5, 15, 30, 45, 60, 90, 120};  // プリセット [分]
+static const int PRESET_MIN[]      = {5, 15, 30, 45, 60, 90, 100, 120};  // プリセット [分]
 static constexpr int PRESET_COUNT   = sizeof(PRESET_MIN) / sizeof(PRESET_MIN[0]);
 static constexpr int PRESET_DEFAULT = 5;   // 既定インデックス (= 90 分)
 enum TimerState { TM_SETUP = 0, TM_RUNNING, TM_PAUSED, TM_DONE };

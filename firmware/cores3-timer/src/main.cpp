@@ -37,7 +37,7 @@ static constexpr uint16_t COL_DIM     = 0x4208;  // 罫線・目盛
 
 // ---- プリセット (分) -------------------------------------------------------
 // セミナー標準の 90/120 分を中心に、休憩・LT 用の短時間も用意する。
-static const int PRESET_MIN[] = {5, 15, 30, 45, 60, 90, 120};
+static const int PRESET_MIN[] = {5, 15, 30, 45, 60, 90, 100, 120};
 static constexpr int PRESET_COUNT = sizeof(PRESET_MIN) / sizeof(PRESET_MIN[0]);
 static constexpr int PRESET_DEFAULT = 5;  // = 90 分 (インデックス)
 
