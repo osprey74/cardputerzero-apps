@@ -85,7 +85,7 @@ def sky_bodies(dt_utc, lat: float, lon: float, data_dir) -> dict:
                 mag = float(planetary_magnitude(app))
             except (ValueError, KeyError):
                 mag = None
-        planets.append({"name": name, "alt": alt.degrees, "az": az.degrees,
+        planets.append({"name": name, "alt": float(alt.degrees), "az": float(az.degrees),
                         "mag": mag if mag is not None else 0.0})
 
     moon_app = at.observe(eph["moon"]).apparent()
@@ -95,6 +95,6 @@ def sky_bodies(dt_utc, lat: float, lon: float, data_dir) -> dict:
     sun_app = at.observe(eph["sun"]).apparent()
     _, s_lon, _ = sun_app.frame_latlon(ecliptic_frame)
     elong = (m_lon.degrees - s_lon.degrees) % 360.0
-    moon = {"alt": m_alt.degrees, "az": m_az.degrees, "frac": frac,
-            "waxing": elong < 180.0, "phase": _phase_label(elong), "mag": -12.7}
+    moon = {"alt": float(m_alt.degrees), "az": float(m_az.degrees), "frac": frac,
+            "waxing": bool(elong < 180.0), "phase": _phase_label(elong), "mag": -12.7}
     return {"planets": planets, "moon": moon}

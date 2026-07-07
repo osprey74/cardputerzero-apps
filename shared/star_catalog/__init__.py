@@ -11,12 +11,13 @@ from __future__ import annotations
 
 from .catalog import (Dso, Star, StarCatalog, load_catalog,
                       load_constellation_lines, load_dso)
+from .scene import build_scene
 from .transform import (altaz_to_plot_xy, gmst_deg, julian_date, lst_deg,
                         mag_to_color, mag_to_radius, radec_to_altaz)
 
 __all__ = [
     "Star", "Dso", "StarCatalog", "load_catalog", "load_dso",
-    "load_constellation_lines",
+    "load_constellation_lines", "build_scene",
     "julian_date", "gmst_deg", "lst_deg", "radec_to_altaz",
     "altaz_to_plot_xy", "mag_to_radius", "mag_to_color",
 ]

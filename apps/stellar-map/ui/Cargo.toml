@@ -1,0 +1,16 @@
+[package]
+name = "stellar-map"
+version = "0.1.0"
+edition = "2021"
+description = "App 16 星座盤 UI (czdev/LVGL)。サイドカーの Scene JSON を描画する薄い front-end"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# czdev/LVGL バインディングは czdev(AppBuilder) 到着後に追加する。例:
+#   czdev = { version = "..." }        # LVGL ラッパー
+# 到着まで draw_scene() の LVGL 呼び出しは TODO スタブ（本 crate はまだ未コンパイル）。
+
+[[bin]]
+name = "stellar-map"
+path = "src/main.rs"
