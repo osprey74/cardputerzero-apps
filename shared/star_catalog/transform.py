@@ -67,14 +67,21 @@ def altaz_to_plot_xy(alt: float, az: float, cx: float, cy: float, radius: float,
     return cx + r * math.cos(theta), cy + r * math.sin(theta)
 
 
-def mag_to_radius(mag: float, r_min: int = 1, r_max: int = 2) -> int:
-    """実視等級 → ドット半径 [px]。明るい (等級小) ほど大きい。
+# 等級クラス別のドット半径 [px] (1等星 / 2等星 / 3等以下)。直径 ≈ 4 / 3 / 2 px。
+# 小さな円は Pillow の ellipse では角が欠けて「＋」に見えるため、描画側は
+# スーパーサンプリング (高解像描画→縮小) で丸くする前提のサイズ。
+RADIUS_MAG1 = 2.0
+RADIUS_MAG2 = 1.5
+RADIUS_MAG3 = 1.0
 
-    小型 LCD (320×170) 向けに控えめなサイズ (既定 1〜2px)。
-    1 等星 (mag≲1.5) ≈ 2px、2 等星以下 ≈ 1px。色分け (mag_to_color) で階級を補う。
-    """
-    r = round(2.2 - 0.5 * mag)
-    return max(r_min, min(r_max, r))
+
+def mag_to_radius(mag: float) -> float:
+    """実視等級 → ドット半径 [px] (等級クラス別)。1等=2.0 / 2等=1.5 / 3等以下=1.0。"""
+    if mag <= MAG_CLASS1:
+        return RADIUS_MAG1
+    if mag <= MAG_CLASS2:
+        return RADIUS_MAG2
+    return RADIUS_MAG3
 
 
 # 等級クラスの境界と色 (1等星 / 2等星 / 3等以下)。調整しやすいよう定数化。

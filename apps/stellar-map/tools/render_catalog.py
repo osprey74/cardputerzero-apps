@@ -39,6 +39,7 @@ COL_OK = (0, 200, 80)
 W, H = 320, 170
 CX, CY, R = 85, 85, 80
 PANEL_X = 170
+SS = 4   # スーパーサンプリング倍率。高解像で描き→LANCZOS 縮小して小さな星も丸くする。
 
 # ラベルを付ける代表的な明るい固有名星 (存在すれば表示)。
 LABEL_STARS = ["Sirius", "Vega", "Arcturus", "Capella", "Rigel", "Betelgeuse",
@@ -53,56 +54,62 @@ def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
                      dt_utc.hour, dt_utc.minute, dt_utc.second)
     lst = lst_deg(jd, lon)
 
-    img = Image.new("RGB", (W, H), COL_BG)
+    # 高解像 (SS 倍) で描画してから LANCZOS で 320×170 に縮小する（星を丸く AA）。
+    ss = SS
+    img = Image.new("RGB", (W * ss, H * ss), COL_BG)
     d = ImageDraw.Draw(img)
     try:
-        font = ImageFont.truetype("consola.ttf", 11)
-        font_sm = ImageFont.truetype("consola.ttf", 9)
+        font = ImageFont.truetype("consola.ttf", 11 * ss)
+        font_sm = ImageFont.truetype("consola.ttf", 9 * ss)
     except OSError:
         font = font_sm = ImageFont.load_default()
 
-    d.ellipse([CX - R, CY - R, CX + R, CY + R], outline=COL_HORIZON)
-    d.line([CX - R, CY, CX + R, CY], fill=COL_HORIZON)
-    d.line([CX, CY - R, CX, CY + R], fill=COL_HORIZON)
+    cx, cy, rr0 = CX * ss, CY * ss, R * ss
+    d.ellipse([cx - rr0, cy - rr0, cx + rr0, cy + rr0], outline=COL_HORIZON, width=ss)
+    d.line([cx - rr0, cy, cx + rr0, cy], fill=COL_HORIZON, width=ss)
+    d.line([cx, cy - rr0, cx, cy + rr0], fill=COL_HORIZON, width=ss)
     for lbl, (dx, dy) in {"N": (0, -1), "S": (0, 1),
                           "E": (1, 0) if not mirror_ew else (-1, 0),
                           "W": (-1, 0) if not mirror_ew else (1, 0)}.items():
-        d.text((CX + dx * (R + 3) - 3, CY + dy * (R + 3) - 5), lbl, fill=COL_DIR, font=font_sm)
+        d.text(((CX + dx * (R + 3) - 3) * ss, (CY + dy * (R + 3) - 5) * ss),
+               lbl, fill=COL_DIR, font=font_sm)
 
     visible = 0
-    for s in cat.stars:
-        if s.mag > mag_view:          # 小型 LCD 向けに暗い星を描画時に間引く
+    for st in cat.stars:
+        if st.mag > mag_view:          # 小型 LCD 向けに暗い星を描画時に間引く
             continue
-        alt, az = radec_to_altaz(s.ra_deg, s.dec_deg, lat, lst)
+        alt, az = radec_to_altaz(st.ra_deg, st.dec_deg, lat, lst)
         if alt < 0:
             continue
         visible += 1
         x, y = altaz_to_plot_xy(alt, az, CX, CY, R, mirror_ew)
-        rr = mag_to_radius(s.mag)
-        d.ellipse([x - rr, y - rr, x + rr, y + rr], fill=mag_to_color(s.mag))
+        rr = mag_to_radius(st.mag) * ss
+        d.ellipse([x * ss - rr, y * ss - rr, x * ss + rr, y * ss + rr], fill=mag_to_color(st.mag))
 
     # 代表星のラベル (地平線上のもののみ)。
     for name in LABEL_STARS:
-        s = cat.by_name(name)
-        if not s:
+        st = cat.by_name(name)
+        if not st:
             continue
-        alt, az = radec_to_altaz(s.ra_deg, s.dec_deg, lat, lst)
+        alt, az = radec_to_altaz(st.ra_deg, st.dec_deg, lat, lst)
         if alt < 0:
             continue
         x, y = altaz_to_plot_xy(alt, az, CX, CY, R, mirror_ew)
-        d.text((x + 3, y - 4), name, fill=COL_ACCENT, font=font_sm)
+        d.text(((x + 3) * ss, (y - 4) * ss), name, fill=COL_ACCENT, font=font_sm)
 
     # 情報パネル
-    px = PANEL_X + 4
-    d.line([PANEL_X, 0, PANEL_X, H], fill=COL_HORIZON)
-    d.text((px, 6), "HYG CATALOG", fill=COL_ACCENT, font=font)
-    d.text((px, 24), dt_local.strftime("%Y-%m-%d %H:%M"), fill=COL_TEXT, font=font)
-    d.text((px, 40), f"lat {lat:+.2f}", fill=COL_TEXT, font=font)
-    d.text((px, 54), f"lon {lon:+.2f}", fill=COL_TEXT, font=font)
-    d.text((px, 74), f"loaded: {len(cat)}", fill=COL_LABEL, font=font_sm)
-    d.text((px, 88), f"up: {visible}", fill=COL_OK, font=font)
-    d.text((px, 108), f"view mag<={mag_view:g}", fill=COL_LABEL, font=font_sm)
-    d.text((px, 148), "HYG v4.1 CC BY-SA", fill=COL_LABEL, font=font_sm)
+    px = (PANEL_X + 4) * ss
+    d.line([PANEL_X * ss, 0, PANEL_X * ss, H * ss], fill=COL_HORIZON, width=ss)
+    d.text((px, 6 * ss), "HYG CATALOG", fill=COL_ACCENT, font=font)
+    d.text((px, 24 * ss), dt_local.strftime("%Y-%m-%d %H:%M"), fill=COL_TEXT, font=font)
+    d.text((px, 40 * ss), f"lat {lat:+.2f}", fill=COL_TEXT, font=font)
+    d.text((px, 54 * ss), f"lon {lon:+.2f}", fill=COL_TEXT, font=font)
+    d.text((px, 74 * ss), f"loaded: {len(cat)}", fill=COL_LABEL, font=font_sm)
+    d.text((px, 88 * ss), f"up: {visible}", fill=COL_OK, font=font)
+    d.text((px, 108 * ss), f"view mag<={mag_view:g}", fill=COL_LABEL, font=font_sm)
+    d.text((px, 148 * ss), "HYG v4.1 CC BY-SA", fill=COL_LABEL, font=font_sm)
+
+    img = img.resize((W, H), Image.LANCZOS)
     return img, visible
 
 

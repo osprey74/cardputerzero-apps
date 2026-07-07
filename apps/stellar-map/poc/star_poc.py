@@ -61,6 +61,7 @@ def mag_to_color(mag: float) -> tuple[int, int, int]:
 W, H = 320, 170
 PLOT_CX, PLOT_CY, PLOT_R = 85, 85, 80   # 左 170×170 円形全天図 (App01 Sky Plot 準拠)
 PANEL_X = 170                            # 右 150×170 情報パネル開始 x
+SS = 4                                   # スーパーサンプリング倍率 (小さな星を丸く AA)
 
 # ---------------------------------------------------------------------------
 # 明るい恒星サンプル (name, RA[deg, J2000], Dec[deg], 実視等級)
@@ -176,13 +177,17 @@ def altaz_to_xy(alt: float, az: float, mirror_ew: bool) -> tuple[float, float]:
     return x, y
 
 
-def mag_to_radius(mag: float) -> int:
-    """実視等級 → ドット半径 [px]。明るい (等級小) ほど大きい。小型 LCD 向けに控えめ (1〜2px)。
+def mag_to_radius(mag: float) -> float:
+    """実視等級 → ドット半径 [px] (等級クラス別)。1等=2.0 / 2等=1.5 / 3等以下=1.0。
 
-    1 等星 (mag≲1.5) ≈ 2px、2 等星以下 ≈ 1px。階級の見分けは色 (mag_to_color) で補う。
+    小さな円は Pillow の ellipse では「＋」に欠けるため、描画側はスーパーサンプリング
+    (高解像描画→縮小) で丸くする前提のサイズ。
     """
-    r = 2.2 - 0.5 * mag
-    return max(1, min(2, round(r)))
+    if mag <= MAG_CLASS1:
+        return 2.0
+    if mag <= MAG_CLASS2:
+        return 1.5
+    return 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -194,28 +199,30 @@ def render(dt_local: datetime, tz_hours: float, lat: float, lon: float,
     jd = julian_date(dt_utc)
     lst = (gmst_deg(jd) + lon) % 360.0   # 地方恒星時 (東経 +)
 
-    img = Image.new("RGB", (W, H), COL_BG)
+    # 高解像 (SS 倍) で描画してから LANCZOS で 320×170 に縮小する（星を丸く AA）。
+    ss = SS
+    img = Image.new("RGB", (W * ss, H * ss), COL_BG)
     d = ImageDraw.Draw(img)
     try:
-        font = ImageFont.truetype("consola.ttf", 11)
-        font_sm = ImageFont.truetype("consola.ttf", 9)
+        font = ImageFont.truetype("consola.ttf", 11 * ss)
+        font_sm = ImageFont.truetype("consola.ttf", 9 * ss)
     except OSError:
         font = ImageFont.load_default()
         font_sm = font
 
     # --- 全天円・十字・方位 ---
-    d.ellipse([PLOT_CX - PLOT_R, PLOT_CY - PLOT_R, PLOT_CX + PLOT_R, PLOT_CY + PLOT_R],
-              outline=COL_HORIZON)
-    d.line([PLOT_CX - PLOT_R, PLOT_CY, PLOT_CX + PLOT_R, PLOT_CY], fill=COL_HORIZON)
-    d.line([PLOT_CX, PLOT_CY - PLOT_R, PLOT_CX, PLOT_CY + PLOT_R], fill=COL_HORIZON)
+    cx, cy, pr = PLOT_CX * ss, PLOT_CY * ss, PLOT_R * ss
+    d.ellipse([cx - pr, cy - pr, cx + pr, cy + pr], outline=COL_HORIZON, width=ss)
+    d.line([cx - pr, cy, cx + pr, cy], fill=COL_HORIZON, width=ss)
+    d.line([cx, cy - pr, cx, cy + pr], fill=COL_HORIZON, width=ss)
     for lbl, (dx, dy) in {"N": (0, -1), "S": (0, 1),
                           "E": (1, 0) if not mirror_ew else (-1, 0),
                           "W": (-1, 0) if not mirror_ew else (1, 0)}.items():
-        d.text((PLOT_CX + dx * (PLOT_R + 3) - 3, PLOT_CY + dy * (PLOT_R + 3) - 5),
+        d.text(((PLOT_CX + dx * (PLOT_R + 3) - 3) * ss, (PLOT_CY + dy * (PLOT_R + 3) - 5) * ss),
                lbl, fill=COL_DIR, font=font_sm)
 
     # --- 恒星の地平座標を先に計算 ---
-    pos: dict[str, tuple[float, float, float]] = {}   # name -> (alt, x, y)
+    pos: dict[str, tuple[float, float, float]] = {}   # name -> (alt, x, y)  ※x,y は最終座標
     for name, (ra, dec, _mag) in STARS.items():
         alt, az = radec_to_altaz(ra, dec, lat, lst)
         x, y = altaz_to_xy(alt, az, mirror_ew)
@@ -225,7 +232,8 @@ def render(dt_local: datetime, tz_hours: float, lat: float, lon: float,
     for chain in CONSTELLATION_LINES:
         for a, b in zip(chain, chain[1:]):
             if a in pos and b in pos and pos[a][0] >= 0 and pos[b][0] >= 0:
-                d.line([pos[a][1], pos[a][2], pos[b][1], pos[b][2]], fill=COL_LINE)
+                d.line([pos[a][1] * ss, pos[a][2] * ss, pos[b][1] * ss, pos[b][2] * ss],
+                       fill=COL_LINE, width=ss)
 
     # --- 恒星ドット ---
     visible = 0
@@ -234,23 +242,24 @@ def render(dt_local: datetime, tz_hours: float, lat: float, lon: float,
         if alt < 0:
             continue
         visible += 1
-        rr = mag_to_radius(mag)
-        d.ellipse([x - rr, y - rr, x + rr, y + rr], fill=mag_to_color(mag))
+        rr = mag_to_radius(mag) * ss
+        d.ellipse([x * ss - rr, y * ss - rr, x * ss + rr, y * ss + rr], fill=mag_to_color(mag))
 
     # --- 右 情報パネル ---
-    px = PANEL_X + 4
-    d.line([PANEL_X, 0, PANEL_X, H], fill=COL_HORIZON)
-    d.text((px, 6), "STELLAR MAP  PoC", fill=COL_ACCENT, font=font)
-    d.text((px, 24), dt_local.strftime("%Y-%m-%d %H:%M"), fill=COL_TEXT, font=font)
-    d.text((px, 38), f"TZ +{tz_hours:g}  (local)", fill=COL_LABEL, font=font_sm)
-    d.text((px, 54), f"lat {lat:+.2f}", fill=COL_TEXT, font=font)
-    d.text((px, 68), f"lon {lon:+.2f}", fill=COL_TEXT, font=font)
-    d.text((px, 84), f"LST {lst / 15:05.2f}h", fill=COL_LABEL, font=font_sm)
-    d.text((px, 104), f"stars up: {visible}/{len(STARS)}", fill=COL_OK, font=font)
-    d.text((px, 122), "N up / " + ("look-up" if mirror_ew else "E=right"),
+    px = (PANEL_X + 4) * ss
+    d.line([PANEL_X * ss, 0, PANEL_X * ss, H * ss], fill=COL_HORIZON, width=ss)
+    d.text((px, 6 * ss), "STELLAR MAP  PoC", fill=COL_ACCENT, font=font)
+    d.text((px, 24 * ss), dt_local.strftime("%Y-%m-%d %H:%M"), fill=COL_TEXT, font=font)
+    d.text((px, 38 * ss), f"TZ +{tz_hours:g}  (local)", fill=COL_LABEL, font=font_sm)
+    d.text((px, 54 * ss), f"lat {lat:+.2f}", fill=COL_TEXT, font=font)
+    d.text((px, 68 * ss), f"lon {lon:+.2f}", fill=COL_TEXT, font=font)
+    d.text((px, 84 * ss), f"LST {lst / 15:05.2f}h", fill=COL_LABEL, font=font_sm)
+    d.text((px, 104 * ss), f"stars up: {visible}/{len(STARS)}", fill=COL_OK, font=font)
+    d.text((px, 122 * ss), "N up / " + ("look-up" if mirror_ew else "E=right"),
            fill=COL_LABEL, font=font_sm)
-    d.text((px, 148), "zenith=center", fill=COL_LABEL, font=font_sm)
-    return img
+    d.text((px, 148 * ss), "zenith=center", fill=COL_LABEL, font=font_sm)
+
+    return img.resize((W, H), Image.LANCZOS)
 
 
 def main() -> None:
