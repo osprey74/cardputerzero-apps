@@ -181,7 +181,7 @@ static uint8_t g_enc_uid[ENC_MAX + 1][4] = {{0}};
 static bool    g_enc_uid_ok[ENC_MAX + 1] = {false};
 static int8_t  g_enc_ident[ENC_MAX + 1]  = {-1};  // ENC_IDENTITY index / -1=unknown
 
-#define FW_VERSION "0.5.0"   // + セミナータイマー (TIMER) ページ / TIMER 中は Wi-Fi/I2C 停止
+#define FW_VERSION "0.6.0"   // + ページメニュー (左上 ≡ / エンコーダ回転+押下で選択)
 
 // ---- IMU 水準器・下げ振り (内蔵 BMI270) ------------------------------------
 // 単体アプリ firmware/cores3-level と同じ角度ロジック。協働中も CoreS3 画面の
@@ -220,9 +220,22 @@ static uint32_t g_tm_paused_acc = 0;  // 累積の一時停止時間 [ms]
 
 // ---- 画面ページ (左右スワイプで切替) ---------------------------------------
 enum Page { PAGE_METER = 0, PAGE_INFO, PAGE_SYS, PAGE_LEVEL, PAGE_PLUMB, PAGE_TIMER, PAGE_COUNT };
+static const char *PAGE_NAME[PAGE_COUNT] = {"METER", "INFO", "SYS", "LEVEL", "PLUMB", "TIMER"};
 static int  g_page = PAGE_METER;
 static bool g_redraw = true;                 // ページ切替直後など即時再描画フラグ
 static constexpr int SWIPE_THRESHOLD = 50;   // スワイプと判定する水平移動量 [px]
+
+// ---- ページメニュー (左上 ≡ ボタン / エンコーダで開閉・選択) ----------------
+// ページ数が増え左右スワイプの逐次送りが面倒なため、ラベル付きの縦リストから
+// 直接ジャンプできるオーバーレイを用意。開く=左上 ≡ ボタンのタップ、または
+// Chain Encoder(id=1) の押下。選ぶ=行タップ / エンコーダ回転で選び押下で確定。
+static bool g_menu_open   = false;
+static int  g_menu_cursor = 0;               // メニュー内の選択行 (ページ index)
+// 左上 ≡ ボタンの当たり判定 (全ページ共通・タッチ座標で判定)。
+static constexpr int MENU_BTN_W = 24, MENU_BTN_H = 20;
+// ナビ用エンコーダ (id=1) の押下エッジ検出用。
+static constexpr uint16_t NAV_ENC_ID = 1;
+static uint8_t g_nav_btn_prev = 0;
 // セクション末尾テキストの下端から次セクション見出しまでの余白 [px]。
 // METER (INA→NCIR / NCIR→ENC) が 12px なので全ページこれに揃える。
 // 各セクション最終行の増分 = テキスト高(8×サイズ) + SEC_GAP とする。
@@ -997,8 +1010,53 @@ static void drawTimer() {
   drawTimerBattery();
 }
 
-// 現在ページを描画 → ページドット → 一括転送。
+// 左上の ≡ メニューボタン (全ページ共通・最前面)。小さな暗箱＋シアンの 3 本線。
+static void drawMenuButton() {
+  g_canvas.fillRect(0, 0, MENU_BTN_W, MENU_BTN_H, COL_BG);
+  g_canvas.drawRect(0, 0, MENU_BTN_W, MENU_BTN_H, COL_DIM);
+  for (int i = 0; i < 3; i++)
+    g_canvas.drawFastHLine(6, 5 + i * 5, MENU_BTN_W - 12, COL_ACCENT);
+}
+
+// ページメニュー (縦リストのオーバーレイ)。現在ページに •、カーソル行を反転表示。
+static void drawMenu() {
+  const int W = g_canvas.width();
+  const int H = g_canvas.height();
+  g_canvas.fillScreen(COL_BG);
+  g_canvas.setTextDatum(textdatum_t::top_center);
+  g_canvas.setTextColor(COL_ACCENT, COL_BG);
+  g_canvas.setTextSize(2);
+  g_canvas.drawString("PAGES", W / 2, 8);
+
+  const int top = 34, rowH = (H - top - 26) / PAGE_COUNT;
+  for (int i = 0; i < PAGE_COUNT; i++) {
+    int y = top + i * rowH;
+    bool cur = (i == g_menu_cursor);
+    if (cur) g_canvas.fillRoundRect(8, y, W - 16, rowH - 4, 4, COL_ACCENT);
+    g_canvas.setTextDatum(textdatum_t::middle_left);
+    g_canvas.setTextColor(cur ? COL_BG : COL_VALUE, cur ? COL_ACCENT : COL_BG);
+    g_canvas.setTextSize(2);
+    g_canvas.drawString(PAGE_NAME[i], 20, y + (rowH - 4) / 2);
+    if (i == g_page) {   // 現在表示中のページに印
+      g_canvas.setTextColor(cur ? COL_BG : COL_OK, cur ? COL_ACCENT : COL_BG);
+      g_canvas.setTextDatum(textdatum_t::middle_right);
+      g_canvas.drawString("<", W - 20, y + (rowH - 4) / 2);
+    }
+  }
+  g_canvas.setTextDatum(textdatum_t::bottom_center);
+  g_canvas.setTextColor(COL_LABEL, COL_BG);
+  g_canvas.setTextSize(1);
+  g_canvas.drawString(g_enc_num > 0 ? "tap row / knob: turn+press" : "tap a page  (menu to close)",
+                      W / 2, H - 6);
+}
+
+// 現在ページを描画 → (メニュー時はオーバーレイ) → 一括転送。
 static void drawCurrentPage() {
+  if (g_menu_open) {
+    drawMenu();
+    g_canvas.pushSprite(0, 0);
+    return;
+  }
   switch (g_page) {
     case PAGE_INFO:  drawInfo();  break;
     case PAGE_SYS:   drawSys();   break;
@@ -1009,6 +1067,7 @@ static void drawCurrentPage() {
     default:         drawMeter(); break;
   }
   drawPageDots();
+  drawMenuButton();
   g_canvas.pushSprite(0, 0);
 }
 
@@ -1022,6 +1081,30 @@ static void handleTouch() {
   if (d.wasFlicked() || d.wasReleased()) {
     int dx = d.distanceX();
     int dy = d.distanceY();
+    bool tap = (abs(dx) < 16 && abs(dy) < 16);
+
+    // --- メニュー表示中: 行タップで選択ジャンプ / 左上 ≡ で閉じる ---
+    if (g_menu_open) {
+      if (tap) {
+        if (d.x < MENU_BTN_W && d.y < MENU_BTN_H) {
+          g_menu_open = false;                       // ≡ 再タップで閉じる
+        } else {
+          const int H = g_canvas.height();
+          const int top = 34, rowH = (H - top - 26) / PAGE_COUNT;
+          int i = (d.y - top) / rowH;
+          if (d.y >= top && i >= 0 && i < PAGE_COUNT) { g_page = i; g_menu_open = false; }
+        }
+        g_redraw = true;
+      }
+      return;   // メニュー中は他のジェスチャを無視
+    }
+
+    // --- メニュー閉時: 左上 ≡ ボタンのタップでメニューを開く ---
+    if (tap && d.x < MENU_BTN_W && d.y < MENU_BTN_H) {
+      g_menu_open = true; g_menu_cursor = g_page; g_redraw = true;
+      return;
+    }
+
     if (dx <= -SWIPE_THRESHOLD && abs(dx) > abs(dy)) {        // 左へスワイプ → 次ページ
       g_page = (g_page + 1) % PAGE_COUNT;
       g_redraw = true;
@@ -1437,6 +1520,21 @@ void loop() {
     chain.getEncoderIncValue(id, &inc);     // 前回読取からの増分
     chain.getEncoderButtonStatus(id, &btn); // ノブ押下状態 (生値)
     g_enc_count[id] += inc;
+
+    // ナビ用エンコーダ(id=1): 押下エッジでメニュー開閉/確定、回転でカーソル移動。
+    // ※ TIMER ページは radio_off で本ブロックに来ないためタッチ ≡ で操作する。
+    if (id == NAV_ENC_ID) {
+      if (btn && !g_nav_btn_prev) {
+        if (!g_menu_open) { g_menu_open = true; g_menu_cursor = g_page; }
+        else { g_page = g_menu_cursor; g_menu_open = false; }
+        g_redraw = true;
+      }
+      g_nav_btn_prev = btn;
+      if (g_menu_open && inc != 0) {
+        g_menu_cursor = (g_menu_cursor + (inc > 0 ? 1 : -1) + PAGE_COUNT) % PAGE_COUNT;
+        g_redraw = true;
+      }
+    }
     // 個体識別: role(R/B/…) と uid を併記 (受信側が配線順によらず個体を束ねられる)。
     char role = (g_enc_ident[id] >= 0) ? ENC_IDENTITY[g_enc_ident[id]].role : '?';
     off += snprintf(encbuf + off, sizeof(encbuf) - off,
