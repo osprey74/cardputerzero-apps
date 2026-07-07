@@ -146,6 +146,8 @@ static constexpr uint16_t COL_WARN   = 0xFD20;  // オレンジ (低残量)
 static constexpr uint16_t COL_DIM    = 0x4208;  // 罫線
 static constexpr uint16_t COL_E1     = 0xF800;  // 赤 (Encoder 1)
 static constexpr uint16_t COL_E2     = 0x349F;  // 青 (Encoder 2)
+static constexpr uint16_t COL_RED    = 0xF800;  // 赤 (タイマー僅少・超過)
+static constexpr uint16_t COL_TRACK  = 0x2104;  // ドーナツの経過部 (暗い溝)
 
 // ---- Chain Encoder 個体識別 (UID ベース・配線順非依存) ----------------------
 // 各 Chain ノードは STM32 固有 UID を持つ。getUID(id, UID_TYPE_4_BYTE, ...) で
@@ -176,7 +178,7 @@ static uint8_t g_enc_uid[ENC_MAX + 1][4] = {{0}};
 static bool    g_enc_uid_ok[ENC_MAX + 1] = {false};
 static int8_t  g_enc_ident[ENC_MAX + 1]  = {-1};  // ENC_IDENTITY index / -1=unknown
 
-#define FW_VERSION "0.4.0"   // + IMU 水準器 (LEVEL) / 下げ振り (PLUMB) ページ
+#define FW_VERSION "0.5.0"   // + セミナータイマー (TIMER) ページ / TIMER 中は Wi-Fi/I2C 停止
 
 // ---- IMU 水準器・下げ振り (内蔵 BMI270) ------------------------------------
 // 単体アプリ firmware/cores3-level と同じ角度ロジック。協働中も CoreS3 画面の
@@ -197,8 +199,24 @@ static float g_edgeA = 0, g_edgeB = 0;             // EDGE(縦置き) 左右/法
 static bool  g_relative = false;                   // タップでゼロ点トグル (LEVEL/PLUMB)
 static float g_offX = 0, g_offY = 0, g_offA = 0, g_offB = 0;
 
+// ---- セミナー・カウントダウンタイマー (TIMER ページ) -----------------------
+// プリセット時間を選び、ドーナツ円グラフが 12 時から時計回りに減少。中央に
+// 残り時間(大)+経過時間(小)を併記。0 到達後は超過を +MM:SS でカウントアップ。
+// TIMER ページ表示中は省電力のため Wi-Fi/I2C を停止し、他ページへ戻すと再接続する
+// (updateRadioForPage / netTask の g_radio_off を参照)。
+static const int PRESET_MIN[]      = {5, 15, 30, 45, 60, 90, 120};  // プリセット [分]
+static constexpr int PRESET_COUNT   = sizeof(PRESET_MIN) / sizeof(PRESET_MIN[0]);
+static constexpr int PRESET_DEFAULT = 5;   // 既定インデックス (= 90 分)
+enum TimerState { TM_SETUP = 0, TM_RUNNING, TM_PAUSED, TM_DONE };
+static int      g_tm_state   = TM_SETUP;
+static int      g_tm_preset  = PRESET_DEFAULT;  // 選択中プリセットのインデックス
+static uint32_t g_tm_total_ms  = 0;   // 設定総時間 [ms]
+static uint32_t g_tm_start_ms  = 0;   // 計測開始時刻 (millis)
+static uint32_t g_tm_paused_at = 0;   // 一時停止に入った時刻 (millis)
+static uint32_t g_tm_paused_acc = 0;  // 累積の一時停止時間 [ms]
+
 // ---- 画面ページ (左右スワイプで切替) ---------------------------------------
-enum Page { PAGE_METER = 0, PAGE_INFO, PAGE_SYS, PAGE_LEVEL, PAGE_PLUMB, PAGE_COUNT };
+enum Page { PAGE_METER = 0, PAGE_INFO, PAGE_SYS, PAGE_LEVEL, PAGE_PLUMB, PAGE_TIMER, PAGE_COUNT };
 static int  g_page = PAGE_METER;
 static bool g_redraw = true;                 // ページ切替直後など即時再描画フラグ
 static constexpr int SWIPE_THRESHOLD = 50;   // スワイプと判定する水平移動量 [px]
@@ -215,6 +233,9 @@ static bool     g_wifi_configured = false;   // setup で登録 AP 数 > 0 な�
 enum WifiState { WIFI_OFF_STATE = 0, WIFI_CONNECTING, WIFI_CONNECTED_NO_NTP, WIFI_NTP_OK };
 static int      g_wifi_state = WIFI_OFF_STATE;
 static bool     g_ntp_started = false;
+// TIMER ページ表示中は true。省電力のため Wi-Fi(core0/netTask)と I2C(core1/loop)を停止する。
+// loop の updateRadioForPage が I2C を、netTask が Wi-Fi を、それぞれこのフラグを見て切替える。
+static volatile bool g_radio_off = false;
 
 // secrets.h の AP 群を WiFiMulti に登録し、登録数を返す。
 // 新形式 WIFI_APS (X-macro) を優先、無ければ旧形式 WIFI_SSID を 1 件登録。
@@ -340,6 +361,41 @@ static int8_t resolveIdentity(const uint8_t uid[4]) {
   }
   return -1;
 }
+
+// ---------------------------------------------------------------------------
+// セミナータイマー ロジック (TIMER ページ)
+// ---------------------------------------------------------------------------
+
+// 経過時間 [ms] (一時停止分を除外)。RUNNING/PAUSED/DONE で有効。
+static uint32_t tmElapsedMs() {
+  uint32_t base = g_tm_start_ms + g_tm_paused_acc;
+  uint32_t now  = (g_tm_state == TM_PAUSED) ? g_tm_paused_at : millis();
+  return (now >= base) ? (now - base) : 0;
+}
+
+// 残り時間 [ms] (符号付き: 負なら超過)。
+static long tmRemainingMs() {
+  return (long)g_tm_total_ms - (long)tmElapsedMs();
+}
+
+// 秒数を "MM:SS" または 1 時間以上なら "H:MM:SS" に整形する。
+static void tmFmt(long sec, char *buf, size_t n) {
+  if (sec < 0) sec = 0;
+  long h = sec / 3600, m = (sec % 3600) / 60, s = sec % 60;
+  if (h > 0) snprintf(buf, n, "%ld:%02ld:%02ld", h, m, s);
+  else       snprintf(buf, n, "%02ld:%02ld", m, s);
+}
+
+static void tmStart() {
+  g_tm_total_ms   = (uint32_t)PRESET_MIN[g_tm_preset] * 60u * 1000u;
+  g_tm_start_ms   = millis();
+  g_tm_paused_acc = 0;
+  g_tm_state      = TM_RUNNING;
+}
+static void tmPause()  { g_tm_paused_at = millis(); g_tm_state = TM_PAUSED; }
+static void tmResume() { g_tm_paused_acc += (millis() - g_tm_paused_at); g_tm_state = TM_RUNNING; }
+static void tmReset()  { g_tm_state = TM_SETUP; }
+static void tmSavePreset() { g_prefs.putInt("tm_preset", g_tm_preset); }
 
 // ---------------------------------------------------------------------------
 // 描画ヘルパ
@@ -800,6 +856,144 @@ static void drawPlumb() {
   g_canvas.print(buf);
 }
 
+// 残り時間の右上に小さくバッテリー残量を描く (TIMER ページ用)。
+static void drawTimerBattery() {
+  int pct = M5.Power.getBatteryLevel();
+  bool chg = M5.Power.isCharging() == 1;
+  char buf[8];
+  if (pct >= 0) snprintf(buf, sizeof(buf), "%d%%", pct);
+  else          snprintf(buf, sizeof(buf), "--%%");
+  uint16_t col = chg ? COL_OK : (pct >= 0 && pct < 20 ? COL_WARN : COL_LABEL);
+  g_canvas.setTextDatum(textdatum_t::top_right);
+  g_canvas.setTextColor(col, COL_BG);
+  g_canvas.setTextSize(1);
+  g_canvas.drawString(buf, g_canvas.width() - 4, 4);
+  g_canvas.setTextDatum(textdatum_t::top_left);  // 既定に戻す
+}
+
+// TIMER ページ: プリセット選択 (SETUP) / カウントダウン (RUNNING/PAUSED/DONE)。
+// 縦向き 240×320。ドーナツを中央に置き、内側に残り/経過時刻を重ねる。
+static void drawTimer() {
+  const int W = g_canvas.width();    // 240
+  const int H = g_canvas.height();   // 320
+  g_canvas.fillScreen(COL_BG);
+
+  const int cx = W / 2;
+  bool blink = ((millis() / 500) & 1) != 0;   // 0.5s 周期の点滅位相
+  char buf[16], line[24];
+
+  // ---- SETUP: プリセット選択 ----
+  if (g_tm_state == TM_SETUP) {
+    g_canvas.setTextDatum(textdatum_t::top_center);
+    g_canvas.setTextColor(COL_ACCENT, COL_BG);
+    g_canvas.setTextSize(2);
+    g_canvas.drawString("SET TIME", cx, 20);
+
+    snprintf(buf, sizeof(buf), "%d", PRESET_MIN[g_tm_preset]);
+    g_canvas.setTextDatum(textdatum_t::middle_center);
+    g_canvas.setTextColor(COL_VALUE, COL_BG);
+    g_canvas.setTextSize(8);
+    g_canvas.drawString(buf, cx, H / 2 - 10);
+    g_canvas.setTextColor(COL_LABEL, COL_BG);
+    g_canvas.setTextSize(2);
+    g_canvas.drawString("MIN", cx, H / 2 + 48);
+
+    // 上下送りインジケータ。
+    g_canvas.setTextColor(g_tm_preset < PRESET_COUNT - 1 ? COL_ACCENT : COL_DIM, COL_BG);
+    g_canvas.setTextSize(3);
+    g_canvas.drawString("^", cx, 70);
+    g_canvas.setTextColor(g_tm_preset > 0 ? COL_ACCENT : COL_DIM, COL_BG);
+    g_canvas.drawString("v", cx, H - 78);
+
+    // プリセット位置ドット。
+    const int gap = 16;
+    int x0 = (W - PRESET_COUNT * gap) / 2 + gap / 2;
+    for (int i = 0; i < PRESET_COUNT; i++) {
+      int px = x0 + i * gap;
+      if (i == g_tm_preset) g_canvas.fillCircle(px, H - 44, 3, COL_ACCENT);
+      else                  g_canvas.drawCircle(px, H - 44, 3, COL_DIM);
+    }
+
+    g_canvas.setTextDatum(textdatum_t::bottom_center);
+    g_canvas.setTextColor(COL_LABEL, COL_BG);
+    g_canvas.setTextSize(1);
+    g_canvas.drawString("swipe up/down  /  tap: start", cx, H - 24);
+    drawTimerBattery();
+    return;
+  }
+
+  // ---- RUNNING / PAUSED / DONE: ドーナツ + 時刻 ----
+  const int cy   = H / 2 - 6;
+  const int rOut = 108;
+  const int rIn  = 82;
+
+  long remMs = tmRemainingMs();
+  bool over  = (remMs < 0);
+  float frac = (g_tm_total_ms > 0) ? (float)remMs / (float)g_tm_total_ms : 0.0f;
+  if (frac < 0) frac = 0; if (frac > 1) frac = 1;
+
+  // 残り割合 → 色。
+  uint16_t arcCol = (frac <= 0.10f) ? COL_RED : (frac <= 0.25f) ? COL_WARN : COL_OK;
+  bool urgent = (g_tm_state == TM_RUNNING && remMs > 0 && remMs <= 10000);  // 残り10秒
+  bool hideArc = over || (urgent && blink);
+
+  // 経過部の溝 (全周) → 残り弧 (12時=270°から時計回り)。
+  g_canvas.fillArc(cx, cy, rIn, rOut, 0, 360, COL_TRACK);
+  if (frac > 0.0f && !hideArc) {
+    float sweep = frac * 360.0f; if (sweep > 359.9f) sweep = 359.9f;
+    g_canvas.fillArc(cx, cy, rIn, rOut, 270.0f, 270.0f + sweep, arcCol);
+  }
+
+  // 上部ステータス行。
+  g_canvas.setTextDatum(textdatum_t::top_center);
+  g_canvas.setTextSize(2);
+  if (g_tm_state == TM_DONE) {
+    g_canvas.setTextColor(blink ? COL_RED : COL_LABEL, COL_BG);
+    g_canvas.drawString("TIME UP", cx, 12);
+  } else if (g_tm_state == TM_PAUSED) {
+    snprintf(line, sizeof(line), "%d MIN  PAUSED", PRESET_MIN[g_tm_preset]);
+    g_canvas.setTextColor(blink ? COL_WARN : COL_LABEL, COL_BG);
+    g_canvas.drawString(line, cx, 12);
+  } else {
+    snprintf(line, sizeof(line), "%d MIN", PRESET_MIN[g_tm_preset]);
+    g_canvas.setTextColor(COL_ACCENT, COL_BG);
+    g_canvas.drawString(line, cx, 12);
+  }
+
+  // 中央: 残り時間 (超過時は +MM:SS を赤)。桁数に応じてサイズを落とす (内径に収める)。
+  long remSec = (over ? -remMs : remMs) / 1000;
+  tmFmt(remSec, buf, sizeof(buf));
+  g_canvas.setTextDatum(textdatum_t::middle_center);
+  if (over) {
+    snprintf(line, sizeof(line), "+%s", buf);
+    g_canvas.setTextColor(COL_RED, COL_BG);
+    g_canvas.setTextSize(strlen(line) > 6 ? 3 : 4);
+    g_canvas.drawString(line, cx, cy - 8);
+  } else {
+    g_canvas.setTextColor(COL_VALUE, COL_BG);
+    g_canvas.setTextSize(strlen(buf) > 5 ? 3 : 4);  // H:MM:SS は size3
+    g_canvas.drawString(buf, cx, cy - 8);
+  }
+
+  // 中央下: 経過時間 (小)。
+  long elSec = tmElapsedMs() / 1000;
+  tmFmt(elSec, buf, sizeof(buf));
+  snprintf(line, sizeof(line), "elapsed %s", buf);
+  g_canvas.setTextColor(COL_LABEL, COL_BG);
+  g_canvas.setTextSize(1);
+  g_canvas.drawString(line, cx, cy + 26);
+
+  // 操作ヒント。
+  g_canvas.setTextDatum(textdatum_t::bottom_center);
+  g_canvas.setTextColor(COL_LABEL, COL_BG);
+  g_canvas.setTextSize(1);
+  const char *hint = (g_tm_state == TM_DONE)   ? "tap: back to setup"
+                   : (g_tm_state == TM_PAUSED) ? "tap: resume / swipe: reset"
+                                               : "tap: pause / swipe: reset";
+  g_canvas.drawString(hint, cx, H - 24);
+  drawTimerBattery();
+}
+
 // 現在ページを描画 → ページドット → 一括転送。
 static void drawCurrentPage() {
   switch (g_page) {
@@ -807,6 +1001,7 @@ static void drawCurrentPage() {
     case PAGE_SYS:   drawSys();   break;
     case PAGE_LEVEL: drawLevel(); break;
     case PAGE_PLUMB: drawPlumb(); break;
+    case PAGE_TIMER: drawTimer(); break;
     case PAGE_METER:
     default:         drawMeter(); break;
   }
@@ -830,6 +1025,30 @@ static void handleTouch() {
     } else if (dx >= SWIPE_THRESHOLD && abs(dx) > abs(dy)) {  // 右へスワイプ → 前ページ
       g_page = (g_page + PAGE_COUNT - 1) % PAGE_COUNT;
       g_redraw = true;
+    } else if (g_page == PAGE_TIMER) {
+      // TIMER ページ: 左右はページ送り(上で処理済)、上下スワイプ=プリセット/リセット、タップ=開始/停止。
+      bool tap    = (abs(dx) < 16 && abs(dy) < 16);
+      bool vSwipe = (abs(dy) >= SWIPE_THRESHOLD && abs(dy) > abs(dx));
+      switch (g_tm_state) {
+        case TM_SETUP:
+          if (vSwipe) {
+            if (dy < 0 && g_tm_preset < PRESET_COUNT - 1) g_tm_preset++;  // 上=長く
+            else if (dy > 0 && g_tm_preset > 0)           g_tm_preset--;  // 下=短く
+            tmSavePreset(); g_redraw = true;
+          } else if (tap) { tmStart(); g_redraw = true; }
+          break;
+        case TM_RUNNING:
+          if (vSwipe)     { tmReset();  g_redraw = true; }
+          else if (tap)   { tmPause();  g_redraw = true; }
+          break;
+        case TM_PAUSED:
+          if (vSwipe)     { tmReset();  g_redraw = true; }
+          else if (tap)   { tmResume(); g_redraw = true; }
+          break;
+        case TM_DONE:
+          if (tap || vSwipe) { tmReset(); g_redraw = true; }
+          break;
+      }
     } else if (abs(dx) < 16 && abs(dy) < 16 && g_page == PAGE_LEVEL) {
       // タップ: 水準器ページのみゼロ点をトグル (相対測定)。下げ振りは絶対鉛直のため対象外。
       if (g_relative) g_relative = false;
@@ -988,7 +1207,27 @@ static void logWifiTransition(int from, int to) {
 // メインループ (core 1: 表示・センサ・JSON) をブロックしない。wifiMulti.run() や
 // HTTPS は数秒ブロックするが core 0 内に閉じるためダッシュボードは滑らかなまま。
 static void netTask(void *) {
+  bool radio_was_off = false;   // 直近に Wi-Fi を落とした状態か (エッジ検出)
   for (;;) {
+    // TIMER ページ表示中は Wi-Fi を落として省電力化。ページを戻すと再接続する。
+    if (g_radio_off) {
+      if (!radio_was_off) {
+        WiFi.disconnect(true, false);   // 切断 + STA 停止
+        WiFi.mode(WIFI_OFF);
+        g_ntp_started = false;
+        g_wifi_state  = WIFI_OFF_STATE;
+        radio_was_off = true;
+        Serial.println("{\"log\":\"radio\",\"iface\":\"wifi\",\"state\":\"off\"}");
+      }
+      vTaskDelay(pdMS_TO_TICKS(300));
+      continue;
+    }
+    if (radio_was_off) {                 // TIMER ページを離れた → STA 再開
+      radio_was_off = false;
+      if (g_wifi_configured) WiFi.mode(WIFI_STA);
+      Serial.println("{\"log\":\"radio\",\"iface\":\"wifi\",\"state\":\"on\"}");
+    }
+
     if (!g_wifi_configured) { vTaskDelay(pdMS_TO_TICKS(1000)); continue; }
 
     const int prev_state = g_wifi_state;
@@ -1052,6 +1291,10 @@ void setup() {
   g_ina_unit = g_prefs.getInt("ina_unit", INA226_UNIT_DEFAULT);
   if (g_ina_unit < 0 || g_ina_unit >= INA226_UNIT_COUNT) g_ina_unit = INA226_UNIT_DEFAULT;
 
+  // タイマーの最終プリセットを NVS から復元 (範囲外なら既定=90 分)。
+  g_tm_preset = g_prefs.getInt("tm_preset", PRESET_DEFAULT);
+  if (g_tm_preset < 0 || g_tm_preset >= PRESET_COUNT) g_tm_preset = PRESET_DEFAULT;
+
   delay(300);
   Wire.begin(PORT_A_SDA, PORT_A_SCL, 100000);  // 実機確定: SDA=G2 / SCL=G1
   ina226Init();  // Config + Calibration 書込み (電流/電力読取の前提)
@@ -1067,6 +1310,23 @@ void setup() {
   xTaskCreatePinnedToCore(netTask, "net", 20480, nullptr, 1, nullptr, 0);
 }
 
+// TIMER ページの出入りに合わせて I2C を停止/再開する (Wi-Fi は netTask が g_radio_off で切替)。
+// TIMER 表示中は INA226/MLX などの I2C を止め、他ページへ戻すとバスを再初期化する。
+static void updateRadioForPage() {
+  bool want_off = (g_page == PAGE_TIMER);
+  if (want_off == g_radio_off) return;   // 状態変化なし
+  g_radio_off = want_off;                // netTask (Wi-Fi 側) もこのフラグを見る
+  if (want_off) {
+    Wire.end();                          // I2C バス解放 (Port A センサ停止)
+    Serial.println("{\"log\":\"radio\",\"iface\":\"i2c\",\"state\":\"off\"}");
+  } else {
+    Wire.begin(PORT_A_SDA, PORT_A_SCL, 100000);
+    ina226Init();                        // Config + 現ユニットの CAL を再書込み
+    g_last_scan_ms = 0;                  // 復帰直後に配線再列挙を促す
+    Serial.println("{\"log\":\"radio\",\"iface\":\"i2c\",\"state\":\"on\"}");
+  }
+}
+
 void loop() {
   M5.update();
 
@@ -1076,14 +1336,25 @@ void loop() {
   // Wi-Fi 接続・NTP・天気取得は netTask (core 0) が担当しメインループを止めない。
   handleTouch();
 
+  // TIMER ページ表示中は Wi-Fi/I2C を停止、他ページへ戻すと再接続 (省電力)。
+  updateRadioForPage();
+
+  // TIMER: RUNNING で残り 0 到達 → DONE (超過カウントへ)。
+  if (g_page == PAGE_TIMER && g_tm_state == TM_RUNNING && tmRemainingMs() <= 0) {
+    g_tm_state = TM_DONE;
+  }
+
   // IMU 角度を毎ループ更新。水準器/下げ振りページは毎ループ描画で滑らかに動かす。
   updateAngles();
   if (g_redraw) {           // ページ切替・天気更新時は即時再描画してキビキビ動かす。
     g_redraw = false;
     drawCurrentPage();
-  } else if (g_page == PAGE_LEVEL || g_page == PAGE_PLUMB) {
-    drawCurrentPage();
+  } else if (g_page == PAGE_LEVEL || g_page == PAGE_PLUMB || g_page == PAGE_TIMER) {
+    drawCurrentPage();      // TIMER は秒送り/点滅のため毎ループ描画
   }
+
+  // TIMER ページ中は I2C スキャン・センサ読取・JSON 送信を停止 (省電力)。表示は上で完了済み。
+  if (g_radio_off) return;
 
   // 配線確認用: 2s 毎に I2C バスを再列挙 + INA226 ID を読取 + Chain ノード列挙。
   if (now - g_last_scan_ms >= SCAN_INTERVAL_MS) {
