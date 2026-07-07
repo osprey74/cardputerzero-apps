@@ -3853,8 +3853,8 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 16・調査]** JPL DE ephemeris（NAIF）の再配布利用条件を一次情報で最終確認（実質パブリックドメインの想定を裏取り）
 - [x] **[App 16・先行]** 投影 PoC 完了（2026-07-07・`apps/stellar-map/poc/star_poc.py`）。恒星と星座線は Skyfield 不要（古典的な恒星時→地平座標変換で自己完結）と判断し、Pillow のみで 320×170 に投影→PNG 出力。札幌 2026-07-07 21:30 で北斗七星/夏の大三角/はくちょう座を天文的に妥当に描画、地平線下（オリオン等）を除外、23/35 星を確認。惑星・月は次段で Skyfield 追加
 - [x] **[App 16・方位]** CoreS3 の地磁気 (BMM150) を CardputerZero へ流用する経路を実装・実機確定（2026-07-07・COM5）。`M5.Imu.getMag()` で取得可（i2cdetect には出ないが aux 配下）。`firmware/cores3-frontend` が `"mag":{ok,x,y,z,heading}` を USB CDC JSON に追加、`shared/cores3_bridge` に `Mag` を追加（テスト 11/11 PASS）。※heading は要ハード/ソフトアイアン・傾き補正
-- [ ] **[App 16]** データ前処理ツールの実装（HYG/OpenNGC/星座線 → 軽量中間形式へ変換・`/mnt/sdcard/stellar_map/data/` 配置）
-- [ ] **[App 16]** `shared/star_catalog/`（Python）: カタログ読込＋赤道座標(J2000)→地平座標(Alt/Az)変換の共通コア。PoC の変換関数を昇格。App 01 Sky Plot の極座標投影を流用
+- [x] **[App 16]** HYG 実データ取込＋前処理ツール完了（2026-07-07・`apps/stellar-map/tools/build_star_catalog.py`）。HYG v4.1 CSV(約34MB) を自動DL→裸眼可視(等級≤6.5)を抽出し `stars.bin`(20B固定長・8,920星・約174KB)＋`stars_meta.json`＋`named_stars.json`(357件) を生成。生データ・生成物は非コミット(`data/.gitignore`)。`render_catalog.py` で実データ描画を可視検証（北斗七星/夏の大三角/夏の天の川が天文的に妥当）。**知見**: 等級6.5全星は320×170に密すぎ→LCD表示は mag≤4.0〜4.5 が適切。残: OpenNGC/星座線の取込
+- [x] **[App 16]** `shared/star_catalog/`（Python）完了: `transform.py`(ユリウス日→恒星時→地平座標→円形全天図ピクセル・PoC から昇格)＋`catalog.py`(`stars.bin`/メタ/固有名ローダ・`by_name`/`by_hip`)。App 01 Sky Plot の極座標投影を流用
 - [ ] **[App 16]** czdev/LVGL 描画への接続（恒星/線のバッファ一括描画→転送。逐次描画の性能を実機計測）
 - [ ] **[App 16]** RX8130CE RTC（`/dev/rtc`）＋ NTP（`systemd-timesyncd`）＋ AT6668 GNSS UTC の時刻取得系を確立（`shared/gnss_at6668/` を App 01 と共有）
 - [ ] **[App 16]** HDMI 接続検出（`/sys/class/drm/*/status`）→ LCD ⇔ 1080p フルスクリーン・プラネタリウムの自動レイアウト切替

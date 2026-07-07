@@ -1,0 +1,4 @@
+raw/
+*.bin
+stars_meta.json
+named_stars.json

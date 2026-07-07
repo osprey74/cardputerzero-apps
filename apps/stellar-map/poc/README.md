@@ -54,7 +54,8 @@ CC BY-SA データは再配布時にライセンス維持＋クレジット必�
 
 ## 次段 TODO
 
-- [ ] HYG / OpenNGC の実データ取り込み（前処理ツールを自作）
+- [x] HYG 実データ取り込み＋前処理ツール（[`../tools/`](../tools/) `build_star_catalog.py`／`render_catalog.py`／共通コア `shared/star_catalog/`）
+- [x] 方位アライン：CoreS3 の地磁気センサ値を USB CDC 経由で取り込み（`shared/cores3_bridge/` の `Mag`・実機確定）
+- [ ] OpenNGC / Stellarium 星座線の実データ取り込み
 - [ ] Skyfield で惑星・月・月相を追加
-- [ ] czdev/LVGL 描画への接続（バッファ一括転送）
-- [ ] 方位アライン：CoreS3 の地磁気センサ値を USB CDC 経由で取り込み（`shared/cores3_bridge/`）
+- [ ] czdev/LVGL 描画への接続（バッファ一括転送・LCD 表示は mag≤4.0〜4.5 が適切）
