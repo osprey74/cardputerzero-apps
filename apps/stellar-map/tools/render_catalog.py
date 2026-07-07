@@ -24,13 +24,15 @@ if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
 from shared.star_catalog import (altaz_to_plot_xy, julian_date, lst_deg,  # noqa: E402
-                                 load_catalog, mag_to_radius, radec_to_altaz)
+                                 load_catalog, mag_to_color, mag_to_radius,
+                                 radec_to_altaz)
 
 # osprey74 テーマ
 COL_BG = (0, 0, 0)
-COL_STAR = (255, 255, 255)
 COL_HORIZON = (60, 66, 70)
-COL_ACCENT = (0, 220, 255)
+COL_ACCENT = (0, 220, 255)     # 星名ラベル (シアン)
+COL_DIR = (255, 165, 0)        # 方位 N/E/S/W (オレンジ)
+COL_TEXT = (235, 235, 235)     # 情報パネル本文
 COL_LABEL = (150, 150, 150)
 COL_OK = (0, 200, 80)
 
@@ -65,7 +67,7 @@ def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
     for lbl, (dx, dy) in {"N": (0, -1), "S": (0, 1),
                           "E": (1, 0) if not mirror_ew else (-1, 0),
                           "W": (-1, 0) if not mirror_ew else (1, 0)}.items():
-        d.text((CX + dx * (R + 3) - 3, CY + dy * (R + 3) - 5), lbl, fill=COL_ACCENT, font=font_sm)
+        d.text((CX + dx * (R + 3) - 3, CY + dy * (R + 3) - 5), lbl, fill=COL_DIR, font=font_sm)
 
     visible = 0
     for s in cat.stars:
@@ -77,7 +79,7 @@ def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
         visible += 1
         x, y = altaz_to_plot_xy(alt, az, CX, CY, R, mirror_ew)
         rr = mag_to_radius(s.mag)
-        d.ellipse([x - rr, y - rr, x + rr, y + rr], fill=COL_STAR)
+        d.ellipse([x - rr, y - rr, x + rr, y + rr], fill=mag_to_color(s.mag))
 
     # 代表星のラベル (地平線上のもののみ)。
     for name in LABEL_STARS:
@@ -94,9 +96,9 @@ def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
     px = PANEL_X + 4
     d.line([PANEL_X, 0, PANEL_X, H], fill=COL_HORIZON)
     d.text((px, 6), "HYG CATALOG", fill=COL_ACCENT, font=font)
-    d.text((px, 24), dt_local.strftime("%Y-%m-%d %H:%M"), fill=COL_STAR, font=font)
-    d.text((px, 40), f"lat {lat:+.2f}", fill=COL_STAR, font=font)
-    d.text((px, 54), f"lon {lon:+.2f}", fill=COL_STAR, font=font)
+    d.text((px, 24), dt_local.strftime("%Y-%m-%d %H:%M"), fill=COL_TEXT, font=font)
+    d.text((px, 40), f"lat {lat:+.2f}", fill=COL_TEXT, font=font)
+    d.text((px, 54), f"lon {lon:+.2f}", fill=COL_TEXT, font=font)
     d.text((px, 74), f"loaded: {len(cat)}", fill=COL_LABEL, font=font_sm)
     d.text((px, 88), f"up: {visible}", fill=COL_OK, font=font)
     d.text((px, 108), f"view mag<={mag_view:g}", fill=COL_LABEL, font=font_sm)

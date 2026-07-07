@@ -67,7 +67,27 @@ def altaz_to_plot_xy(alt: float, az: float, cx: float, cy: float, radius: float,
     return cx + r * math.cos(theta), cy + r * math.sin(theta)
 
 
-def mag_to_radius(mag: float, r_min: int = 1, r_max: int = 5) -> int:
-    """実視等級 → ドット半径 [px]。明るい (等級小) ほど大きい。"""
-    r = round(3.4 - 0.55 * mag)
+def mag_to_radius(mag: float, r_min: int = 1, r_max: int = 3) -> int:
+    """実視等級 → ドット半径 [px]。明るい (等級小) ほど大きい。
+
+    小型 LCD (320×170) 向けに控えめなサイズ (既定 1〜3px)。
+    """
+    r = round(2.6 - 0.45 * mag)
     return max(r_min, min(r_max, r))
+
+
+# 等級クラスの境界と色 (1等星 / 2等星 / 3等以下)。調整しやすいよう定数化。
+MAG_CLASS1 = 1.5    # これ以下 = 1 等星 (最も明るい)
+MAG_CLASS2 = 2.5    # これ以下 = 2 等星
+COLOR_MAG1 = (255, 255, 255)    # 1 等星: 白
+COLOR_MAG2 = (150, 220, 255)    # 2 等星: 明るいシアン寄り
+COLOR_MAG3 = (110, 140, 180)    # 3 等以下: くすんだ青灰 (奥行き感)
+
+
+def mag_to_color(mag: float) -> tuple[int, int, int]:
+    """実視等級 → 星の色 (RGB)。1 等星=白 / 2 等星=シアン寄り / 3 等以下=青灰。"""
+    if mag <= MAG_CLASS1:
+        return COLOR_MAG1
+    if mag <= MAG_CLASS2:
+        return COLOR_MAG2
+    return COLOR_MAG3

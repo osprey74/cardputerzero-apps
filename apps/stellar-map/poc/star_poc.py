@@ -34,12 +34,28 @@ from PIL import Image, ImageDraw, ImageFont
 
 # ---- osprey74 カラーテーマ (ダーク基調 + シアン/グリーンのアクセント) --------
 COL_BG = (0, 0, 0)
-COL_STAR = (255, 255, 255)
 COL_LINE = (32, 96, 110)      # 星座線 (暗いシアン)
 COL_HORIZON = (60, 66, 70)    # 地平円・十字
-COL_ACCENT = (0, 220, 255)    # シアン
+COL_ACCENT = (0, 220, 255)    # シアン (タイトル・星名ラベル)
+COL_DIR = (255, 165, 0)       # 方位 N/E/S/W (オレンジ)
+COL_TEXT = (235, 235, 235)    # 情報パネル本文
 COL_LABEL = (150, 150, 150)
 COL_OK = (0, 200, 80)
+
+# 等級クラス別の星の色 (1等星=白 / 2等星=シアン寄り / 3等以下=青灰)。
+MAG_CLASS1, MAG_CLASS2 = 1.5, 2.5
+COLOR_MAG1 = (255, 255, 255)
+COLOR_MAG2 = (150, 220, 255)
+COLOR_MAG3 = (110, 140, 180)
+
+
+def mag_to_color(mag: float) -> tuple[int, int, int]:
+    """実視等級 → 星の色。1等星=白 / 2等星=シアン寄り / 3等以下=青灰。"""
+    if mag <= MAG_CLASS1:
+        return COLOR_MAG1
+    if mag <= MAG_CLASS2:
+        return COLOR_MAG2
+    return COLOR_MAG3
 
 # ---- LCD レイアウト (320×170) ---------------------------------------------
 W, H = 320, 170
@@ -161,9 +177,9 @@ def altaz_to_xy(alt: float, az: float, mirror_ew: bool) -> tuple[float, float]:
 
 
 def mag_to_radius(mag: float) -> int:
-    """実視等級 → ドット半径 [px]。明るい (等級小) ほど大きい。"""
-    r = 3.4 - 0.55 * mag
-    return max(1, min(5, round(r)))
+    """実視等級 → ドット半径 [px]。明るい (等級小) ほど大きい。小型 LCD 向けに控えめ (1〜3px)。"""
+    r = 2.6 - 0.45 * mag
+    return max(1, min(3, round(r)))
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +209,7 @@ def render(dt_local: datetime, tz_hours: float, lat: float, lon: float,
                           "E": (1, 0) if not mirror_ew else (-1, 0),
                           "W": (-1, 0) if not mirror_ew else (1, 0)}.items():
         d.text((PLOT_CX + dx * (PLOT_R + 3) - 3, PLOT_CY + dy * (PLOT_R + 3) - 5),
-               lbl, fill=COL_ACCENT, font=font_sm)
+               lbl, fill=COL_DIR, font=font_sm)
 
     # --- 恒星の地平座標を先に計算 ---
     pos: dict[str, tuple[float, float, float]] = {}   # name -> (alt, x, y)
@@ -216,16 +232,16 @@ def render(dt_local: datetime, tz_hours: float, lat: float, lon: float,
             continue
         visible += 1
         rr = mag_to_radius(mag)
-        d.ellipse([x - rr, y - rr, x + rr, y + rr], fill=COL_STAR)
+        d.ellipse([x - rr, y - rr, x + rr, y + rr], fill=mag_to_color(mag))
 
     # --- 右 情報パネル ---
     px = PANEL_X + 4
     d.line([PANEL_X, 0, PANEL_X, H], fill=COL_HORIZON)
     d.text((px, 6), "STELLAR MAP  PoC", fill=COL_ACCENT, font=font)
-    d.text((px, 24), dt_local.strftime("%Y-%m-%d %H:%M"), fill=COL_STAR, font=font)
+    d.text((px, 24), dt_local.strftime("%Y-%m-%d %H:%M"), fill=COL_TEXT, font=font)
     d.text((px, 38), f"TZ +{tz_hours:g}  (local)", fill=COL_LABEL, font=font_sm)
-    d.text((px, 54), f"lat {lat:+.2f}", fill=COL_STAR, font=font)
-    d.text((px, 68), f"lon {lon:+.2f}", fill=COL_STAR, font=font)
+    d.text((px, 54), f"lat {lat:+.2f}", fill=COL_TEXT, font=font)
+    d.text((px, 68), f"lon {lon:+.2f}", fill=COL_TEXT, font=font)
     d.text((px, 84), f"LST {lst / 15:05.2f}h", fill=COL_LABEL, font=font_sm)
     d.text((px, 104), f"stars up: {visible}/{len(STARS)}", fill=COL_OK, font=font)
     d.text((px, 122), "N up / " + ("look-up" if mirror_ew else "E=right"),

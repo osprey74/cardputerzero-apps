@@ -11,12 +11,12 @@ from __future__ import annotations
 
 from .catalog import Star, StarCatalog, load_catalog
 from .transform import (altaz_to_plot_xy, gmst_deg, julian_date, lst_deg,
-                        mag_to_radius, radec_to_altaz)
+                        mag_to_color, mag_to_radius, radec_to_altaz)
 
 __all__ = [
     "Star", "StarCatalog", "load_catalog",
     "julian_date", "gmst_deg", "lst_deg", "radec_to_altaz",
-    "altaz_to_plot_xy", "mag_to_radius",
+    "altaz_to_plot_xy", "mag_to_radius", "mag_to_color",
 ]
 
 __version__ = "0.1.0"
