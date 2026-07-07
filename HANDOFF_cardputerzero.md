@@ -56,6 +56,8 @@
 | 2026-06-19 | **HANDOFF 全体査読し「CoreS3 併用案＝第一推奨」で齟齬を解消**。方針決定（CoreS3 フロントエンド方式を第一推奨／直結方式は代替・旧案として残す）に基づき以下を修正: §1.6 冒頭にアーキテクチャ方針バナーを追加／§1.5 を「直結方式（代替/旧案）の運用方針」と位置づけ明記／App10 物理 UI に CoreS3 経由（第一推奨）と EXT 直結（代替）の 2 構成を併記／App13 に接続方式の方針注記を追加し PaHUB・端子台系を「直結方式の参照情報」と明記／App01 衛星リスト送りを「CoreS3 経由なら Cap A 使用でも可」に更新／`shared/` ツリーに `cores3_bridge/` を追加し input_encoder・ina226 を 2 バックエンド化（CoreS3 経由＝第一推奨 / 直結＝代替）／CLAUDE.md のデバイス接続・制約・共有ドライバを更新／§9.4 ドライバ API 設計を多バックエンド化／購入リストに CoreS3・データ専用ケーブルを追加し PaHUB・変換ハーネスを「直結方式の場合のみ」と注記／Phase 1.5 を CoreS3 経由優先に改訂し Phase 1.55（CoreS3 連携確立）を新設／Cap B 表記を公式名「Cap CC1101」に統一 |
 | 2026-07-03 | **App13 端子台D で 1A 版 INA226 の絶対精度を実機校正・確定（CAL 誤りを発見し修正）**。0.1% 精密抵抗（100Ω 1/2W）到着に伴い端子台D を載せ替え、2×AA（≈3.1V）で 1A 版を校正検証。当初ファームは 1A 版にも 10A 版の **CAL=3200 を書いており電流・電力が約 1.6 倍過大**（I=49.8mA / 期待 31.3mA・見かけ 62.8Ω）と判明。原因は **1A 版シャントを 50mΩ と誤想定**していたこと。M5 公式 Product Compare で **1A=80mΩ / 10A=5mΩ** を確定し、**CAL をユニット別**（10A=3200 / 1A=2000＝0.00512/(32µA×0.08)）に修正。再フラッシュ後の実測は **V=3.100V / I=30.8mA（対 V/R −0.65%）/ P=96.0mW（−0.1%）**で合格。残差 −0.65% はシャント電圧 2.46mV と低くオフセット誤差が効くためで、5V 化で縮小見込み。`firmware/cores3-frontend/src/main.cpp`（`Ina226Unit.cal` 追加・切替時 CAL 再書込み）、`apps/tester/tests/ina226_terminal_check.py`（1A r_shunt 0.05→0.08）、本 §App13 仕様注記（50mΩ→80mΩ）を更新。⚠️ 10A 版の絶対精度は高電流基準が用意でき次第、同手順で要再検証 |
 | 2026-07-03 | **App13 1A 版を 2 点校正で確定（合格・補正不要）＋ 絶縁ユニットの給電制約を確定**。100Ω±0.1% 基準で 2 電圧点を実測。**3V 点**: V=3.100V / I=30.8mA（−0.65%）/ P=96.0mW（−0.1%）・見かけ 100.6Ω。**4.5V 点（単三×4 ケースの 1 本分をボルト短絡し 3 本＝実測 4.644V）**: I=46.2mA（−0.52%）/ P=215.2mW（−0.2%）・見かけ 100.5Ω。**見かけ抵抗が両点で 100.5〜100.6Ω 一致 → CAL=2000 が正しく桁・ゲイン異常なし**。**素の精度は P ベースで 0.1〜0.2%（≒内蔵 80mΩ シャント公差）**、I 表示の −0.5〜0.65% は 1A レンジ品を 3〜5% の低電流で使う **32µA 量子化**が主因（電流を上げると縮小: 31mA −0.65%→46mA −0.52%＝オフセット的挙動）。**ゲイン補正しても量子化ノイズに埋もれるため CAL=2000 のまま補正しない**方針で確定。**HW 知見**: 絶縁型 1A 版は **CoreS3 Port B（GND 共有）給電では I=0（電流検出不成立）**、電池等の絶縁電源が必須と実機確認（非絶縁 10A 版は Port B で可）。1A 版の精密検証は電池給電で行う運用に確定。コード変更なし（ドキュメントのみ） |
+| 2026-07-07 | **App 16 (星座盤 `stellar-map`) 追加**。ESP32 版 [wisnc/stellar-map](https://github.com/wisnc/stellar-map)（M5Stack Cardputer-ADV 向けオフライン・プラネタリウム）に着想。CardputerZero は Linux 機ゆえ ESP32 版より格段に容易・高精度に実現可能と判断（512MB RAM で全カタログ常駐／**Skyfield 等の天文ライブラリで惑星・月の位置計算を関数呼び出し化**／内蔵 **RX8130CE RTC** ＋ **AT6668 GNSS** ＋ **NTP** で ESP32 版の弱点「起動毎 UTC 手入力」を解消／**HDMI 1080p フルスクリーン・プラネタリウム**が可能）。アーキテクチャは技術方針どおり **Python(Skyfield) サイドカー＋Rust/LVGL UI**、地平座標→LCD 投影は App01 の Sky Plot ロジックを流用。⚠️ IMU は BMI270 6軸（**地磁気なし＝絶対方位不可**）のため AR プッシュツーは手動アライン or 外付けコンパスで対応。データ（HYG / OpenNGC / Stellarium 星座線）と元コードのライセンスは §9 で調査。 |
+| 2026-07-07 | **App 16 投影 PoC 実装＋ライセンス調査確定＋CoreS3 地磁気の流用を実機確定**。①**PoC**（`apps/stellar-map/poc/star_poc.py`・Pillow のみ）: 恒星＋星座線は Skyfield 不要（恒星時→地平座標の古典変換で自己完結）と判断し 320×170 に投影→PNG 出力。札幌 2026-07-07 21:30 で北斗七星/夏の大三角/はくちょう座を天文的に妥当に描画・地平線下を除外（23/35 星）。②**ライセンス調査**: 元 [wisnc/stellar-map](https://github.com/wisnc/stellar-map)=**無ライセンス（全権留保）→コード非流用・一次データから再実装**、HYG/OpenNGC=**CC BY-SA 4.0**（表示+継承）、Stellarium 現代星座線=**MIT**（Xalioth 再許諾）、Skyfield=**MIT**、JPL DE 暦=実質 PD。③**方位=CoreS3 の BMM150 を流用**（総司様指示）: CoreS3 の BMM150 は BMI270 補助 I2C 配下で i2cdetect に出ないが `M5.Imu.getMag()` で取得可能と COM5 実機で確定（過去の「BMM150 非検出」は読み方の問題）。`firmware/cores3-frontend` が `"mag":{ok,x,y,z,heading}` を USB CDC JSON に追加、`shared/cores3_bridge` に `Mag` データクラス追加（単体テスト 11/11 PASS）。※heading は要ハード/ソフトアイアン・傾き補正 |
 
 ---
 
@@ -3264,6 +3266,176 @@ print(f"Object: {t_obj_c:.2f}℃")
 
 ---
 
+### App 16: 星座盤 (`stellar-map`)
+
+**優先度**: ★★★☆☆
+**必要ハードウェア**: 追加モジュール不要（本体内蔵で完結）。任意で GNSS（Cap LoRa-1262 の AT6668）・外付けコンパス
+
+- 本体内蔵の **RX8130CE RTC**（電池バックアップ）・**BMI270 IMU**・Wi-Fi/有線 LAN で完結
+- 位置・時刻の自動取得に **AT6668 GNSS**（Cap LoRa-1262・UART）を任意併用（App 01 と共有）
+- 絶対方位が必要な場合のみ 外付け I2C コンパス（QMC5883L 等）を任意増設（後述の制約に注意）
+
+#### 概要
+
+指定した日時・観測地点における星空（恒星・星座線・主要な惑星・月・深宇宙天体）を
+1.9" LCD（および HDMI 外部モニタ）に描画する**オフライン・プラネタリウム**アプリ。
+ESP32 版 [wisnc/stellar-map](https://github.com/wisnc/stellar-map)（M5Stack Cardputer-ADV 向け）に着想を得て、
+**Linux 機である CardputerZero の資源を活かし、より高精度・高機能に再構築**する。
+
+> 📌 **設計の勘所**: ESP32 版が C/C++ で手実装している天体位置計算（歳差・章動・座標変換・惑星/月の
+> 位置）を、Linux では **Python の天文ライブラリ（Skyfield / Astropy）の関数呼び出しに置換**できる。
+> これが「ESP32 で動く以上、上位互換の Linux 機で不可能な要素はない」と判断した根拠。本プロジェクトの
+> 技術方針「Rust(czdev/LVGL) 主軸 ＋ Python サイドカー」にそのまま合致する。
+
+#### ESP32 版に対する CardputerZero の優位点
+
+| 項目 | ESP32 版 (Cardputer-ADV) | CardputerZero | 効果 |
+| --- | --- | --- | --- |
+| 天体計算 | C/C++ で自前実装 | **Skyfield / Astropy**（Python・DE ephemeris） | 高精度・実装容易・保守性 |
+| メモリ | 数百 KB + PSRAM | **512MB** | HYG 全カタログ常駐可 |
+| 時刻 | **RTC なし → 起動毎 UTC 手入力** | **RX8130CE RTC（電池）＋ NTP ＋ GNSS** | 手入力不要（弱点解消） |
+| 位置 | GNSS（Cap Lora） | AT6668 GNSS（App 01 で NMEA 解析実装済み） | 自動測位 |
+| 大画面 | なし | **HDMI 1080p30 出力** | フルスクリーン・プラネタリウム |
+| 将来拡張 | — | IMX219 カメラ / 有線 LAN | AR オーバーレイ・データ更新 |
+
+#### データソース
+
+| データ | 内容 | 用途 | ライセンス（2026-07-07 調査確定） |
+| --- | --- | --- | --- |
+| **HYG データベース** | 恒星カタログ（裸眼可視 等級 ≤ 6.5 で約 9,000 星） | 恒星の描画 | **CC BY-SA 4.0**（表示＋継承・要出典明記） |
+| **OpenNGC** | 深宇宙天体（星雲・星団・銀河） | DSO の描画 | **CC BY-SA 4.0**（Mattia Verga・表示＋継承） |
+| **Stellarium 星座線データ（現代/西洋）** | 現代式の星座ライン（線分定義） | 星座線の描画 | **MIT**（作者 Xalioth が線分定義を MIT 再許諾。原典は GPLv2+。※星座絵は別ライセンスで対象外） |
+| **惑星・月の暦（JPL DE ephemeris）** | DE421 / DE440 等 | 惑星・月の位置計算 | NASA/JPL 製・実質パブリックドメイン（再配布自由・NAIF 利用条件を確認） |
+| **Skyfield（計算ライブラリ）** | 天体位置計算 | サイドカー本体 | **MIT** |
+| ~~元アプリ wisnc/stellar-map のコード~~ | 着想元（ESP32 版） | — | **ライセンス表記なし＝全権留保。コード流用不可、着想のみ利用し再実装する** |
+
+> 📋 **ライセンス方針（調査結果より確定）**: 元アプリ [wisnc/stellar-map](https://github.com/wisnc/stellar-map) は
+> **LICENSE 表記が無く（＝著作権者に全権留保）、コードや前処理ツールの流用は不可**。よって本アプリは
+> **一次データ（HYG/OpenNGC/星座線）から独自に再実装**する（元々その方針）。データのうち HYG と OpenNGC は
+> **CC BY-SA 4.0（継承付き）**のため、①アプリ内クレジット/About 画面での**出典明記が必須**、②再配布する
+> データファイル（変換後含む）は **CC BY-SA 4.0 を維持**する。CC BY-SA は*データ*への条項であり*アプリ本体の
+> コード*には波及しない（データとソフトは別著作物＝単なる集約）ため、アプリのライセンスは自由に選べる。
+> 星座線は MIT 版を採用、Skyfield は MIT、DE 暦は実質 PD で問題なし。
+>
+> データは Python 前処理ツール（元リポジトリのコードは使わず自作）で軽量な中間形式（バイナリ or
+> JSON/CSV）に変換し、`/mnt/sdcard/stellar_map/data/` に配置。実行時はメモリに読み込む。
+> クレジット表記例: HYG Database (CC BY-SA 4.0) / OpenNGC © Mattia Verga (CC BY-SA 4.0) /
+> Constellation lines: Stellarium, © Xalioth (MIT) / Skyfield © Brandon Rhodes (MIT) / Ephemeris: NASA JPL。
+
+#### 座標変換ロジック
+
+1. **恒星**: カタログの赤道座標 (RA/Dec, J2000) → 観測時刻・緯度経度で**地平座標 (Alt/Az)** に変換
+   （Skyfield が歳差・章動・視差を含めて計算）。
+2. **地平座標 → LCD ピクセル**: App 01「Sky Plot 天球図表示仕様」の**極座標変換ロジックを流用**
+   （仰角 90°=中心 / 0°=外周、北=上、時計回り）。全天ビューはこの方式、拡大時は接平面（ステレオ/正射）投影窓に切替。
+
+```python
+# App01 §Sky Plot の to_lcd_xy() を星座盤へ流用（全天・円形ビュー）
+# 恒星の (alt, az) → 左 170x170 円形プロットのピクセル
+r = radius * (1.0 - alt / 90.0)          # 仰角 90°=中心 / 0°=外周
+theta = math.radians(az - 90)            # 北=12時方向・時計回り
+x = cx + r * math.cos(theta)
+y = cy + r * math.sin(theta)
+```
+
+#### 機能一覧
+
+**基本表示モード**
+
+- [ ] 指定日時・観測地点の全天星図（円形・北=上）を LCD 左 170×170 に描画
+- [ ] 恒星を等級に応じたドットサイズ／明るさで描画（明るい星ほど大）
+- [ ] 星座線の重ね描き（オン/オフ切替）
+- [ ] 主要な惑星・月の描画（記号 or 色分け）＋現在の月相
+- [ ] 深宇宙天体（OpenNGC）の描画（オン/オフ切替）
+- [ ] 右 150×170 情報パネル（日時・観測地・視野中心の方位/高度・選択天体名）
+
+**視点操作**
+
+- [ ] キーボードによるパン（方位・高度の移動）／ズーム（画角の拡大縮小）
+- [ ] 時刻の早送り／巻き戻し（天体の日周運動アニメーション）
+- [ ] 「今」ボタン（RTC 現在時刻へ復帰）
+- [ ] IMU（BMI270）による傾き連動パン（相対）＋北方向の手動アライン
+
+**時刻・位置の取得**
+
+- [ ] RX8130CE RTC から現在時刻を取得（既定）
+- [ ] Wi-Fi 接続時は NTP で RTC を同期
+- [ ] AT6668 GNSS 接続時は測位座標・UTC を自動取り込み（App 01 の NMEA 解析を流用）
+- [ ] 設定ファイル `~/.config/cardputerzero/stellar_map.yaml`（手動の緯度経度・タイムゾーン）
+
+**HDMI フルスクリーンモード**
+
+- [ ] HDMI 接続検出時、1080p の詳細プラネタリウム表示に自動切替（星名・星座名ラベル付き）
+- [ ] LCD 側は簡易ステータス（日時・観測地・視野方位）に切替
+
+**出力**
+
+- [ ] スクリーンショット保存（PNG）を `/mnt/sdcard/stellar_map/shots/`
+
+#### 技術スタック
+
+| レイヤー | 採用技術 |
+| --- | --- |
+| 天体計算サイドカー | **Python + Skyfield**（DE ephemeris・RA/Dec→Alt/Az・惑星/月/月相）。Astropy は必要に応じ併用 |
+| データ前処理 | Python（HYG/OpenNGC/Stellarium → 中間形式へ変換。元リポジトリ `tools/` 相当を再実装 or 流用） |
+| UI フレームワーク | **LVGL (czdev)**。恒星/線はバッファ一括描画 → 転送（逐次描画は避ける） |
+| 入力 | キーボード（主）／IMU BMI270（傾き連動・相対）／GNSS（位置・時刻） |
+| 時刻 | `RX8130CE` RTC（`/dev/rtc` or `hwclock`）＋ NTP（`systemd-timesyncd`）＋ GNSS UTC |
+| ストレージ | `/mnt/sdcard/stellar_map/`（data / shots） |
+| HDMI 検出 | `libcamera`/DRM or `/sys/class/drm/*/status` を監視し LCD ⇔ HDMI レイアウト切替 |
+
+> 弊機の推奨実装順: **① PC 上で Skyfield による「指定時刻・緯度経度の可視恒星＋星座線を
+> 320×170 に投影 → PNG 出力」を Python 単体で作る**（実機不要・投影とデータ処理を先行検証）→
+> ② czdev エミュレータで LVGL 描画に接続 → ③ 実機で RTC/GNSS/HDMI/IMU を結線。
+
+#### UI レイアウト (LCD 320×170)
+
+```
+┌────────────────┬──────────────────┐
+│      N         │ 2026-07-07 21:30 │ ← 日時 (RTC/NTP/GNSS)
+│   ·  ✦    ·    │ 札幌 43.06N      │ ← 観測地 (GNSS/設定)
+│ ✦   ·✦·   ·    │ 中心 方位 180°   │
+│·  ✦   ✦    ✦   │      高度  45°   │
+│  ·  ✦·✦   ·    │ ──────────────── │
+│ ·   ·   ·   ·  │ 選択: Vega       │ ← キーボード/IMU で選択
+│      S         │ 星座線 [ON] DSO[·]│
+└────────────────┴──────────────────┘
+   170×170          150×170
+   円形全天図        情報パネル
+```
+
+- **左 170×170**: 円形全天図（中心=天頂・外周=地平線・北=上）。恒星は等級でサイズ可変
+- **右 150×170**: 日時・観測地・視野中心の方位/高度・選択天体名・レイヤー切替状態
+- **HDMI 接続時**: 上記を 1080p フルスクリーンの詳細プロット（星名・星座名ラベル付き）に自動切替
+
+#### エコシステム連携
+
+- **App 01 (`gps-logger`)**: AT6668 GNSS の **NMEA 解析ロジックを共有**（`shared/gnss_at6668/`）。
+  観測地の緯度経度・UTC を取得。App 01 の「Sky Plot 天球図」**極座標変換ロジックを星図投影に流用**
+- **`shared/gnss_at6668/`**: GNSS 共通ドライバ（App 01 / App 16 共通）
+- **`shared/star_catalog/`**（新設想定）: HYG/OpenNGC/星座線の読み込み・座標変換の共通コア（Python）
+
+#### ⚠️ 制約・注意事項
+
+```text
+・方位（絶対方角）は CoreS3 の地磁気センサ (BMM150) を流用して解決する【2026-07-07 実機確定】。
+  CardputerZero 内蔵 IMU (BMI270) は 6 軸で地磁気非搭載だが、併用する CoreS3 フロント
+  エンドには BMM150 が載る。CoreS3 の BMM150 は BMI270 の補助 I2C 配下にあり i2cdetect
+  には出ないが、M5Unified の M5.Imu.getMag() で取得可能と実機 (COM5) で確認。CoreS3 が
+  mag を USB CDC の JSON に載せて CardputerZero へ送る（shared/cores3_bridge の Mag）。
+  → 「空にかざすと該当方向を表示」する向き合わせが CoreS3 併用時に実現できる。
+・CoreS3 非併用（CardputerZero 単体）時は方位が取れないため、北方向の手動アライン＋
+  BMI270 ジャイロの相対追従にフォールバック（または Grove I2C に外付けコンパス増設）。
+・BMM150 の heading は要ハード/ソフトアイアン・傾き補正。生値の絶対方位はそのまま
+  信用せず、上位で較正する（CoreS3 は x/y/z も送る）。軸割当・符号は実機で要確認。
+・データ（HYG / OpenNGC / Stellarium 星座線）および元リポジトリのコードは、それぞれ
+  ライセンスが異なる。元 wisnc/stellar-map は無ライセンス＝コード非流用、一次データから
+  再実装（詳細は本節データソース表・§9 調査結果）。
+・LCD は 320×170 の横長（非正方形）。円形全天図は 170×170 に収め、残りを情報パネルに割く。
+```
+
+---
+
 ## 4. Launcher 登録仕様
 
 ### 4.1 アプリメタデータ形式 (AppStore)
@@ -3335,7 +3507,8 @@ osprey74/cardputerzero-apps/
 │   ├── lan-scanner/            # App 11 [本体 Wi-Fi / 有線 LAN]
 │   ├── tester/                 # App 13 [Grove I2C INA226]
 │   ├── qr-toolkit/             # App 14 [本体 IMX219 カメラ・標準版限定]
-│   └── ncir-thermometer/       # App 15 [第一推奨=CoreS3 Port A I2C (Hub Unit U006 経由・INA226 同居) / 代替=PaHUB CH1 直結]
+│   ├── ncir-thermometer/       # App 15 [第一推奨=CoreS3 Port A I2C (Hub Unit U006 経由・INA226 同居) / 代替=PaHUB CH1 直結]
+│   └── stellar-map/            # App 16 星座盤 [Python(Skyfield) サイドカー + Rust/LVGL UI。RTC/GNSS/NTP で時刻・位置、HDMI フルスクリーン対応]
 ├── firmware/
 │   └── cores3-frontend/        # CoreS3(ESP32-S3) 入力フロントエンド・ファーム (PlatformIO / Arduino + M5Unified)。§1.6.1。INA226+MLX90614+Chain Encoder を読み USB CDC で JSON 送信。CardputerZero 側 shared/cores3_bridge/ の送信元
 ├── shared/
@@ -3349,6 +3522,7 @@ osprey74/cardputerzero-apps/
 │   ├── pahub/                  # PCA9548A I2C MUX 共通ドライバ (PaHUB v2.1)。直結方式の場合のみ使用
 │   ├── camera_imx219/          # IMX219 共通カメラドライバ [picamera2 ラッパー]
 │   ├── mlx90614/               # MLX90614 共通ドライバ。第一推奨=CoreS3 経由 (USB CDC JSON フィールド) / 代替=Grove I2C + PaHUB CH1 直結。バックエンド切替式
+│   ├── star_catalog/           # 星表共通コア (Python)。HYG/OpenNGC/星座線の読込＋赤道→地平座標変換 [App 16]
 │   └── ui_theme/               # 共通 UI テーマ (osprey74 カラー)
 └── scripts/
     ├── setup_device.sh         # デバイス初期セットアップ
@@ -3570,6 +3744,12 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | M5Stack NCIR Unit (MLX90614 / App 15) — Switch Science | [switch-science.com/products/5220](https://www.switch-science.com/products/5220) |
 | M5Stack NCIR Unit 公式ドキュメント | [docs.m5stack.com/en/unit/ncir](https://docs.m5stack.com/en/unit/ncir) |
 | Melexis MLX90614 公式ページ・データシート | [melexis.com/en/product/MLX90614](https://www.melexis.com/en/product/MLX90614/Digital-Plug-Play-Infrared-Thermometer-TO-Can) |
+| stellar-map（ESP32 版・着想元 / App 16） | [github.com/wisnc/stellar-map](https://github.com/wisnc/stellar-map) |
+| Skyfield（Python 天文計算ライブラリ / App 16） | [rhodesmill.org/skyfield](https://rhodesmill.org/skyfield/) |
+| Astropy（Python 天文ライブラリ / App 16） | [astropy.org](https://www.astropy.org/) |
+| HYG 星表データベース（App 16 恒星カタログ） | [github.com/astronexus/HYG-Database](https://github.com/astronexus/HYG-Database) |
+| OpenNGC 深宇宙天体カタログ（App 16 DSO） | [github.com/mattiaverga/OpenNGC](https://github.com/mattiaverga/OpenNGC) |
+| Stellarium（星座線データの出所 / App 16） | [github.com/Stellarium/stellarium](https://github.com/Stellarium/stellarium) |
 | UpNote x-callback-url エンドポイント仕様（App 10 BCL ログモード） | [help.getupnote.com/resources/x-callback-url-endpoints](https://help.getupnote.com/resources/x-callback-url-endpoints) |
 | x-callback-url 規格仕様 | [x-callback-url.com](http://x-callback-url.com/) |
 | NOAA SWPC 宇宙天気予測センター WWV 短波伝搬データ（App 10 BCL ログモードの SFI/K-index 取得元） | [services.swpc.noaa.gov/text/wwv.txt](https://services.swpc.noaa.gov/text/wwv.txt) |
@@ -3666,6 +3846,20 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 15]** Rust `mlx9061x` crate の `linux-embedded-hal` 対応確認 / 非対応の場合は自作レジスタ操作 or Python に切替
 - [ ] **[App 15]** プリセット温度の妥当性確認（CPU/GPU 警告閾値 / 料理温度の実用範囲）
 - [ ] **[App 15]** UI 上の「医療用ではない」注意表記の常時表示位置確定（LCD 上端 or プリセット切替時のガイダンス）
+
+#### 星座盤（App 16）
+
+- [x] **[App 16・調査]** ライセンス調査完了（2026-07-07）。**元 wisnc/stellar-map はライセンス無し＝全権留保→コード流用不可・着想のみで再実装**。HYG=**CC BY-SA 4.0** / OpenNGC=**CC BY-SA 4.0**（両者 表示＋継承・要クレジット）/ Stellarium 現代星座線（線分定義）=**MIT**（Xalioth 再許諾・星座絵は対象外）/ Skyfield=**MIT** / JPL DE 暦=実質 PD。→ 方針: 一次データから再実装、データは CC BY-SA 4.0 を維持しアプリ内 About でクレジット明記（詳細は §3 App16 データソース表）
+- [ ] **[App 16・調査]** JPL DE ephemeris（NAIF）の再配布利用条件を一次情報で最終確認（実質パブリックドメインの想定を裏取り）
+- [x] **[App 16・先行]** 投影 PoC 完了（2026-07-07・`apps/stellar-map/poc/star_poc.py`）。恒星と星座線は Skyfield 不要（古典的な恒星時→地平座標変換で自己完結）と判断し、Pillow のみで 320×170 に投影→PNG 出力。札幌 2026-07-07 21:30 で北斗七星/夏の大三角/はくちょう座を天文的に妥当に描画、地平線下（オリオン等）を除外、23/35 星を確認。惑星・月は次段で Skyfield 追加
+- [x] **[App 16・方位]** CoreS3 の地磁気 (BMM150) を CardputerZero へ流用する経路を実装・実機確定（2026-07-07・COM5）。`M5.Imu.getMag()` で取得可（i2cdetect には出ないが aux 配下）。`firmware/cores3-frontend` が `"mag":{ok,x,y,z,heading}` を USB CDC JSON に追加、`shared/cores3_bridge` に `Mag` を追加（テスト 11/11 PASS）。※heading は要ハード/ソフトアイアン・傾き補正
+- [ ] **[App 16]** データ前処理ツールの実装（HYG/OpenNGC/星座線 → 軽量中間形式へ変換・`/mnt/sdcard/stellar_map/data/` 配置）
+- [ ] **[App 16]** `shared/star_catalog/`（Python）: カタログ読込＋赤道座標(J2000)→地平座標(Alt/Az)変換の共通コア。PoC の変換関数を昇格。App 01 Sky Plot の極座標投影を流用
+- [ ] **[App 16]** czdev/LVGL 描画への接続（恒星/線のバッファ一括描画→転送。逐次描画の性能を実機計測）
+- [ ] **[App 16]** RX8130CE RTC（`/dev/rtc`）＋ NTP（`systemd-timesyncd`）＋ AT6668 GNSS UTC の時刻取得系を確立（`shared/gnss_at6668/` を App 01 と共有）
+- [ ] **[App 16]** HDMI 接続検出（`/sys/class/drm/*/status`）→ LCD ⇔ 1080p フルスクリーン・プラネタリウムの自動レイアウト切替
+- [ ] **[App 16・要較正]** BMM150 の方位較正（ハード/ソフトアイアン＋加速度による傾き補正）で heading を実用精度に。CoreS3 非併用時は BMI270 ジャイロ相対追従＋北手動アラインにフォールバック
+- [ ] **[App 16]** 惑星・月・月相の描画（Skyfield ＋ DE ephemeris）と等級ベースの恒星ドットサイズ調整
 
 #### 入力デバイス拡張（Chain Encoder / I2C エンコーダ）
 
@@ -3771,7 +3965,7 @@ CardputerZero 実機到着前に ClockworkPi uConsole (CM4 / Debian 11 / Python 
 - [ ] `shared/ina226/` ドライバの API 設計（App 13 で使用、将来 App 02 / App 10 の消費電流測定に転用検討）
   - **バックエンド 2 系統**: 第一推奨=CoreS3 経由（`shared/cores3_bridge/` から JSON で電圧/電流/電力を受信）／ 代替=Grove I2C 直結（PaHUB CH0 経由）
 - [x] `shared/cores3_bridge/` ドライバの API 設計・実装（**CoreS3 フロントエンド連携・第一推奨経路**）✅ 2026-06-24 実装＆実機検証済み
-  - USB CDC (`COM5` / `/dev/ttyACM*`) を開き、CoreS3 が送る JSON（`{"bat":..,"ina":..,"ncir":..,"enc":[..]}`）を行単位でパース。`models.py`(純データクラス)＋`parse.py`(純パーサ・`nan`/`inf`→`null` 正規化)＋`reader.py`(`CoreS3Reader`/pyserial)＋`cli.py`(`--json`/`--watch`) の 4 層構成
+  - USB CDC (`COM5` / `/dev/ttyACM*`) を開き、CoreS3 が送る JSON（`{"bat":..,"ina":..,"ncir":..,"mag":..,"enc":[..]}`）を行単位でパース。`models.py`(純データクラス・`Battery`/`Power`/`Temp`/`Mag`/`Encoder`)＋`parse.py`(純パーサ・`nan`/`inf`→`null` 正規化)＋`reader.py`(`CoreS3Reader`/pyserial)＋`cli.py`(`--json`/`--watch`) の 4 層構成。`mag`（BMM150 地磁気・App 16 星座盤の方位アライン用）は 2026-07-07 追加
   - **Chain Encoder は `frame.encoder(role="R"|"B")` / `uid` で個体を束ねられる**（配線順非依存。UID 解決済み role を活用）。`input_encoder` / `ina226` のバックエンドとして値を供給予定
   - 不正行スキップ・タイムアウト・診断ログ(`LogLine`)分離をハンドリング。単体テスト 8 件（実機・pyserial 不要）＋実機 COM5 ライブ検証済み
   - ⚠️ 残: 再接続（切断後の自動 reopen）、`input_encoder`/`ina226` 抽象 API への接続。CardputerZero は USB Host モード固定が前提（実機到着後に `/dev/ttyACM*` 認識確認）

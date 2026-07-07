@@ -29,6 +29,7 @@ M5Stack CardputerZero 向けに開発するアプリ群のモノレポ。Rust (c
 | 13 | `tester` | ★★★★☆ | INA226 DC 電圧/電流テスター (Grove I2C) |
 | 14 | `qr-toolkit` | ★★★★☆ | IMX219 カメラによる QR 読取・解析・構造学習（標準版限定） |
 | 15 | `ncir-thermometer` | ★★★☆☆ | MLX90614 非接触温度センサ（PaHUB CH1 / 業務点検・PC サーマル・料理補助） |
+| 16 | `stellar-map` | ★★★☆☆ | オフライン星座盤（Skyfield＋HYG／内蔵 RTC・GNSS・NTP／HDMI プラネタリウム） |
 
 ## 想定リポジトリ構成
 
