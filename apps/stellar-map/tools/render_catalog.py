@@ -47,17 +47,46 @@ LABEL_STARS = ["Sirius", "Vega", "Arcturus", "Capella", "Rigel", "Betelgeuse",
                "Regulus", "Polaris"]
 
 
+# 四角ドットの一辺 [px] を等級クラスで決める (1等=3 / 2等=2 / 3等以下=1)。
+def mag_to_square(mag: float) -> int:
+    if mag <= 1.5:
+        return 3
+    if mag <= 2.5:
+        return 2
+    return 1
+
+
+def _draw_square_native(d, x: float, y: float, side: int, col) -> None:
+    """等倍・整数座標でピクセル正確な四角を描く (AA 無し)。side=1/2/3 px。"""
+    ix, iy = round(x), round(y)
+    if side <= 1:
+        box = [ix, iy, ix, iy]                    # 1 ドット
+    elif side == 2:
+        box = [ix, iy, ix + 1, iy + 1]            # 2×2
+    else:
+        box = [ix - 1, iy - 1, ix + 1, iy + 1]    # 3×3 (中心そろえ)
+    d.rectangle(box, fill=col)
+
+
 def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
-           mirror_ew: bool, mag_view: float) -> tuple[Image.Image, int]:
+           mirror_ew: bool, mag_view: float,
+           shape: str = "round", aa: bool = True) -> tuple[Image.Image, int]:
+    """全天図を描く。
+
+    aa=True: SS 倍で描画→LANCZOS 縮小 (丸を滑らかに)。
+    aa=False: 等倍・AA 無し (文字は bilevel・四角はピクセル正確)。実機の見えに近い。
+    shape: "round"=円 / "square"=四角ドット。
+    """
     dt_utc = dt_local - timedelta(hours=tz)
     jd = julian_date(dt_utc.year, dt_utc.month, dt_utc.day,
                      dt_utc.hour, dt_utc.minute, dt_utc.second)
     lst = lst_deg(jd, lon)
 
-    # 高解像 (SS 倍) で描画してから LANCZOS で 320×170 に縮小する（星を丸く AA）。
-    ss = SS
+    ss = SS if aa else 1
     img = Image.new("RGB", (W * ss, H * ss), COL_BG)
     d = ImageDraw.Draw(img)
+    if not aa:
+        d.fontmode = "1"          # 文字を AA 無し (bilevel) で描く = 実機の小文字に近い
     try:
         font = ImageFont.truetype("consola.ttf", 11 * ss)
         font_sm = ImageFont.truetype("consola.ttf", 9 * ss)
@@ -83,8 +112,16 @@ def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
             continue
         visible += 1
         x, y = altaz_to_plot_xy(alt, az, CX, CY, R, mirror_ew)
-        rr = mag_to_radius(st.mag) * ss
-        d.ellipse([x * ss - rr, y * ss - rr, x * ss + rr, y * ss + rr], fill=mag_to_color(st.mag))
+        col = mag_to_color(st.mag)
+        if shape == "square":
+            if aa:
+                h = mag_to_square(st.mag) * ss / 2.0
+                d.rectangle([x * ss - h, y * ss - h, x * ss + h, y * ss + h], fill=col)
+            else:
+                _draw_square_native(d, x, y, mag_to_square(st.mag), col)
+        else:
+            rr = mag_to_radius(st.mag) * ss
+            d.ellipse([x * ss - rr, y * ss - rr, x * ss + rr, y * ss + rr], fill=col)
 
     # 代表星のラベル (地平線上のもののみ)。
     for name in LABEL_STARS:
@@ -107,9 +144,12 @@ def render(cat, dt_local: datetime, tz: float, lat: float, lon: float,
     d.text((px, 74 * ss), f"loaded: {len(cat)}", fill=COL_LABEL, font=font_sm)
     d.text((px, 88 * ss), f"up: {visible}", fill=COL_OK, font=font)
     d.text((px, 108 * ss), f"view mag<={mag_view:g}", fill=COL_LABEL, font=font_sm)
+    mode = f"{shape}/{'AA' if aa else 'no-aa'}"
+    d.text((px, 126 * ss), f"mode: {mode}", fill=COL_LABEL, font=font_sm)
     d.text((px, 148 * ss), "HYG v4.1 CC BY-SA", fill=COL_LABEL, font=font_sm)
 
-    img = img.resize((W, H), Image.LANCZOS)
+    if aa:
+        img = img.resize((W, H), Image.LANCZOS)
     return img, visible
 
 
@@ -125,14 +165,25 @@ def main() -> None:
     ap.add_argument("--mirror-ew", action="store_true")
     ap.add_argument("--mag-view", type=float, default=4.5,
                     help="描画する上限等級 (小型LCD向け・既定 4.5。カタログは全星保持)")
-    ap.add_argument("--out", default=str(app_root / "poc" / "out" / "hyg_real.png"))
+    ap.add_argument("--shape", choices=["round", "square"], default="round",
+                    help="星の形。round=円 / square=四角ドット")
+    ap.add_argument("--no-aa", action="store_true",
+                    help="等倍・AA 無しで描く (文字 bilevel・四角ピクセル正確・実機に近い)")
+    ap.add_argument("--out", default=None,
+                    help="出力パス (未指定なら hyg_<shape>_<aa|noaa>.png)")
     ap.add_argument("--scale", type=int, default=4)
     args = ap.parse_args()
 
+    aa = not args.no_aa
     cat = load_catalog(args.data)
     img, visible = render(cat, datetime.fromisoformat(args.dt), args.tz,
-                          args.lat, args.lon, args.mirror_ew, args.mag_view)
-    out = Path(args.out)
+                          args.lat, args.lon, args.mirror_ew, args.mag_view,
+                          args.shape, aa)
+    if args.out is None:
+        tag = f"{args.shape}_{'aa' if aa else 'noaa'}"
+        out = app_root / "poc" / "out" / f"hyg_{tag}.png"
+    else:
+        out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     img.save(out)
     print(f"[ok] loaded {len(cat)} stars, {visible} above horizon")
