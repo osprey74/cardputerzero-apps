@@ -3855,7 +3855,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [x] **[App 16・方位]** CoreS3 の地磁気 (BMM150) を CardputerZero へ流用する経路を実装・実機確定（2026-07-07・COM5）。`M5.Imu.getMag()` で取得可（i2cdetect には出ないが aux 配下）。`firmware/cores3-frontend` が `"mag":{ok,x,y,z,heading}` を USB CDC JSON に追加、`shared/cores3_bridge` に `Mag` を追加（テスト 11/11 PASS）。※heading は要ハード/ソフトアイアン・傾き補正
 - [x] **[App 16]** HYG 実データ取込＋前処理ツール完了（2026-07-07・`apps/stellar-map/tools/build_star_catalog.py`）。HYG v4.1 CSV(約34MB) を自動DL→裸眼可視(等級≤6.5)を抽出し `stars.bin`(20B固定長・8,920星・約174KB)＋`stars_meta.json`＋`named_stars.json`(357件) を生成。生データ・生成物は非コミット(`data/.gitignore`)。`render_catalog.py` で実データ描画を可視検証（北斗七星/夏の大三角/夏の天の川が天文的に妥当）。**知見**: 等級6.5全星は320×170に密すぎ→LCD表示は mag≤4.0〜4.5 が適切。残: OpenNGC/星座線の取込
 - [x] **[App 16]** `shared/star_catalog/`（Python）完了: `transform.py`(ユリウス日→恒星時→地平座標→円形全天図ピクセル・PoC から昇格)＋`catalog.py`(`stars.bin`/メタ/固有名ローダ・`by_name`/`by_hip`)。App 01 Sky Plot の極座標投影を流用
-- [ ] **[App 16]** czdev/LVGL 描画への接続（恒星/線のバッファ一括描画→転送。逐次描画の性能を実機計測）
+- [ ] **[App 16]** czdev/LVGL 描画への接続（恒星/線のバッファ一括描画→転送。逐次描画の性能を実機計測）。**描画方針（2026-07-07 PC 比較で決定・実機で最終確認）**: 低解像度 LCD では **四角ドット＋AA 無し＋等倍**が最も鮮明で「本当の夜空」に見える（丸は小径だと欠けて「＋」化・AA は小文字を眠くする）。星サイズは等級別に **1等=3×3 / 2等=2×2 / 3等以下=1ドット**、文字は AA 無しビットマップ（LVGL は塗り矩形＋1bpp フォント）。`render_catalog.py --shape square --no-aa` が実機相当プレビュー
 - [ ] **[App 16]** RX8130CE RTC（`/dev/rtc`）＋ NTP（`systemd-timesyncd`）＋ AT6668 GNSS UTC の時刻取得系を確立（`shared/gnss_at6668/` を App 01 と共有）
 - [ ] **[App 16]** HDMI 接続検出（`/sys/class/drm/*/status`）→ LCD ⇔ 1080p フルスクリーン・プラネタリウムの自動レイアウト切替
 - [ ] **[App 16・要較正]** BMM150 の方位較正（ハード/ソフトアイアン＋加速度による傾き補正）で heading を実用精度に。CoreS3 非併用時は BMI270 ジャイロ相対追従＋北手動アラインにフォールバック
