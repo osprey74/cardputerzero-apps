@@ -334,17 +334,26 @@ def draw(surf, ui: BclUI):
 
     if st == "RX":
         r = ui.rx
-        _text(surf, 6, 28, "RECEIVE  (A=tune  B=band)", DIM, 14)
-        _text(surf, 10, 48, "%s   %s" % (r.band[0], r.mode), ACCENT, 16)
-        _text(surf, 10, 70, r.freq_label(), FG, 26)
+        _text(surf, 6, 26, "RECEIVE  (A=tune  B=band)", DIM, 13)
+        _text(surf, 10, 42, "%s   %s" % (r.band[0], r.mode), ACCENT, 16)
+        _text(surf, 10, 62, r.freq_label(), FG, 24)
         if not sdr.available():
-            _text(surf, 10, 104, "rtl_fm/aplay not found", (230, 120, 120), 14)
+            _text(surf, 10, 96, "rtl_fm/aplay not found", (230, 120, 120), 14)
         else:
             on = r.running
-            _text(surf, 10, 104,
+            _text(surf, 10, 92,
                   "RX " + ("ON " if on else "OFF") + " (B press: "
-                  + ("stop)" if on else "start)"), OK if on else DIM, 15)
-        _text(surf, 10, 126, "A press: to log", DIM, 13)
+                  + ("stop)" if on else "start)"), OK if on else DIM, 14)
+            # S メータ（相対レベル・復調音声 RMS ベース）
+            lvl = max(0.0, min(1.0, r.level))
+            bx, by, bw, bh = 10, 112, 168, 12
+            pygame.draw.rect(surf, (60, 66, 70), pygame.Rect(bx, by, bw, bh), 1)
+            if on and lvl > 0:
+                col = OK if lvl > 0.5 else (HI if lvl > 0.2 else DIM)
+                pygame.draw.rect(surf, col,
+                                 pygame.Rect(bx + 1, by + 1, int((bw - 2) * lvl), bh - 2))
+            _text(surf, bx + bw + 6, by - 1, "SIG", DIM, 13)
+        _text(surf, 10, 132, "A press: to log", DIM, 13)
     elif st == "STATION":
         _text(surf, 6, 28, "Select station (knob A)", DIM, 14)
         for i in range(max(0, ui.sta_idx - 1), min(len(ui.stations), ui.sta_idx + 3)):
@@ -443,6 +452,7 @@ def run(args):
                     ui.on_a_press()
                 if b_press:
                     ui.on_b_press()
+            rx.service()   # 予約された再同調を回転が落ち着いてから 1 回だけ実行
             draw(screen, ui)
             pygame.display.flip()
             clock.tick(30)
