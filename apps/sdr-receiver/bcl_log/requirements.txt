@@ -4,3 +4,9 @@ rich>=13.0
 pygame>=1.9
 # エンコーダ入力は shared/cores3_bridge（リポジトリ内・USB CDC 経由）を使用。pyserial が必要:
 pyserial>=3.5
+# SDR 受信（bcl_log.sdr）: librtlsdr を直接 open してライブ同調＋numpy/scipy で復調。
+#   ⚠️ pyrtlsdr 0.4.x は librtlsdr の rtlsdr_set_dithering を要求。それが無い librtlsdr
+#      （rtl-sdr-blog 以外/旧ビルド）では 0.2.93 を使う（uConsole は 0.2.93 で動作確認）。
+pyrtlsdr>=0.2.93
+numpy>=1.19
+scipy>=1.5
