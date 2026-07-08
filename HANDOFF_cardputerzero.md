@@ -58,6 +58,9 @@
 | 2026-07-03 | **App13 1A 版を 2 点校正で確定（合格・補正不要）＋ 絶縁ユニットの給電制約を確定**。100Ω±0.1% 基準で 2 電圧点を実測。**3V 点**: V=3.100V / I=30.8mA（−0.65%）/ P=96.0mW（−0.1%）・見かけ 100.6Ω。**4.5V 点（単三×4 ケースの 1 本分をボルト短絡し 3 本＝実測 4.644V）**: I=46.2mA（−0.52%）/ P=215.2mW（−0.2%）・見かけ 100.5Ω。**見かけ抵抗が両点で 100.5〜100.6Ω 一致 → CAL=2000 が正しく桁・ゲイン異常なし**。**素の精度は P ベースで 0.1〜0.2%（≒内蔵 80mΩ シャント公差）**、I 表示の −0.5〜0.65% は 1A レンジ品を 3〜5% の低電流で使う **32µA 量子化**が主因（電流を上げると縮小: 31mA −0.65%→46mA −0.52%＝オフセット的挙動）。**ゲイン補正しても量子化ノイズに埋もれるため CAL=2000 のまま補正しない**方針で確定。**HW 知見**: 絶縁型 1A 版は **CoreS3 Port B（GND 共有）給電では I=0（電流検出不成立）**、電池等の絶縁電源が必須と実機確認（非絶縁 10A 版は Port B で可）。1A 版の精密検証は電池給電で行う運用に確定。コード変更なし（ドキュメントのみ） |
 | 2026-07-07 | **App 16 (星座盤 `stellar-map`) 追加**。ESP32 版 [wisnc/stellar-map](https://github.com/wisnc/stellar-map)（M5Stack Cardputer-ADV 向けオフライン・プラネタリウム）に着想。CardputerZero は Linux 機ゆえ ESP32 版より格段に容易・高精度に実現可能と判断（512MB RAM で全カタログ常駐／**Skyfield 等の天文ライブラリで惑星・月の位置計算を関数呼び出し化**／内蔵 **RX8130CE RTC** ＋ **AT6668 GNSS** ＋ **NTP** で ESP32 版の弱点「起動毎 UTC 手入力」を解消／**HDMI 1080p フルスクリーン・プラネタリウム**が可能）。アーキテクチャは技術方針どおり **Python(Skyfield) サイドカー＋Rust/LVGL UI**、地平座標→LCD 投影は App01 の Sky Plot ロジックを流用。⚠️ IMU は BMI270 6軸（**地磁気なし＝絶対方位不可**）のため AR プッシュツーは手動アライン or 外付けコンパスで対応。データ（HYG / OpenNGC / Stellarium 星座線）と元コードのライセンスは §9 で調査。 |
 | 2026-07-07 | **App 16 投影 PoC 実装＋ライセンス調査確定＋CoreS3 地磁気の流用を実機確定**。①**PoC**（`apps/stellar-map/poc/star_poc.py`・Pillow のみ）: 恒星＋星座線は Skyfield 不要（恒星時→地平座標の古典変換で自己完結）と判断し 320×170 に投影→PNG 出力。札幌 2026-07-07 21:30 で北斗七星/夏の大三角/はくちょう座を天文的に妥当に描画・地平線下を除外（23/35 星）。②**ライセンス調査**: 元 [wisnc/stellar-map](https://github.com/wisnc/stellar-map)=**無ライセンス（全権留保）→コード非流用・一次データから再実装**、HYG/OpenNGC=**CC BY-SA 4.0**（表示+継承）、Stellarium 現代星座線=**MIT**（Xalioth 再許諾）、Skyfield=**MIT**、JPL DE 暦=実質 PD。③**方位=CoreS3 の BMM150 を流用**（総司様指示）: CoreS3 の BMM150 は BMI270 補助 I2C 配下で i2cdetect に出ないが `M5.Imu.getMag()` で取得可能と COM5 実機で確定（過去の「BMM150 非検出」は読み方の問題）。`firmware/cores3-frontend` が `"mag":{ok,x,y,z,heading}` を USB CDC JSON に追加、`shared/cores3_bridge` に `Mag` データクラス追加（単体テスト 11/11 PASS）。※heading は要ハード/ソフトアイアン・傾き補正 |
+| 2026-07-08 | **CZ アプリ雛形 `templates/rust-fb-app/` を新設し uConsole(aarch64) で全経路を実機実証**。§2.7.6 方針（`legacy-deb-only` スタンドアロン・ネイティブバイナリ／framebuffer 直描画）に沿った "型" を作成: Rust framebuffer アプリ（`/dev/fb0` 直描画・`APPLAUNCH_LINUX_FBDEV_DEVICE` 尊重・SIGTERM で画面消去終了・16/32bpp 両対応）＋ `app-builder.json`(runtime:legacy-deb-only)＋`packaging/{meta.env,build.sh,stage.sh,postinst}`。非公開ローカル配布の自前ツール `scripts/pack_deb.sh`（meta.env→build→stage→`dpkg-deb`）と `scripts/deploy.sh`（pack→scp→apt install）も新設。**検証（uConsole = CM4 aarch64 Debian 11）**: rustup(rustc 1.96.1) 導入→**cargo ネイティブビルド成功（警告0）**→ELF aarch64 PIE/stripped 270KB→**`.deb` 生成成功**（control/postinst/.desktop 正常・追加 Depends 不要）→**`/dev/fb0` オープン・フレーム書込み成功**（実機パネル `720x1280 16bpp`＝RGB565 パス実証、CZ の 320×170 もジオメトリ自動追従で動作見込み）。コンパイラ警告 `function_casts_as_integer` を `as *const () as usize` で解消。⚠️ APPLaunch が `.desktop` を実際に認識するかは CZ 実機でのみ確定（残 TODO）。uConsole に rustup 保持（今後の実ビルド検証機）。 |
+| 2026-07-08 | **配布・言語方針を確定し §2.7.6 を「設計方針層【確定】」に更新**（総司様決定）。**配布=非公開ローカルのみ**（公式 AppStore 公開 PR せず／`czdev deploy` SSH と自前の非公開 apt リポジトリを併用）。**言語/ランタイム=`legacy-deb-only` スタンドアロン・ネイティブ実行バイナリ**（実機は全てネイティブ実行・SDL2 エミュレータには非依存／UI は framebuffer 直描画 or SDL2 直叩き／`lvgl-dlopen` の dlopen 方式は不採用）。コンパイル言語は **Rust 第一・C フォールバック**、本質 Python なサイドカー（App16 Skyfield/App14 picamera2 等）は Python 継続。APPLaunch 統合は `meta.env` の `APP_NAME`/`APP_ICON` で維持。開発反復は実機（到着まで uConsole/QEMU 代替）へ SSH デプロイ。 |
+| 2026-07-08 | **公式 AppBuilder / 配布リポジトリ 2 件を精査し §2.7 に「暫定（公式観測）層」として記録**。[CardputerZero-AppBuilder](https://github.com/m5stack/CardputerZero-AppBuilder)（czdev **v0.1.0**・MIT）と [CardputerZeroRepository](https://github.com/m5stack/CardputerZeroRepository)（apt・`ci/bootstrap` 段階）を実体調査。判明: (1) アプリは **2 系統** = `lvgl-dlopen`（C 共有ライブラリ・`app_main`/`app_event` ABI・LVGL 9.5・エミュレータ/APPLaunch 統合）と `legacy-deb-only`（独立実行ファイル＝Framebuffer C / **Python** / SDL / Qt / **Rust も可**）、(2) マニフェストは CLAUDE.md 記載の `app.yaml` **ではなく** `app-builder.json`（lvgl 系）または `packaging/meta.env`＋`build.sh`＋`stage.sh`（framebuffer/python 系）、(3) 配布は `.deb` 生成 →`czdev publish`→ apt リポジトリへ PR（publish 系は Python 3 のみで可・Rust 不要）、(4) **公式は 2026-06-01 に Rust フロントエンド/エミュレータを削除**し C/SDL2 へ舵、(5) **Windows 開発ループは未完成**（QUICKSTART 明記: mac/Linux のみ e2e サポート）、(6) `docs/architecture.md`（Tauri 2 + QEMU 構想）と実体（czdev + SDL2 + dlopen）に不整合＝流動的。**設計方針（Rust 維持 vs C 移行）は実機到着後に確定**（本記録は観測層・変更前提）。 |
 
 ---
 
@@ -668,6 +671,155 @@ Launcher (LVGL) アプリ内での日本語入力は fcitx5 が使えないた�
 GPS ロガー / BSAF クライアント等、**日本語入力が不要なアプリを優先開発**し、
 日本語入力が必要な用途（メッセージ送信など）は
 Mac Mini への Tailscale SSH セッションを使うことを推奨。
+
+---
+
+### 2.7 公式 AppBuilder / 配布プラットフォーム精査結果
+
+> **出所スタンプ**: 観測 2026-07-08 JST / `CardputerZero-AppBuilder@main`（リリース `czdev-v0.1.0`）/ `CardputerZeroRepository@ci/bootstrap`（リリース `apt-pool`）
+> **扱いの格**: 本節は **「暫定（公式観測）層」** = 公式リポジトリ由来の事実だが**確定仕様ではなく変更前提**。実機・自前検証で確定した項目は別途「確定」として上書きすること。設計上の意思決定（Rust 維持 vs C 移行等）は末尾の「設計方針層」に分離し、本節の観測が変わっても方針が巻き込まれないようにする。
+
+#### 2.7.0 両リポジトリの成熟度（＝観測の揺れ幅）
+
+| リポジトリ | 役割 | 成熟度（観測時点） |
+| --- | --- | --- |
+| [CardputerZero-AppBuilder](https://github.com/m5stack/CardputerZero-AppBuilder) | 開発ツールキット（`czdev` CLI + エミュレータ）＋オンラインビルドサービス | MIT・活発（最終 push 2026-06-30）だが **単一タグ `czdev-v0.1.0`**。ABI/スキーマ/publish 方式は破壊的変更あり得る |
+| [CardputerZeroRepository](https://github.com/m5stack/CardputerZeroRepository) | 公式 apt 配布リポジトリ（`.deb` 配信） | **極めて未成熟**。デフォルトブランチが `ci/bootstrap`、コミット 3 件（全 2026-05-06）、中身は `hello` の `.deb` 1 個。Issue #1 が「パイプライン疎通実証中」＝登録フローは変わる前提 |
+
+> ⚠️ 特に配布リポジトリ側は骨組み段階。登録フロー（`incoming/` への PR か `czdev upload/publish` か）は**確定していない**。
+
+#### 2.7.1 AppBuilder とは何か
+
+README 定義: *"Online build system & desktop development toolkit ... Submit any public Git repository and get a ready-to-install `.deb` package — no local toolchain required. Or develop locally with the built-in emulator."*
+
+2 つの機能が同居する:
+
+- **(A) オンラインビルドサービス** — public な Git リポジトリを投げると CI が x86_64→aarch64 クロスビルド（`aarch64-linux-gnu-`）して `.deb` を返す。`app-builder.json` を自動検出し並列ビルド。ローカルツールチェーン不要。
+- **(B) デスクトップ開発キット `czdev`（Rust 実装）** — 320×170 LCD をキーボードスキン付きで再現する SDL2 エミュレータ。`doctor` / `list` / `build` / `run` / `watch`（ホットリロード）/ `deploy` の各コマンド。公開系は `login` / `logout` / `bump` / `publish` / `unpublish`（**Python 3 のみで動作・Rust 不要**）。
+
+#### 2.7.2 【重要】アプリ形式は 2 系統（`app-builder.json` の `runtime`）
+
+`docs/APP_BUILDER_JSON.md` より、アプリは runtime で 2 モデルに分かれ、**言語の縛りが全く異なる**:
+
+| runtime | 実体 | 言語 | czdev エミュレータ | 例 |
+| --- | --- | --- | --- | --- |
+| **`lvgl-dlopen`**（既定・新方式） | `app_main`/`app_event` を export する共有ライブラリを `dlopen`/`LoadLibrary` で読み込み | **C 前提**（LVGL **9.5**、host と major.minor 一致必須） | ✅ 統合（`run`/`watch` で即実行） | `hello_cz` |
+| **`legacy-deb-only`** | 独立実行ファイル。`czdev run` はスキップするが CI の `.deb` パイプラインは通す | **何でも可**（Framebuffer C / **Python** / SDL / Qt / **Rust バイナリ**） | ❌ 非統合 | `Demo_SysDashboard`(Python)・`Demo_Clock`(FB-C) |
+
+- `runtime` 省略時: `app_main` を export していれば `lvgl-dlopen`、さもなくばエラーで `legacy-deb-only` 指定を促す。
+- **`lvgl-dlopen` の C ABI**（`sdk/include/cz_app.h`）:
+
+  ```c
+  #include <cz_app.h>
+  void app_main(lv_obj_t *parent) { /* LVGL UI をここに構築 */ }
+  void app_event(int type, void *data) { (void)type; (void)data; }
+  ```
+
+- **`lvgl-dlopen` の CMake**（3 行）:
+
+  ```cmake
+  cmake_minimum_required(VERSION 3.16)
+  list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/../../sdk/cmake")
+  include(CZApp)
+  cz_add_lvgl_app(my_app SOURCES src/my_app.c)
+  ```
+
+#### 2.7.3 マニフェスト形式（`app.yaml` は誤り）
+
+CLAUDE.md が例示する `app.yaml`（`com.osprey74.gps-logger` 形式）は**公式には存在しない**。実体は 2 系統:
+
+**(a) `app-builder.json`**（`lvgl-dlopen` 系・packaging と desktop dev の両用）:
+
+```jsonc
+{
+  "package_name": "hello_cz",     // Debian パッケージ名（小文字・ダッシュ）
+  "version":      "0.1",
+  "app_name":     "Hello CZ",     // APPLaunch 表示名
+  "bin_name":     "hello_cz",     // .so ベース名（lib 接頭辞なし）
+  "description":  "...",
+  "runtime":      "lvgl-dlopen",  // "lvgl-dlopen"(既定) | "legacy-deb-only"
+  "entry":        "app_main",     // C シンボル名（既定 app_main）
+  "event_entry":  "app_event",    // 既定 app_event
+  "lvgl_version": "9.5",          // host と major.minor 不一致は拒否
+  "caps":  ["keyboard","audio","network"],  // 予約語（enforcement は将来）
+  "assets": ["assets/fonts/"]     // ビルド .so の隣にコピー
+}
+```
+
+- `caps` 予約語: `keyboard` / `audio` / `network` / `filesystem` / `pty` / `process`（現状メタデータのみ）。
+
+**(b) `packaging/meta.env`＋`build.sh`＋`stage.sh`（＋任意 `postinst`）**（framebuffer C / Python 系の実 example が採用）:
+
+```sh
+# meta.env（例: Demo_SysDashboard = Python）
+PKG_NAME=demo-sysdash
+PKG_VERSION=0.1
+PKG_REVISION=m5stack1
+PKG_DEPENDS="python3, python3-pil, python3-numpy, iproute2, procps"
+APP_NAME="SysDash"
+APP_EXEC=/usr/share/APPLaunch/bin/demo-sysdash
+APP_TERMINAL=false
+APP_ICON=share/images/demo-sysdash.png
+```
+
+- `build.sh`（ビルド）→ `stage.sh`（`$STAGE$INSTALL_PREFIX/bin/` へ install）→ `postinst`（例: `pi` を `video`/`input` グループへ追加）の 3〜4 段。
+- インストール先は `/usr/share/APPLaunch/bin/`、**APPLaunch ホーム画面**に `APP_NAME`/`APP_ICON` 付きで並ぶ。
+
+#### 2.7.4 配布/登録フロー（＝「簡単」の中身）
+
+```
+アプリ開発 → czdev で .deb 生成 → czdev publish → CardputerZeroRepository へ PR
+                                                    → デバイス側 apt install <app> で導入
+```
+
+- デバイスへ直接: `czdev deploy --host pi@<ip> --deb <pkg>.deb`
+- apt 経由インストール（デバイス上）:
+
+  ```bash
+  echo 'deb [arch=arm64] https://m5stack.github.io/CardputerZeroRepository stable main' \
+    | sudo tee /etc/apt/sources.list.d/cardputer.list
+  sudo apt update && sudo apt install <appname>
+  ```
+
+- `.deb` バイナリは Git LFS ではなく **GitHub Release アセット**として保管（2026-06-30 に LFS 廃止へ変更済み）。GPG 署名 `KEY.gpg` で検証。
+
+#### 2.7.5 環境・注意点
+
+- **Windows 開発ループは未完成**: QUICKSTART 明記 *"the mac/Linux loop below is what's supported end-to-end today"*、`DESKTOP_DEV.md §4` で Windows は "work still in progress"。→ **総司様の Windows 11 主開発機ではエミュレータ即実行ループが安定しない可能性大**（現状は実機待ちのため影響は限定的）。
+- 前提ツール: macOS=`brew install cmake pkg-config sdl2 sdl2_image sdl2_mixer freetype`、Linux=`libsdl2-dev` 系、全 OS で Rust ツールチェーン（エミュレータ用のみ）。`git clone --recursive`（submodule あり）→ `czdev doctor` で環境検証。
+- **ドキュメント不整合（流動性の証拠）**: `docs/architecture.md` は「Tauri 2 デスクトップ IDE + QEMU aarch64 user-mode エミュレータ」を描くが、QUICKSTART の実体は「Rust `czdev` CLI + SDL2 + dlopen」。設計が 2 案並走 or 移行中と見られる。
+
+#### 2.7.6 設計方針層【確定 2026-07-08】
+
+> 本項は「暫定（公式観測）層」ではなく **総司様が決定した設計方針**。公式仕様（§2.7.0〜2.7.5）が変わっても、方針の意図は維持し手段のみ読み替える。
+
+**■ 配布方針【確定】: 非公開ローカル配布のみ**
+
+- 公式 CardputerZeroRepository への**公開 PR は行わない**。理由: (1) NFC/SubGHz/Wi-Fi/SDR 系は法令上「自己所有・教育目的のみ」で公開は用途逸脱を助長しかねない、(2) App10 BCL ログ等は UpNote `notebookId`・Tailscale 固定 IP・Mac Mini パスに密結合し汎用配布物にならない、(3) CoreS3 フロントエンド併用等の固有 HW 前提。
+- 配布手段は 2 経路を併用:
+  1. **`czdev deploy --host pi@<ip> --deb <pkg>.deb`（SSH/scp）** — 開発反復の主経路。
+  2. **自前の非公開 apt リポジトリ** — 複数台・再インストールを `apt install` で一元管理（公式方式＝GitHub Pages + Release アセット + `KEY.gpg` 署名を踏襲しつつ private 運用）。
+- ※ 将来、星座盤・タイマー等の汎用・無害アプリに限り公開を再検討する余地は残す（現時点では非公開一本）。
+
+**■ 言語/ランタイム方針【確定】: `legacy-deb-only` スタンドアロン・ネイティブ実行バイナリ**
+
+- 実機は低スペック ARM Linux。**デバイス上にエミュレーション層は存在せず全てネイティブ実行**される（czdev の SDL2 エミュレータは PC 開発時のみの補助で、Windows 未完成でもあり**依存しない**）。
+- アプリは **`lvgl-dlopen`（APPLaunch ホストへ dlopen される共有ライブラリ）ではなく、単体起動する自己完結ネイティブ実行バイナリ = `legacy-deb-only`** として構築する。UI は framebuffer 直描画（`/dev/fb0`・公式 `FrameBuffer_*`/`Demo_Clock` 系が実証）または SDL2 直叩き。
+- **APPLaunch 統合は失わない**: `legacy-deb-only` でも `packaging/meta.env` の `APP_NAME`/`APP_ICON`/`APP_EXEC` により Launcher ホーム画面へアイコン付きで登録される（`lvgl-dlopen` 専用機能ではない）。
+- コンパイル言語:
+  - **Rust を第一候補**（workspace/CLAUDE.md 主軸・既存資産）。framebuffer/SDL2 を直接叩くスタンドアロン ELF を `legacy-deb-only` で配布。
+  - **C はフォールバック**（公式 example が最多。Rust の aarch64 クロス + 描画ライブラリが難航した場合）。
+  - **本質的に Python なサイドカー**（App16 Skyfield・App14 picamera2/pyzbar・App13 検証スクリプト等）は従来どおり **Python（`legacy-deb-only` Python）** で継続。SysDashboard 等 Python example の成立実績あり。
+- 開発反復: czdev SDL2 エミュレータに依存せず、**実機（到着まで uConsole / QEMU aarch64 を代替）へ SSH デプロイして実行確認**する。
+
+**■ 標準雛形【実機実証済み 2026-07-08】: `templates/rust-fb-app/`**
+
+上記方針を体現する "型" を新設・uConsole(aarch64 Debian 11) で全経路検証済み。新規アプリはこれを `apps/<name>/` へコピーして作る（詳細は雛形の `README.md`）。
+
+- 構成: `app-builder.json`(runtime:`legacy-deb-only`) / `Cargo.toml` / `src/main.rs`(framebuffer 直描画・`APPLAUNCH_LINUX_FBDEV_DEVICE` 尊重・SIGTERM で画面消去終了・16/32bpp 両対応) / `packaging/{meta.env,build.sh,stage.sh,postinst}`。
+- ローカル配布ツール: `scripts/pack_deb.sh <app-dir>`（meta.env→build→stage→`dpkg-deb` で `.deb` 生成）、`scripts/deploy.sh <app-dir> [pi@host]`（pack→scp→apt install＝`czdev deploy` 相当の自前版）。`CZ_TARGET=` でネイティブビルド、既定は aarch64 クロス。`CZ_SKIP_BUILD=1` でパッカー単独検証。
+- **実機検証結果**: cargo ネイティブビルド成功（警告0・270KB ELF aarch64 PIE/stripped）→ `.deb` 生成成功（追加 Depends 不要・libc/libpthread/libgcc のみ）→ `/dev/fb0` 書込み成功（実機パネル `720x1280 16bpp`＝RGB565 パス実証・ジオメトリ自動追従）。
+- 残 TODO: APPLaunch の `.desktop` 認識パス/形式は CZ 実機で確定（暫定 `$INSTALL_PREFIX/share/applications/`）。fbdev の bpp も CZ 実機で最終確認。
 
 ---
 

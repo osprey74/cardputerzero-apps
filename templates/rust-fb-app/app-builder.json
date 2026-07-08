@@ -1,0 +1,9 @@
+{
+  "package_name": "cz-hello-fb",
+  "version": "0.1.0",
+  "app_name": "Hello FB",
+  "bin_name": "cz-hello-fb",
+  "description": "CardputerZero standalone framebuffer app template (Rust)",
+  "runtime": "legacy-deb-only",
+  "caps": ["filesystem"]
+}

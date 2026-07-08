@@ -1,0 +1,20 @@
+[package]
+name = "cz-hello-fb"
+version = "0.1.0"
+edition = "2021"
+description = "CardputerZero standalone framebuffer app template"
+license = "MIT"
+authors = ["osprey74"]
+
+# バイナリ名は package.name と一致（= PKG_NAME / meta.env）。ダッシュ可。
+
+[dependencies]
+framebuffer = "0.3"   # /dev/fb0 を直接叩く（X 不要・依存最小）
+libc = "0.2"          # SIGTERM/SIGINT ハンドリング
+
+[profile.release]
+opt-level = "z"       # 実機は低スペック ARM。サイズ優先
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -1,0 +1,20 @@
+# Linux 実機/デバイスへ配布・実行されるファイルは LF 固定（CRLF だと bash/sh が壊れる）
+*.sh            text eol=lf
+*.py            text eol=lf
+*.rs            text eol=lf
+*.toml          text eol=lf
+*.json          text eol=lf
+*.yaml          text eol=lf
+*.yml           text eol=lf
+
+# 拡張子なしの Debian maintainer scripts
+packaging/postinst   text eol=lf
+packaging/preinst    text eol=lf
+packaging/prerm      text eol=lf
+packaging/postrm     text eol=lf
+
+# バイナリ扱い（改行変換しない）
+*.png    binary
+*.bsp    binary
+*.bin    binary
+*.deb    binary
