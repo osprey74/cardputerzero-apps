@@ -181,7 +181,7 @@ static uint8_t g_enc_uid[ENC_MAX + 1][4] = {{0}};
 static bool    g_enc_uid_ok[ENC_MAX + 1] = {false};
 static int8_t  g_enc_ident[ENC_MAX + 1]  = {-1};  // ENC_IDENTITY index / -1=unknown
 
-#define FW_VERSION "0.6.0"   // + ページメニュー (左上 ≡ / エンコーダ回転+押下で選択)
+#define FW_VERSION "0.6.1"   // ページメニューを上部タイトルバー(≡＋ページ名・全幅タップ)方式に
 
 // ---- IMU 水準器・下げ振り (内蔵 BMI270) ------------------------------------
 // 単体アプリ firmware/cores3-level と同じ角度ロジック。協働中も CoreS3 画面の
@@ -231,8 +231,9 @@ static constexpr int SWIPE_THRESHOLD = 50;   // スワイプと判定する水�
 // Chain Encoder(id=1) の押下。選ぶ=行タップ / エンコーダ回転で選び押下で確定。
 static bool g_menu_open   = false;
 static int  g_menu_cursor = 0;               // メニュー内の選択行 (ページ index)
-// 左上 ≡ ボタンの当たり判定 (全ページ共通・タッチ座標で判定)。
-static constexpr int MENU_BTN_W = 24, MENU_BTN_H = 20;
+// 上部タイトルバー (全幅・高さ BAR_H)。≡ とページ名を表示し、ここをタップで開閉。
+// バーは各ページ描画の最後に上書きするので、上部 BAR_H px は一律「予約領域」になる。
+static constexpr int BAR_H = 24;
 // ナビ用エンコーダ (id=1) の押下エッジ検出用。
 static constexpr uint16_t NAV_ENC_ID = 1;
 static uint8_t g_nav_btn_prev = 0;
@@ -494,7 +495,7 @@ static void drawMeter() {
   g_canvas.fillScreen(COL_BG);
 
   int x = 6;
-  int y = 4;
+  int y = BAR_H + 4;   // 上部タイトルバーの下から開始
 
   // ---- バッテリー (最上段) --------------------------------------------------
   drawBatteryIcon(x, y, 30, 16, g_r.bat_pct, g_r.bat_chg == 1);
@@ -612,7 +613,7 @@ static void drawInfo() {
   char buf[40], line[40];
 
   g_canvas.fillScreen(COL_BG);
-  int x = 6, y = 4;
+  int x = 6, y = BAR_H + 2;   // 上部タイトルバーの下から始める
 
   // ---- 時計 (NTP 同期時のみ・曜日 日=赤/土=青) ----
   y = drawSection(x, y, W - 12, "CLOCK  (JST)");
@@ -696,7 +697,7 @@ static void drawSys() {
   char buf[48];
 
   g_canvas.fillScreen(COL_BG);
-  int x = 6, y = 4;
+  int x = 6, y = BAR_H + 2;   // 上部タイトルバーの下から始める
 
   // ---- ネットワーク ----
   y = drawSection(x, y, W - 12, "NETWORK");
@@ -780,7 +781,7 @@ static void drawRelFlag() {
   if (!g_relative) return;
   g_canvas.setTextSize(1);
   g_canvas.setTextColor(COL_WARN, COL_BG);
-  g_canvas.setCursor(g_canvas.width() - 22, 4);
+  g_canvas.setCursor(g_canvas.width() - 22, BAR_H + 4);   // 上部バーの下(右)
   g_canvas.print("REL");
 }
 
@@ -788,11 +789,7 @@ static void drawRelFlag() {
 static void drawLevel() {
   const int W = g_canvas.width();
   g_canvas.fillScreen(COL_BG);
-
-  g_canvas.setTextSize(2);
-  g_canvas.setTextColor(COL_ACCENT, COL_BG);
-  g_canvas.setCursor(6, 6);
-  g_canvas.print("LEVEL");
+  // タイトルは上部バーが "LEVEL" を表示するため、ここでは描かない。
 
   const int cx = W / 2;
   const int cy = 150;
@@ -883,7 +880,7 @@ static void drawTimerBattery() {
   g_canvas.setTextDatum(textdatum_t::top_right);
   g_canvas.setTextColor(col, COL_BG);
   g_canvas.setTextSize(1);
-  g_canvas.drawString(buf, g_canvas.width() - 4, 4);
+  g_canvas.drawString(buf, g_canvas.width() - 4, BAR_H + 4);   // 上部バーの下(右)
   g_canvas.setTextDatum(textdatum_t::top_left);  // 既定に戻す
 }
 
@@ -903,7 +900,7 @@ static void drawTimer() {
     g_canvas.setTextDatum(textdatum_t::top_center);
     g_canvas.setTextColor(COL_ACCENT, COL_BG);
     g_canvas.setTextSize(2);
-    g_canvas.drawString("SET TIME", cx, 20);
+    g_canvas.drawString("SET TIME", cx, BAR_H + 2);
 
     snprintf(buf, sizeof(buf), "%d", PRESET_MIN[g_tm_preset]);
     g_canvas.setTextDatum(textdatum_t::middle_center);
@@ -960,20 +957,21 @@ static void drawTimer() {
     g_canvas.fillArc(cx, cy, rIn, rOut, 270.0f, 270.0f + sweep, arcCol);
   }
 
-  // 上部ステータス行。
+  // 上部ステータス行 (バーの下)。
+  const int stY = BAR_H + 2;
   g_canvas.setTextDatum(textdatum_t::top_center);
   g_canvas.setTextSize(2);
   if (g_tm_state == TM_DONE) {
     g_canvas.setTextColor(blink ? COL_RED : COL_LABEL, COL_BG);
-    g_canvas.drawString("TIME UP", cx, 12);
+    g_canvas.drawString("TIME UP", cx, stY);
   } else if (g_tm_state == TM_PAUSED) {
     snprintf(line, sizeof(line), "%d MIN  PAUSED", PRESET_MIN[g_tm_preset]);
     g_canvas.setTextColor(blink ? COL_WARN : COL_LABEL, COL_BG);
-    g_canvas.drawString(line, cx, 12);
+    g_canvas.drawString(line, cx, stY);
   } else {
     snprintf(line, sizeof(line), "%d MIN", PRESET_MIN[g_tm_preset]);
     g_canvas.setTextColor(COL_ACCENT, COL_BG);
-    g_canvas.drawString(line, cx, 12);
+    g_canvas.drawString(line, cx, stY);
   }
 
   // 中央: 残り時間 (超過時は +MM:SS を赤)。桁数に応じてサイズを落とす (内径に収める)。
@@ -1010,12 +1008,18 @@ static void drawTimer() {
   drawTimerBattery();
 }
 
-// 左上の ≡ メニューボタン (全ページ共通・最前面)。小さな暗箱＋シアンの 3 本線。
-static void drawMenuButton() {
-  g_canvas.fillRect(0, 0, MENU_BTN_W, MENU_BTN_H, COL_BG);
-  g_canvas.drawRect(0, 0, MENU_BTN_W, MENU_BTN_H, COL_DIM);
-  for (int i = 0; i < 3; i++)
-    g_canvas.drawFastHLine(6, 5 + i * 5, MENU_BTN_W - 12, COL_ACCENT);
+// 上部タイトルバー (全ページ共通・最前面)。左に ≡、続けて現在ページ名。全幅がタップ標的。
+static void drawTopBar() {
+  const int W = g_canvas.width();
+  g_canvas.fillRect(0, 0, W, BAR_H, COL_BG);
+  for (int i = 0; i < 3; i++)               // ≡ アイコン
+    g_canvas.drawFastHLine(6, 7 + i * 5, 14, COL_ACCENT);
+  g_canvas.setTextDatum(textdatum_t::middle_left);
+  g_canvas.setTextColor(COL_ACCENT, COL_BG);
+  g_canvas.setTextSize(2);
+  g_canvas.drawString(PAGE_NAME[g_page], 28, BAR_H / 2);
+  g_canvas.drawFastHLine(0, BAR_H - 1, W, COL_DIM);
+  g_canvas.setTextDatum(textdatum_t::top_left);   // 既定に戻す
 }
 
 // ページメニュー (縦リストのオーバーレイ)。現在ページに •、カーソル行を反転表示。
@@ -1067,7 +1071,7 @@ static void drawCurrentPage() {
     default:         drawMeter(); break;
   }
   drawPageDots();
-  drawMenuButton();
+  drawTopBar();
   g_canvas.pushSprite(0, 0);
 }
 
@@ -1083,11 +1087,11 @@ static void handleTouch() {
     int dy = d.distanceY();
     bool tap = (abs(dx) < 16 && abs(dy) < 16);
 
-    // --- メニュー表示中: 行タップで選択ジャンプ / 左上 ≡ で閉じる ---
+    // --- メニュー表示中: 行タップで選択ジャンプ / 上部バーのタップで閉じる ---
     if (g_menu_open) {
       if (tap) {
-        if (d.x < MENU_BTN_W && d.y < MENU_BTN_H) {
-          g_menu_open = false;                       // ≡ 再タップで閉じる
+        if (d.y < BAR_H) {
+          g_menu_open = false;                       // 上部バー再タップで閉じる
         } else {
           const int H = g_canvas.height();
           const int top = 34, rowH = (H - top - 26) / PAGE_COUNT;
@@ -1099,8 +1103,8 @@ static void handleTouch() {
       return;   // メニュー中は他のジェスチャを無視
     }
 
-    // --- メニュー閉時: 左上 ≡ ボタンのタップでメニューを開く ---
-    if (tap && d.x < MENU_BTN_W && d.y < MENU_BTN_H) {
+    // --- メニュー閉時: 上部バー(全幅×BAR_H)のタップでメニューを開く ---
+    if (tap && d.y < BAR_H) {
       g_menu_open = true; g_menu_cursor = g_page; g_redraw = true;
       return;
     }
