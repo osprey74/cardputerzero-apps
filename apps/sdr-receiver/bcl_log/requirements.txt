@@ -1,2 +1,6 @@
 PyYAML>=5.4
 rich>=13.0
+# オンデバイス UI (bcl_log.ui / 320x170 pygame)。実機/uConsole では apt の python3-pygame でも可。
+pygame>=1.9
+# エンコーダ入力は shared/cores3_bridge（リポジトリ内・USB CDC 経由）を使用。pyserial が必要:
+pyserial>=3.5
