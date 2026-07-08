@@ -181,7 +181,7 @@ static uint8_t g_enc_uid[ENC_MAX + 1][4] = {{0}};
 static bool    g_enc_uid_ok[ENC_MAX + 1] = {false};
 static int8_t  g_enc_ident[ENC_MAX + 1]  = {-1};  // ENC_IDENTITY index / -1=unknown
 
-#define FW_VERSION "0.6.1"   // ページメニューを上部タイトルバー(≡＋ページ名・全幅タップ)方式に
+#define FW_VERSION "0.6.2"   // メニューは ≡ バーのタップのみで開く (エンコーダ押下では開かない)
 
 // ---- IMU 水準器・下げ振り (内蔵 BMI270) ------------------------------------
 // 単体アプリ firmware/cores3-level と同じ角度ロジック。協働中も CoreS3 画面の
@@ -560,14 +560,13 @@ static void drawMeter() {
   g_canvas.print("P "); g_canvas.print(val);
   y += 36;
 
-  // ---- NCIR -----------------------------------------------------------------
+  // ---- NCIR (obj / amb を横並び) --------------------------------------------
   y = drawSection(x, y, W - 12, "NCIR  MLX90614");
   fmtTemp(val, sizeof(val), g_r.t_obj);
   drawField(x + 4, y, "obj ", val, COL_VALUE, 2, 2);
-  y += 22;
   fmtTemp(val, sizeof(val), g_r.t_amb);
-  drawField(x + 4, y, "amb ", val, COL_LABEL, 2, 2);
-  y += 28;
+  drawField(W / 2 + 2, y, "amb ", val, COL_LABEL, 2, 2);
+  y += 16 + SEC_GAP;   // 1 行 (size2 16px) + セクション余白 → 次セクションへ
 
   // ---- ENC ------------------------------------------------------------------
   char title[24];
@@ -580,30 +579,29 @@ static void drawMeter() {
     g_canvas.print("(no node)");
     y += 14;
   } else {
-    for (uint16_t id = 1; id <= g_enc_num && id <= ENC_MAX && y < g_canvas.height() - 18; id++) {
+    // 最大 2 台を横並び (左=id1 / 右=id2)。各: 名前+累積値 と 押下ドット。
+    for (uint16_t id = 1; id <= g_enc_num && id <= 2; id++) {
       uint8_t btn = 0;
       chain.getEncoderButtonStatus(id, &btn);
       // UID で解決した役割があれば色・名前を個体固定 (配線順非依存)。
       // 未解決時は従来の位置ベース (id1=赤 / id2=青) にフォールバック。
       int8_t idn = g_enc_ident[id];
       uint16_t encColor = (idn >= 0) ? ENC_IDENTITY[idn].color
-                        : (id == 1) ? COL_E1 : (id == 2) ? COL_E2 : COL_VALUE;
+                        : (id == 1) ? COL_E1 : COL_E2;
       const char *nm = (idn >= 0) ? ENC_IDENTITY[idn].name : nullptr;
       char line[24];
-      // 名前を 4 桁左詰めで揃え、回転値の桁を縦に揃える ("RED  +0" / "BLUE +0")。
       if (nm) snprintf(line, sizeof(line), "%-4s %+ld", nm, (long)g_enc_count[id]);
       else    snprintf(line, sizeof(line), "E%u %+ld", id, (long)g_enc_count[id]);
+      int colX = (id == 1) ? x + 4 : W / 2 + 2;   // 左列 / 右列
+      int dotX = (id == 1) ? W / 2 - 12 : W - 14; // 各列の右端に押下ドット
       g_canvas.setTextSize(2);
       g_canvas.setTextColor(encColor, COL_BG);
-      g_canvas.setCursor(x + 4, y);
+      g_canvas.setCursor(colX, y);
       g_canvas.print(line);
-      // ボタン状態インジケータ (押下=塗り円)
-      int cy = y + 7;
-      int cx = W - 18;
-      if (btn) g_canvas.fillCircle(cx, cy, 6, COL_OK);
-      else     g_canvas.drawCircle(cx, cy, 6, COL_LABEL);
-      y += 22;
+      if (btn) g_canvas.fillCircle(dotX, y + 7, 5, COL_OK);
+      else     g_canvas.drawCircle(dotX, y + 7, 5, COL_LABEL);
     }
+    y += 22;
   }
 }
 
@@ -1525,19 +1523,19 @@ void loop() {
     chain.getEncoderButtonStatus(id, &btn); // ノブ押下状態 (生値)
     g_enc_count[id] += inc;
 
-    // ナビ用エンコーダ(id=1): 押下エッジでメニュー開閉/確定、回転でカーソル移動。
-    // ※ TIMER ページは radio_off で本ブロックに来ないためタッチ ≡ で操作する。
+    // ナビ用エンコーダ(id=1): メニューは開かない (開くのは画面上の ≡ バーのタップのみ)。
+    // メニュー表示中だけ、回転=カーソル移動 / 押下=確定ジャンプ として使う。
     if (id == NAV_ENC_ID) {
-      if (btn && !g_nav_btn_prev) {
-        if (!g_menu_open) { g_menu_open = true; g_menu_cursor = g_page; }
-        else { g_page = g_menu_cursor; g_menu_open = false; }
-        g_redraw = true;
+      if (g_menu_open) {
+        if (btn && !g_nav_btn_prev) {            // 押下=確定 (メニュー中のみ)
+          g_page = g_menu_cursor; g_menu_open = false; g_redraw = true;
+        }
+        if (inc != 0) {                          // 回転=カーソル移動
+          g_menu_cursor = (g_menu_cursor + (inc > 0 ? 1 : -1) + PAGE_COUNT) % PAGE_COUNT;
+          g_redraw = true;
+        }
       }
       g_nav_btn_prev = btn;
-      if (g_menu_open && inc != 0) {
-        g_menu_cursor = (g_menu_cursor + (inc > 0 ? 1 : -1) + PAGE_COUNT) % PAGE_COUNT;
-        g_redraw = true;
-      }
     }
     // 個体識別: role(R/B/…) と uid を併記 (受信側が配線順によらず個体を束ねられる)。
     char role = (g_enc_ident[id] >= 0) ? ENC_IDENTITY[g_enc_ident[id]].role : '?';
