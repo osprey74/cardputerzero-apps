@@ -24,8 +24,10 @@ from __future__ import annotations
 import argparse
 import glob
 import os
+import signal
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -38,6 +40,7 @@ if str(_REPO) not in sys.path:
 
 from . import config as cfg          # noqa: E402
 from . import markdown_template as mdt  # noqa: E402
+from . import sdr                     # noqa: E402
 from . import stations as sdb        # noqa: E402
 from . import upnote as un           # noqa: E402
 
@@ -53,7 +56,7 @@ OK = (120, 220, 150)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATIONS_PATH = PROJECT_ROOT / "data" / "bcl_stations.yaml"
 
-STATES = ["STATION", "FREQ", "SINPO", "CONFIRM", "DONE"]
+STATES = ["RX", "STATION", "FREQ", "SINPO", "CONFIRM", "DONE"]
 SINPO_LABELS = ["S", "I", "N", "P", "O"]
 
 
@@ -112,8 +115,9 @@ class EncoderState:
 
 
 class BclUI:
-    def __init__(self, enc: EncoderState):
+    def __init__(self, enc: EncoderState, rx: "sdr.Receiver"):
         self.enc = enc
+        self.rx = rx
         self.stations = sdb.load(STATIONS_PATH)
         self.state = 0            # index into STATES
         self.sta_idx = 0          # 選択中の局
@@ -125,13 +129,14 @@ class BclUI:
         # 入力エッジ検出用
         self._prev = {"R": None, "B": None}
         self._prev_btn = {"R": False, "B": False}
+        self._last_press = 0.0    # ボタンデバウンス（チャタリングで二重トグル防止）
 
     # --- 入力（エンコーダ差分 + ボタンエッジ）→ 抽象イベント ---
     def poll_encoder(self):
         cnt, pressed, _ = self.enc.snapshot()
         a_rot = b_rot = 0
-        a_press = False
-        for role, rot in (("R", "a"), ("B", "b")):
+        a_press = b_press = False
+        for role in ("R", "B"):
             if self._prev[role] is None:
                 self._prev[role] = cnt[role]
             d = cnt[role] - self._prev[role]
@@ -143,8 +148,17 @@ class BclUI:
             if pressed[role] and not self._prev_btn[role]:
                 if role == "R":
                     a_press = True
+                else:
+                    b_press = True
             self._prev_btn[role] = pressed[role]
-        return a_rot, b_rot, a_press
+        # デバウンス: 直近 0.30s 以内の押下は無視（チャタリングによる二重トグル防止）
+        if a_press or b_press:
+            now = time.monotonic()
+            if now - self._last_press < 0.30:
+                a_press = b_press = False
+            else:
+                self._last_press = now
+        return a_rot, b_rot, a_press, b_press
 
     # --- キーボードイベント → 抽象イベント ---
     def handle_key(self, key):
@@ -154,6 +168,8 @@ class BclUI:
             self.on_b_rot(1 if key == pygame.K_RIGHT else -1)
         elif key in (pygame.K_RETURN, pygame.K_SPACE):
             self.on_a_press()
+        elif key == pygame.K_r:
+            self.on_b_press()
         elif key == pygame.K_BACKSPACE:
             self.state = max(0, self.state - 1)
 
@@ -162,7 +178,9 @@ class BclUI:
         if steps == 0:
             return
         st = STATES[self.state]
-        if st == "STATION" and self.stations:
+        if st == "RX":
+            self.rx.tune(steps)
+        elif st == "STATION" and self.stations:
             self.sta_idx = (self.sta_idx + steps) % len(self.stations)
             self.freq_idx = 0
         elif st == "FREQ":
@@ -174,13 +192,19 @@ class BclUI:
     def on_b_rot(self, steps):
         if steps == 0:
             return
-        if STATES[self.state] == "SINPO":
+        st = STATES[self.state]
+        if st == "RX":
+            self.rx.set_band(steps)
+        elif st == "SINPO":
             v = self.sinpo[self.sinpo_cur] + steps
             self.sinpo[self.sinpo_cur] = max(1, min(5, v))
 
     def on_a_press(self):
         st = STATES[self.state]
-        if st == "CONFIRM":
+        if st == "RX":
+            self._prefilter_station()
+            self.state += 1
+        elif st == "CONFIRM":
             self._build_note()
             self.state = STATES.index("DONE")
         elif st == "DONE":
@@ -188,6 +212,19 @@ class BclUI:
             self.msg = ""
         else:
             self.state = min(len(STATES) - 1, self.state + 1)
+
+    def on_b_press(self):
+        # 青ノブ押下: RX 画面では受信 ON/OFF トグル。
+        if STATES[self.state] == "RX":
+            self.rx.toggle()
+
+    def _prefilter_station(self):
+        """受信中周波数に一致する既知局があれば局選択をそこに合わせる。"""
+        cand = sdb.candidates(self.stations, self.rx.freq_khz,
+                              tolerance_khz=max(10, self.rx.step_khz * 2))
+        if cand:
+            self.sta_idx = self.stations.index(cand[0])
+            self.freq_idx = 0
 
     # --- ヘルパ ---
     def _station(self):
@@ -295,7 +332,20 @@ def draw(surf, ui: BclUI):
     s = ui._station()
     f = ui._freq()
 
-    if st == "STATION":
+    if st == "RX":
+        r = ui.rx
+        _text(surf, 6, 28, "RECEIVE  (A=tune  B=band)", DIM, 14)
+        _text(surf, 10, 48, "%s   %s" % (r.band[0], r.mode), ACCENT, 16)
+        _text(surf, 10, 70, r.freq_label(), FG, 26)
+        if not sdr.available():
+            _text(surf, 10, 104, "rtl_fm/aplay not found", (230, 120, 120), 14)
+        else:
+            on = r.running
+            _text(surf, 10, 104,
+                  "RX " + ("ON " if on else "OFF") + " (B press: "
+                  + ("stop)" if on else "start)"), OK if on else DIM, 15)
+        _text(surf, 10, 126, "A press: to log", DIM, 13)
+    elif st == "STATION":
         _text(surf, 6, 28, "Select station (knob A)", DIM, 14)
         for i in range(max(0, ui.sta_idx - 1), min(len(ui.stations), ui.sta_idx + 3)):
             y = 46 + (i - max(0, ui.sta_idx - 1)) * 18
@@ -342,7 +392,17 @@ def draw(surf, ui: BclUI):
     _text(surf, 4, H - 15, foot, DIM, 13)
 
 
+_STOP = False
+
+
+def _on_signal(signum, frame):
+    global _STOP
+    _STOP = True
+
+
 def run(args):
+    signal.signal(signal.SIGTERM, _on_signal)
+    signal.signal(signal.SIGINT, _on_signal)
     pygame.init()
     pygame.display.set_caption("BCL Log")
     screen = pygame.display.set_mode((W, H))
@@ -351,7 +411,8 @@ def run(args):
     if not args.no_sensor:
         enc.start()
 
-    ui = BclUI(enc)
+    rx = sdr.Receiver()
+    ui = BclUI(enc, rx)
     clock = pygame.time.Clock()
 
     if args.screenshot:
@@ -362,28 +423,32 @@ def run(args):
         print("screenshot -> %s" % args.screenshot, file=sys.stderr)
         return
 
-    running = True
-    while running:
-        for ev in pygame.event.get():
-            if ev.type == pygame.QUIT:
-                running = False
-            elif ev.type == pygame.KEYDOWN:
-                if ev.key == pygame.K_ESCAPE:
-                    running = False
-                else:
-                    ui.handle_key(ev.key)
-        if not args.no_sensor:
-            a_rot, b_rot, a_press = ui.poll_encoder()
-            if a_rot:
-                ui.on_a_rot(a_rot)
-            if b_rot:
-                ui.on_b_rot(b_rot)
-            if a_press:
-                ui.on_a_press()
-        draw(screen, ui)
-        pygame.display.flip()
-        clock.tick(30)
-    pygame.quit()
+    try:
+        while not _STOP:
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT:
+                    return
+                elif ev.type == pygame.KEYDOWN:
+                    if ev.key == pygame.K_ESCAPE:
+                        return
+                    else:
+                        ui.handle_key(ev.key)
+            if not args.no_sensor:
+                a_rot, b_rot, a_press, b_press = ui.poll_encoder()
+                if a_rot:
+                    ui.on_a_rot(a_rot)
+                if b_rot:
+                    ui.on_b_rot(b_rot)
+                if a_press:
+                    ui.on_a_press()
+                if b_press:
+                    ui.on_b_press()
+            draw(screen, ui)
+            pygame.display.flip()
+            clock.tick(30)
+    finally:
+        rx.stop()          # 受信中の rtl_fm/aplay を確実に停止（孤児化防止）
+        pygame.quit()
 
 
 def main():
