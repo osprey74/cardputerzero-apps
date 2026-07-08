@@ -1,0 +1,9 @@
+{
+  "package_name": "cz-sidecar-demo",
+  "version": "0.1.0",
+  "app_name": "Sidecar Demo",
+  "bin_name": "cz-sidecar-demo",
+  "description": "CardputerZero Python sidecar template (JSON Lines frame emitter)",
+  "runtime": "legacy-deb-only",
+  "caps": []
+}

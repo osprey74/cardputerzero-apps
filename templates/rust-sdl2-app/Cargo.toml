@@ -1,0 +1,18 @@
+[package]
+name = "cz-hello-sdl2"
+version = "0.1.0"
+edition = "2021"
+description = "CardputerZero standalone SDL2 app template (320x170)"
+license = "MIT"
+authors = ["osprey74"]
+
+[dependencies]
+sdl2 = "0.37"   # ビルドに libsdl2-dev+pkg-config / 実行に libsdl2-2.0-0
+libc = "0.2"    # SIGTERM/SIGINT
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

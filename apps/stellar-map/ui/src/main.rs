@@ -1,28 +1,41 @@
-//! App 16 星座盤 UI (czdev/LVGL) ― サイドカーの Scene JSON を描く薄い front-end。
+//! App 16 星座盤 UI (SDL2) ― サイドカーの Scene JSON を 320×170 に描く薄い front-end。
 //!
 //! アーキテクチャ: Python サイドカー (`sidecar/stellar_sidecar.py`) が天体計算・投影を行い、
-//! 320×170 のデバイス座標プリミティブ (Scene) を JSON Lines で stdout に出す。本 UI は
-//! 子プロセスとして起動し、1 行=1 フレームを読み、四角・線・文字を描くだけ。
+//! 320×170 のデバイス座標プリミティブ (Scene) を JSON Lines で吐く。本 UI はそれを読み、
+//! 円・線・四角(点)・文字を描くだけ（HANDOFF §2.7.6【確定】= legacy-deb-only スタンドアロン
+//! ネイティブバイナリ、SDL2 直描画）。描画は AA 無し・等倍（低解像度 LCD で最も鮮明）。
 //!
-//! 状態: **scaffold**。プロセス連携と Scene パースは実装済み。LVGL 描画呼び出し (`draw_scene`)
-//! は czdev(AppBuilder) 到着後に czdev API へ合わせて確定する TODO スタブ。czdev/実機が無いため
-//! 本 crate はまだコンパイルしていない。
-//!
-//! 描画方針 (HANDOFF §App16 決定): 四角ドット＋AA 無し＋等倍が低解像度 LCD で最も鮮明。
-//! points の side は四角の一辺 [px]、色は [r,g,b]。
+//! フレーム入力:
+//!   - 既定: サイドカーを子プロセス起動（`STELLAR_SIDECAR` で .py パス上書き可）。
+//!   - `STELLAR_FROM_STDIN=1`: stdin から JSON Lines を読む（`sidecar.py | stellar-map`）。
+//! 検証: `SDL_VIDEODRIVER=dummy CZ_SCREENSHOT=out.bmp` で 1 フレーム描いて BMP 保存し終了。
 
-// scaffold: 一部フィールドは LVGL 描画 (draw_scene) 実装時に使う。それまで未使用を許容。
-#![allow(dead_code)]
+mod draw;
+mod font8x8;
 
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use sdl2::pixels::{Color, PixelFormatEnum};
+use sdl2::render::WindowCanvas;
 use serde::Deserialize;
+
+const W: u32 = 320;
+const H: u32 = 170;
+
+static STOP: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn on_signal(_sig: libc::c_int) {
+    STOP.store(true, Ordering::SeqCst);
+}
 
 /// サイドカーが吐く 1 フレーム (Scene)。座標は 320×170 の整数デバイス画素。
 #[derive(Debug, Deserialize)]
 struct Scene {
+    #[allow(dead_code)]
     w: i32,
+    #[allow(dead_code)]
     h: i32,
     chrome: Chrome,
     #[serde(default)]
@@ -60,6 +73,7 @@ struct Meta {
 struct Moon {
     frac: f64,
     waxing: bool,
+    #[allow(dead_code)]
     phase: String,
 }
 
@@ -71,72 +85,138 @@ struct Counts {
     planets: i32,
 }
 
-/// 1 フレームを LCD に描く。
-///
-/// TODO(czdev): 以下を czdev/LVGL の描画 API に置き換える。到着後に確定。
-///   - 画面クリア (黒)
-///   - chrome.circle を円で、十字線、dirs を文字で (dir_color)
-///   - lines を線で (line_color)
-///   - points を「一辺 side の塗り四角」で (中心 x,y・色 r,g,b)。AA 無し・等倍。
-///   - labels を小フォント文字で
-///   - 右 150px に meta から情報パネル (time/lat/lon/counts/moon)
-/// LVGL では points は lv_canvas_set_px か lv_draw_rect(塗り) が候補。文字は 1bpp ビットマップフォント。
-fn draw_scene(scene: &Scene) {
-    // --- scaffold: 実描画の代わりにフレーム要約をログ出力（配線の確認用） ---
-    let m = &scene.meta;
-    let moon = m
-        .moon
-        .as_ref()
-        .map(|mo| {
-            format!(
-                "{:.0}% {} {}",
-                mo.frac * 100.0,
-                if mo.waxing { "wax" } else { "wan" },
-                mo.phase
-            )
-        })
-        .unwrap_or_else(|| "-".into());
-    eprintln!(
-        "[frame] {} lat={:.2} lon={:.2} {}x{} | stars={} lines={} dso={} planets={} | points={} labels={} | moon={}",
-        m.time_local, m.lat, m.lon, scene.w, scene.h,
-        m.counts.stars, m.counts.lines, m.counts.dso, m.counts.planets,
-        scene.points.len(), scene.labels.len(), moon,
-    );
-    // 描画順の目安 (czdev API 確定後に実装):
-    //   clear(); draw_circle(chrome.circle, chrome.circle_color); draw_cross();
-    //   for d in &chrome.dirs { draw_text(d.0, d.1, &d.2, chrome.dir_color); }
-    //   for l in &scene.lines { draw_line(l, scene.line_color); }
-    //   for p in &scene.points { fill_square(p.0, p.1, p.2, [p.3,p.4,p.5]); }
-    //   for t in &scene.labels { draw_text(t.0, t.1, &t.2, [t.3,t.4,t.5]); }
-    //   draw_panel(&scene.meta);
-    let _ = (&scene.chrome, &scene.lines, &scene.line_color, &scene.points, &scene.labels);
+/// 右 150px の情報パネル（meta から）。
+fn draw_panel(cv: &mut WindowCanvas, m: &Meta) {
+    let x = 174;
+    let mut y = 6;
+    let c = [150, 170, 190];
+    let dim = [110, 125, 140];
+    draw::text(cv, x, y, "STELLAR MAP", [0x4F, 0xC3, 0xF7], 1);
+    y += 14;
+    draw::text(cv, x, y, &m.time_local, c, 1);
+    y += 11;
+    draw::text(cv, x, y, &format!("{:.2},{:.2}", m.lat, m.lon), c, 1);
+    y += 14;
+    draw::text(cv, x, y, &format!("stars={}", m.counts.stars), dim, 1);
+    y += 10;
+    draw::text(cv, x, y, &format!("lines={}", m.counts.lines), dim, 1);
+    y += 10;
+    draw::text(cv, x, y, &format!("dso={} pl={}", m.counts.dso, m.counts.planets), dim, 1);
+    y += 14;
+    if let Some(mo) = &m.moon {
+        draw::text(cv, x, y, &format!("moon {:.0}%", mo.frac * 100.0), [225, 225, 205], 1);
+        y += 10;
+        draw::text(cv, x, y, if mo.waxing { "waxing" } else { "waning" }, dim, 1);
+    }
 }
 
-fn main() -> std::io::Result<()> {
-    // サイドカーを起動し、Scene JSON Lines を読み続ける (デバイスでは 30s 毎に更新)。
-    // 引数は実機で GNSS/RTC 連携に置き換える。ここでは既定 (現在時刻・札幌) を使う。
-    let mut child = Command::new("python3")
-        .arg("../sidecar/stellar_sidecar.py")
-        .arg("--interval")
-        .arg("30")
-        .stdout(Stdio::piped())
-        .spawn()?;
+/// 1 フレームを 320×170 に描く。
+fn draw_scene(cv: &mut WindowCanvas, s: &Scene) {
+    cv.set_draw_color(Color::RGB(0, 0, 0));
+    cv.clear();
 
-    let stdout = child
-        .stdout
-        .take()
-        .expect("sidecar stdout を取得できません");
-    let reader = BufReader::new(stdout);
+    // chrome: 地平線円＋十字（circle_color）
+    let (cx, cy, r) = s.chrome.circle;
+    draw::circle(cv, cx, cy, r, s.chrome.circle_color);
+    draw::line(cv, (cx, cy - r), (cx, cy + r), s.chrome.circle_color);
+    draw::line(cv, (cx - r, cy), (cx + r, cy), s.chrome.circle_color);
 
-    for line in reader.lines() {
-        let line = line?;
-        if line.is_empty() || line.starts_with('#') {
+    // 星座線
+    for l in &s.lines {
+        draw::line(cv, (l.0, l.1), (l.2, l.3), s.line_color);
+    }
+    // 点（恒星/DSO/惑星/月）= 一辺 side の塗り四角
+    for p in &s.points {
+        draw::fill_square(cv, p.0, p.1, p.2, [p.3, p.4, p.5]);
+    }
+    // 天体ラベル
+    for t in &s.labels {
+        draw::text(cv, t.0, t.1, &t.2, [t.3, t.4, t.5], 1);
+    }
+    // 方位（N/E/S/W）
+    for d in &s.chrome.dirs {
+        draw::text(cv, d.0, d.1, &d.2, s.chrome.dir_color, 1);
+    }
+    // 情報パネル
+    draw_panel(cv, &s.meta);
+
+    cv.present();
+}
+
+fn save_bmp(cv: &mut WindowCanvas, path: &str) {
+    let (w, h) = cv.output_size().expect("output_size");
+    let mut data = cv.read_pixels(None, PixelFormatEnum::RGB24).expect("read_pixels");
+    let surf = sdl2::surface::Surface::from_data(&mut data, w, h, w * 3, PixelFormatEnum::RGB24)
+        .expect("surface");
+    surf.save_bmp(path).expect("save_bmp");
+    eprintln!("screenshot -> {path} ({w}x{h})");
+}
+
+/// reader から JSON Lines を読み、各 Scene を描く。screenshot 指定時は 1 フレームで終了。
+fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, screenshot: Option<&str>) {
+    let mut line = String::new();
+    while !STOP.load(Ordering::Relaxed) {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break, // EOF
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("[warn] read: {e}");
+                break;
+            }
+        }
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
             continue;
         }
-        match serde_json::from_str::<Scene>(&line) {
-            Ok(scene) => draw_scene(&scene),
+        match serde_json::from_str::<Scene>(t) {
+            Ok(scene) => {
+                draw_scene(cv, &scene);
+                if let Some(path) = screenshot {
+                    save_bmp(cv, path);
+                    return;
+                }
+            }
             Err(e) => eprintln!("[warn] Scene パース失敗: {e}"),
         }
     }
+}
+
+fn main() -> std::io::Result<()> {
+    unsafe {
+        libc::signal(libc::SIGTERM, on_signal as *const () as usize);
+        libc::signal(libc::SIGINT, on_signal as *const () as usize);
+    }
+
+    let sdl = sdl2::init().expect("SDL init");
+    let video = sdl.video().expect("SDL video");
+    let window = video
+        .window("stellar-map", W, H)
+        .position_centered()
+        .build()
+        .expect("window");
+    let mut canvas = window.into_canvas().build().expect("canvas");
+
+    let screenshot = std::env::var("CZ_SCREENSHOT").ok();
+
+    if std::env::var("STELLAR_FROM_STDIN").is_ok() {
+        // sidecar.py | stellar-map
+        let stdin = std::io::stdin();
+        run(stdin.lock(), &mut canvas, screenshot.as_deref());
+        return Ok(());
+    }
+
+    // サイドカーを子プロセス起動して Scene を読む。
+    let sidecar = std::env::var("STELLAR_SIDECAR")
+        .unwrap_or_else(|_| "../sidecar/stellar_sidecar.py".to_string());
+    let mut cmd = Command::new("python3");
+    cmd.arg(&sidecar);
+    if screenshot.is_none() {
+        cmd.arg("--interval").arg("30"); // 常駐時は 30s 毎に更新（スクショ時は 1 発）
+    }
+    let mut child = cmd.stdout(Stdio::piped()).spawn()?;
+    let stdout = child.stdout.take().expect("sidecar stdout");
+    run(BufReader::new(stdout), &mut canvas, screenshot.as_deref());
+    let _ = child.kill();
     Ok(())
 }

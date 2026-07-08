@@ -1,0 +1,9 @@
+{
+  "package_name": "cz-hello-sdl2",
+  "version": "0.1.0",
+  "app_name": "Hello SDL2",
+  "bin_name": "cz-hello-sdl2",
+  "description": "CardputerZero standalone SDL2 app template (320x170, Rust)",
+  "runtime": "legacy-deb-only",
+  "caps": ["keyboard"]
+}

@@ -7,11 +7,11 @@
 *.yaml          text eol=lf
 *.yml           text eol=lf
 
-# 拡張子なしの Debian maintainer scripts
-packaging/postinst   text eol=lf
-packaging/preinst    text eol=lf
-packaging/prerm      text eol=lf
-packaging/postrm     text eol=lf
+# 拡張子なしの Debian maintainer scripts（バス名一致・全ディレクトリ配下に適用）
+postinst   text eol=lf
+preinst    text eol=lf
+prerm      text eol=lf
+postrm     text eol=lf
 
 # バイナリ扱い（改行変換しない）
 *.png    binary
