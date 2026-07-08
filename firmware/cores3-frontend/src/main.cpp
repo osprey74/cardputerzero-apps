@@ -181,7 +181,7 @@ static uint8_t g_enc_uid[ENC_MAX + 1][4] = {{0}};
 static bool    g_enc_uid_ok[ENC_MAX + 1] = {false};
 static int8_t  g_enc_ident[ENC_MAX + 1]  = {-1};  // ENC_IDENTITY index / -1=unknown
 
-#define FW_VERSION "0.6.2"   // メニューは ≡ バーのタップのみで開く (エンコーダ押下では開かない)
+#define FW_VERSION "0.6.3"   // METER のエンコーダ表示を縦 2 行・赤→青 順に
 
 // ---- IMU 水準器・下げ振り (内蔵 BMI270) ------------------------------------
 // 単体アプリ firmware/cores3-level と同じ角度ロジック。協働中も CoreS3 画面の
@@ -579,8 +579,19 @@ static void drawMeter() {
     g_canvas.print("(no node)");
     y += 14;
   } else {
-    // 最大 2 台を横並び (左=id1 / 右=id2)。各: 名前+累積値 と 押下ドット。
-    for (uint16_t id = 1; id <= g_enc_num && id <= 2; id++) {
+    // 各エンコーダを 1 行ずつ縦に並べる (名前+累積値、右端に押下ドット)。
+    // 表示順は配線 id 順ではなく UID 解決した役割順 = 赤→青で固定 (配線順非依存)。
+    uint16_t order[2];
+    int on = 0;
+    bool used[ENC_MAX + 1] = {false};
+    for (size_t k = 0; k < ENC_IDENTITY_N && on < 2; k++) {       // 役割順 (RED, BLUE, ...)
+      for (uint16_t id = 1; id <= g_enc_num && id <= 2; id++)
+        if (!used[id] && g_enc_ident[id] == (int8_t)k) { order[on++] = id; used[id] = true; }
+    }
+    for (uint16_t id = 1; id <= g_enc_num && id <= 2 && on < 2; id++)  // 未解決は id 昇順で末尾
+      if (!used[id]) { order[on++] = id; used[id] = true; }
+    for (int k = 0; k < on; k++) {
+      uint16_t id = order[k];
       uint8_t btn = 0;
       chain.getEncoderButtonStatus(id, &btn);
       // UID で解決した役割があれば色・名前を個体固定 (配線順非依存)。
@@ -592,16 +603,16 @@ static void drawMeter() {
       char line[24];
       if (nm) snprintf(line, sizeof(line), "%-4s %+ld", nm, (long)g_enc_count[id]);
       else    snprintf(line, sizeof(line), "E%u %+ld", id, (long)g_enc_count[id]);
-      int colX = (id == 1) ? x + 4 : W / 2 + 2;   // 左列 / 右列
-      int dotX = (id == 1) ? W / 2 - 12 : W - 14; // 各列の右端に押下ドット
+      int dotX = W - 14;   // 行右端に押下ドット
       g_canvas.setTextSize(2);
       g_canvas.setTextColor(encColor, COL_BG);
-      g_canvas.setCursor(colX, y);
+      g_canvas.setCursor(x + 4, y);
       g_canvas.print(line);
       if (btn) g_canvas.fillCircle(dotX, y + 7, 5, COL_OK);
       else     g_canvas.drawCircle(dotX, y + 7, 5, COL_LABEL);
+      y += 18;   // 次のエンコーダ行へ (size2 16px + 余白)
     }
-    y += 22;
+    y += 4;
   }
 }
 
