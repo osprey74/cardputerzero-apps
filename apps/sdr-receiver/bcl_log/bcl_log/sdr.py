@@ -45,6 +45,12 @@ BANDS = [
 # S メータのマッピング（IQ 電力 dB → 0..1）。実測で調整（空き帯≈-21dB / 強局≈+1dB）。
 SIG_DB_LO, SIG_DB_HI = -24.0, 2.0
 
+# スペクトラム/ウォーターフォール
+FFT_N = 4096
+SPEC_COLS = 320                       # 表示列数（画面幅）
+ZOOM_BINS = 102                       # ズーム時に見せる中心ビン数（±約12kHz @ 960k/4096）
+SPEC_DB_LO, SPEC_DB_HI = -70.0, -15.0  # スペクトラム/WF の dB→表示レンジ（実測で調整）
+
 
 def available() -> bool:
     return _HAVE_RTL and shutil.which("aplay") is not None
@@ -73,6 +79,11 @@ class Receiver:
         self._pending_mode = None
         self._zi = None                 # デエンファシス lfilter 状態（ブロック間で保持）
         self._demod_mode = None         # 直近の復調モード（変わったら _zi リセット）
+        # スペクトラム/ウォーターフォール（proc スレッドが更新・UI が読む）
+        self.spectrum = np.full(SPEC_COLS, SPEC_DB_LO, dtype=np.float32)
+        self.spec_seq = 0               # 更新シーケンス（UI は変化時のみ WF 行追加）
+        self.span_zoom = False          # False=広帯域(±480kHz) / True=ズーム(±12kHz)
+        self._win = np.hanning(FFT_N).astype(np.float32)
 
     # --- 状態 ---
     @property
@@ -210,11 +221,34 @@ class Receiver:
             self.level_db = 10.0 * math.log10(p)
             lvl = (self.level_db - SIG_DB_LO) / (SIG_DB_HI - SIG_DB_LO)
             self.level = 0.6 * self.level + 0.4 * max(0.0, min(1.0, lvl))
+            self._update_spectrum(x)
             try:
                 if self._aplay is not None and self._aplay.stdin is not None:
                     self._aplay.stdin.write(self._demod(x, self._mode))
             except (BrokenPipeError, ValueError, OSError):
                 break
+
+    def _update_spectrum(self, x):
+        """IQ ブロックから FFT スペクトラム(dB)を SPEC_COLS 本に整形して公開。"""
+        if len(x) < FFT_N:
+            return
+        X = np.fft.fftshift(np.fft.fft(x[:FFT_N] * self._win))
+        psd = 20.0 * np.log10(np.abs(X) / FFT_N + 1e-9)
+        if self.span_zoom:
+            c = FFT_N // 2
+            h = ZOOM_BINS // 2
+            seg = psd[c - h:c + h]          # 中心付近のみ（ズーム）
+        else:
+            seg = psd                        # 全帯域 ±480kHz
+        xp = np.linspace(0, len(seg) - 1, SPEC_COLS)
+        self.spectrum = np.interp(xp, np.arange(len(seg)), seg).astype(np.float32)
+        self.spec_seq += 1
+
+    def toggle_span(self):
+        self.span_zoom = not self.span_zoom
+
+    def span_label(self):
+        return "zoom +-12k" if self.span_zoom else "wide +-480k"
 
     def _demod(self, x, mode):
         """IQ → 48kHz int16。2 段 FIR デシメーション（アンチエイリアス）＋FM デエンファシス。"""

@@ -31,7 +31,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pygame
+import pygame.surfarray
 
 # リポジトリルートを import パスに追加（shared.cores3_bridge を使うため）。
 _REPO = Path(__file__).resolve().parents[4]
@@ -56,7 +58,11 @@ OK = (120, 220, 150)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATIONS_PATH = PROJECT_ROOT / "data" / "bcl_stations.yaml"
 
-STATES = ["RX", "STATION", "FREQ", "SINPO", "CONFIRM", "DONE"]
+STATES = ["RX", "SCOPE", "STATION", "FREQ", "SINPO", "CONFIRM", "DONE"]
+
+# SCOPE レイアウト
+SPEC_Y0, SPEC_H = 40, 42       # スペクトラム描画域
+WF_Y, WF_H = 86, 80            # ウォーターフォール描画域（320×80）
 SINPO_LABELS = ["S", "I", "N", "P", "O"]
 
 
@@ -114,6 +120,17 @@ class EncoderState:
             return dict(self.cnt), dict(self.pressed), self.ncir_obj
 
 
+def _build_colormap():
+    """0..255 → RGB のウォーターフォール用 LUT（黒→紺→青→シアン→黄→赤）。"""
+    xs = np.array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    r = np.array([0, 0, 0, 0, 230, 255], dtype=float)
+    g = np.array([0, 0, 80, 220, 230, 40], dtype=float)
+    b = np.array([0, 100, 220, 220, 0, 0], dtype=float)
+    v = np.linspace(0.0, 1.0, 256)
+    lut = np.stack([np.interp(v, xs, r), np.interp(v, xs, g), np.interp(v, xs, b)], axis=1)
+    return lut.astype(np.uint8)
+
+
 class BclUI:
     def __init__(self, enc: EncoderState, rx: "sdr.Receiver"):
         self.enc = enc
@@ -130,6 +147,10 @@ class BclUI:
         self._prev = {"R": None, "B": None}
         self._prev_btn = {"R": False, "B": False}
         self._last_press = 0.0    # ボタンデバウンス（チャタリングで二重トグル防止）
+        # SCOPE: ウォーターフォール（H×W×3 uint8・上端に最新行を入れて下へスクロール）
+        self._wf = np.zeros((WF_H, sdr.SPEC_COLS, 3), dtype=np.uint8)
+        self._wf_seq = -1
+        self._cmap = _build_colormap()   # dB 正規化 0..255 → RGB LUT
 
     # --- 入力（エンコーダ差分 + ボタンエッジ）→ 抽象イベント ---
     def poll_encoder(self):
@@ -178,7 +199,7 @@ class BclUI:
         if steps == 0:
             return
         st = STATES[self.state]
-        if st == "RX":
+        if st in ("RX", "SCOPE"):
             self.rx.tune(steps)
         elif st == "STATION" and self.stations:
             self.sta_idx = (self.sta_idx + steps) % len(self.stations)
@@ -193,7 +214,7 @@ class BclUI:
         if steps == 0:
             return
         st = STATES[self.state]
-        if st == "RX":
+        if st in ("RX", "SCOPE"):
             self.rx.set_band(steps)
         elif st == "SINPO":
             v = self.sinpo[self.sinpo_cur] + steps
@@ -202,8 +223,10 @@ class BclUI:
     def on_a_press(self):
         st = STATES[self.state]
         if st == "RX":
+            self.state += 1                 # RX → SCOPE
+        elif st == "SCOPE":
             self._prefilter_station()
-            self.state += 1
+            self.state += 1                 # SCOPE → STATION
         elif st == "CONFIRM":
             self._build_note()
             self.state = STATES.index("DONE")
@@ -214,9 +237,12 @@ class BclUI:
             self.state = min(len(STATES) - 1, self.state + 1)
 
     def on_b_press(self):
-        # 青ノブ押下: RX 画面では受信 ON/OFF トグル。
-        if STATES[self.state] == "RX":
+        # 青ノブ押下: RX=受信 ON/OFF トグル / SCOPE=スパン(広帯域↔ズーム)切替。
+        st = STATES[self.state]
+        if st == "RX":
             self.rx.toggle()
+        elif st == "SCOPE":
+            self.rx.toggle_span()
 
     def _prefilter_station(self):
         """受信中周波数に一致する既知局があれば局選択をそこに合わせる。"""
@@ -353,7 +379,38 @@ def draw(surf, ui: BclUI):
                 pygame.draw.rect(surf, col,
                                  pygame.Rect(bx + 1, by + 1, int((bw - 2) * lvl), bh - 2))
             _text(surf, bx + bw + 6, by - 1, "SIG", DIM, 13)
-        _text(surf, 10, 132, "A press: to log", DIM, 13)
+        _text(surf, 10, 132, "A press: scope", DIM, 13)
+    elif st == "SCOPE":
+        r = ui.rx
+        _text(surf, 4, 22, "%s %s" % (r.band[0], r.freq_label()), FG, 14)
+        _text(surf, 196, 22, r.span_label(), DIM, 12)
+        if not sdr.available():
+            _text(surf, 10, 60, "rtlsdr not found", (230, 120, 120), 14)
+        elif not r.running:
+            _text(surf, 10, 58, "RX OFF", DIM, 14)
+            _text(surf, 10, 76, "RX 画面で青ノブ押下→受信ON", DIM, 12)
+            _text(surf, 10, 94, "A:進む B:スパン切替", DIM, 12)
+        else:
+            spec = r.spectrum
+            lo, hi = sdr.SPEC_DB_LO, sdr.SPEC_DB_HI
+            norm = np.clip((spec - lo) / (hi - lo), 0.0, 1.0)
+            n = min(len(norm), W)
+            # ベースライン + 中心（=同調周波数）マーカー
+            pygame.draw.line(surf, (40, 48, 56), (0, SPEC_Y0 + SPEC_H), (W, SPEC_Y0 + SPEC_H))
+            pygame.draw.line(surf, (70, 60, 40), (W // 2, SPEC_Y0), (W // 2, SPEC_Y0 + SPEC_H))
+            # スペクトラム折れ線
+            pts = [(i, int(SPEC_Y0 + SPEC_H - norm[i] * SPEC_H)) for i in range(n)]
+            if len(pts) >= 2:
+                pygame.draw.lines(surf, ACCENT, False, pts)
+            # ウォーターフォール（spectrum 更新時のみ最新行を上端へ・下へスクロール）
+            if r.spec_seq != ui._wf_seq:
+                ui._wf_seq = r.spec_seq
+                idx = (norm * 255.0).astype(np.uint8)
+                ui._wf[1:] = ui._wf[:-1]
+                ui._wf[0] = ui._cmap[idx]
+            wf = pygame.surfarray.make_surface(np.transpose(ui._wf, (1, 0, 2)))
+            surf.blit(wf, (0, WF_Y))
+            pygame.draw.line(surf, (110, 90, 60), (W // 2, WF_Y), (W // 2, WF_Y + WF_H))
     elif st == "STATION":
         _text(surf, 6, 28, "Select station (knob A)", DIM, 14)
         for i in range(max(0, ui.sta_idx - 1), min(len(ui.stations), ui.sta_idx + 3)):
@@ -392,13 +449,14 @@ def draw(surf, ui: BclUI):
         _text(surf, 6, 80, ui.msg[:44], DIM, 13)
         _text(surf, 6, 120, "knob A: new entry", DIM, 13)
 
-    # フッタ（ライブ状態）
-    cnt, pressed, ncir = ui.enc.snapshot()
-    src = "ENC" if ui.enc.ok else ("KEY" if ui.enc.err else "...")
-    foot = "%s A:%d B:%d" % (src, cnt["R"], cnt["B"])
-    if ncir is not None:
-        foot += "  %.1fC" % ncir
-    _text(surf, 4, H - 15, foot, DIM, 13)
+    # フッタ（ライブ状態）。SCOPE はウォーターフォールが下端まで使うので出さない。
+    if st != "SCOPE":
+        cnt, pressed, ncir = ui.enc.snapshot()
+        src = "ENC" if ui.enc.ok else ("KEY" if ui.enc.err else "...")
+        foot = "%s A:%d B:%d" % (src, cnt["R"], cnt["B"])
+        if ncir is not None:
+            foot += "  %.1fC" % ncir
+        _text(surf, 4, H - 15, foot, DIM, 13)
 
 
 _STOP = False
