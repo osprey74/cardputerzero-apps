@@ -146,17 +146,21 @@ class BclUI:
         # 入力エッジ検出用
         self._prev = {"R": None, "B": None}
         self._prev_btn = {"R": False, "B": False}
-        self._last_press = 0.0    # ボタンデバウンス（チャタリングで二重トグル防止）
+        self._last_press = 0.0    # 青ボタンデバウンス（チャタリングで二重トグル防止）
+        self._a_down_t = 0.0      # 赤ボタン押下開始時刻（短/長押し判定）
+        self._a_long_fired = False
         # SCOPE: ウォーターフォール（H×W×3 uint8・上端に最新行を入れて下へスクロール）
         self._wf = np.zeros((WF_H, sdr.SPEC_COLS, 3), dtype=np.uint8)
         self._wf_seq = -1
         self._cmap = _build_colormap()   # dB 正規化 0..255 → RGB LUT
 
-    # --- 入力（エンコーダ差分 + ボタンエッジ）→ 抽象イベント ---
+    # --- 入力（エンコーダ差分 + ボタン）→ 抽象イベント ---
+    # 赤ボタン: 短押し(離した時・保持<0.6s)=進む / 長押し(保持>=0.6s)=戻る。
+    # 青ボタン: 押下エッジ(0.30s デバウンス)=文脈動作。
     def poll_encoder(self):
         cnt, pressed, _ = self.enc.snapshot()
+        now = time.monotonic()
         a_rot = b_rot = 0
-        a_press = b_press = False
         for role in ("R", "B"):
             if self._prev[role] is None:
                 self._prev[role] = cnt[role]
@@ -166,20 +170,25 @@ class BclUI:
                 a_rot += d
             else:
                 b_rot += d
-            if pressed[role] and not self._prev_btn[role]:
-                if role == "R":
-                    a_press = True
-                else:
-                    b_press = True
-            self._prev_btn[role] = pressed[role]
-        # デバウンス: 直近 0.30s 以内の押下は無視（チャタリングによる二重トグル防止）
-        if a_press or b_press:
-            now = time.monotonic()
-            if now - self._last_press < 0.30:
-                a_press = b_press = False
-            else:
-                self._last_press = now
-        return a_rot, b_rot, a_press, b_press
+        a_short = a_long = b_press = False
+        # 赤ボタン（短押し=進む / 長押し=戻る）
+        rp = pressed["R"]
+        if rp and not self._prev_btn["R"]:
+            self._a_down_t = now
+            self._a_long_fired = False
+        if rp and not self._a_long_fired and (now - self._a_down_t) >= 0.6:
+            a_long = True            # 保持がしきい値超え → 戻る（保持中に 1 回だけ）
+            self._a_long_fired = True
+        if (not rp) and self._prev_btn["R"] and not self._a_long_fired:
+            a_short = True           # 短押しで離した → 進む
+        self._prev_btn["R"] = rp
+        # 青ボタン（押下エッジ・デバウンス）
+        bp = pressed["B"]
+        if bp and not self._prev_btn["B"] and (now - self._last_press) >= 0.30:
+            b_press = True
+            self._last_press = now
+        self._prev_btn["B"] = bp
+        return a_rot, b_rot, a_short, a_long, b_press
 
     # --- キーボードイベント → 抽象イベント ---
     def handle_key(self, key):
@@ -192,7 +201,7 @@ class BclUI:
         elif key == pygame.K_r:
             self.on_b_press()
         elif key == pygame.K_BACKSPACE:
-            self.state = max(0, self.state - 1)
+            self.on_a_back()
 
     # --- 抽象イベントの適用 ---
     def on_a_rot(self, steps):
@@ -243,6 +252,11 @@ class BclUI:
             self.rx.toggle()
         elif st == "SCOPE":
             self.rx.toggle_span()
+
+    def on_a_back(self):
+        # 赤ノブ長押し / Backspace: 1 ページ戻る。
+        self.state = max(0, self.state - 1)
+        self.msg = ""
 
     def _prefilter_station(self):
         """受信中周波数に一致する既知局があれば局選択をそこに合わせる。"""
@@ -379,7 +393,7 @@ def draw(surf, ui: BclUI):
                 pygame.draw.rect(surf, col,
                                  pygame.Rect(bx + 1, by + 1, int((bw - 2) * lvl), bh - 2))
             _text(surf, bx + bw + 6, by - 1, "SIG", DIM, 13)
-        _text(surf, 10, 132, "A press: scope", DIM, 13)
+        _text(surf, 10, 132, "A:scope  A-hold:back", DIM, 13)
     elif st == "SCOPE":
         r = ui.rx
         _text(surf, 4, 22, "%s %s" % (r.band[0], r.freq_label()), FG, 14)
@@ -501,13 +515,15 @@ def run(args):
                     else:
                         ui.handle_key(ev.key)
             if not args.no_sensor:
-                a_rot, b_rot, a_press, b_press = ui.poll_encoder()
+                a_rot, b_rot, a_short, a_long, b_press = ui.poll_encoder()
                 if a_rot:
                     ui.on_a_rot(a_rot)
                 if b_rot:
                     ui.on_b_rot(b_rot)
-                if a_press:
-                    ui.on_a_press()
+                if a_long:
+                    ui.on_a_back()      # 赤ノブ長押し=戻る
+                elif a_short:
+                    ui.on_a_press()     # 赤ノブ短押し=進む
                 if b_press:
                     ui.on_b_press()
             rx.service()   # 予約された再同調を回転が落ち着いてから 1 回だけ実行
