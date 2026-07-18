@@ -10,7 +10,8 @@ M5Stack CardputerZero 向けに開発するアプリ群のモノレポ。Rust (c
 
 - **SoC**: Broadcom BCM2837 / Quad-core Cortex-A53 @ 1GHz
 - **RAM**: 512MB LPDDR2
-- **LCD**: 1.9" ST7789V2 / 320×170 px
+- **LCD**: 1.9" ST7789v3 / 320×170 px
+- **センサー**: BMI270（6軸 IMU）＋ BMM150（3軸地磁気）／RX8130CE RTC ※磁力計内蔵＝単体で方位取得可（App16 星座盤の方位アライン用）
 - **OS**: Raspberry Pi OS (Debian Linux ベース)
 - **Launcher**: LVGL ベース GUI Launcher
 - **AppStore**: https://github.com/m5stack/CardputerZeroRepository （公式 Debian apt リポジトリ・`.deb` 配布）

@@ -1,6 +1,6 @@
 # HANDOFF: CardputerZero 開発ガイド
 
-> **作成日**: 2026-05-24 / **最終更新**: 2026-06-19（UI入力デバイス検討の追記）  
+> **作成日**: 2026-05-24 / **最終更新**: 2026-07-19（本体内蔵 BMM150 磁力計を公式スペックで確定・§1.1/App16 方位を訂正）  
 > **対象デバイス**: M5Stack CardputerZero (Raspberry Pi CM0 搭載)  
 > **開発者**: 総司 (osprey74)  
 > **開発方針**: Spec-Driven / Claude Code + czdev ワークフロー  
@@ -67,6 +67,7 @@
 | 2026-07-08 | **CZ アプリ雛形 `templates/rust-fb-app/` を新設し uConsole(aarch64) で全経路を実機実証**。§2.7.6 方針（`legacy-deb-only` スタンドアロン・ネイティブバイナリ／framebuffer 直描画）に沿った "型" を作成: Rust framebuffer アプリ（`/dev/fb0` 直描画・`APPLAUNCH_LINUX_FBDEV_DEVICE` 尊重・SIGTERM で画面消去終了・16/32bpp 両対応）＋ `app-builder.json`(runtime:legacy-deb-only)＋`packaging/{meta.env,build.sh,stage.sh,postinst}`。非公開ローカル配布の自前ツール `scripts/pack_deb.sh`（meta.env→build→stage→`dpkg-deb`）と `scripts/deploy.sh`（pack→scp→apt install）も新設。**検証（uConsole = CM4 aarch64 Debian 11）**: rustup(rustc 1.96.1) 導入→**cargo ネイティブビルド成功（警告0）**→ELF aarch64 PIE/stripped 270KB→**`.deb` 生成成功**（control/postinst/.desktop 正常・追加 Depends 不要）→**`/dev/fb0` オープン・フレーム書込み成功**（実機パネル `720x1280 16bpp`＝RGB565 パス実証、CZ の 320×170 もジオメトリ自動追従で動作見込み）。コンパイラ警告 `function_casts_as_integer` を `as *const () as usize` で解消。⚠️ APPLaunch が `.desktop` を実際に認識するかは CZ 実機でのみ確定（残 TODO）。uConsole に rustup 保持（今後の実ビルド検証機）。 |
 | 2026-07-08 | **配布・言語方針を確定し §2.7.6 を「設計方針層【確定】」に更新**（総司様決定）。**配布=非公開ローカルのみ**（公式 AppStore 公開 PR せず／`czdev deploy` SSH と自前の非公開 apt リポジトリを併用）。**言語/ランタイム=`legacy-deb-only` スタンドアロン・ネイティブ実行バイナリ**（実機は全てネイティブ実行・SDL2 エミュレータには非依存／UI は framebuffer 直描画 or SDL2 直叩き／`lvgl-dlopen` の dlopen 方式は不採用）。コンパイル言語は **Rust 第一・C フォールバック**、本質 Python なサイドカー（App16 Skyfield/App14 picamera2 等）は Python 継続。APPLaunch 統合は `meta.env` の `APP_NAME`/`APP_ICON` で維持。開発反復は実機（到着まで uConsole/QEMU 代替）へ SSH デプロイ。 |
 | 2026-07-08 | **公式 AppBuilder / 配布リポジトリ 2 件を精査し §2.7 に「暫定（公式観測）層」として記録**。[CardputerZero-AppBuilder](https://github.com/m5stack/CardputerZero-AppBuilder)（czdev **v0.1.0**・MIT）と [CardputerZeroRepository](https://github.com/m5stack/CardputerZeroRepository)（apt・`ci/bootstrap` 段階）を実体調査。判明: (1) アプリは **2 系統** = `lvgl-dlopen`（C 共有ライブラリ・`app_main`/`app_event` ABI・LVGL 9.5・エミュレータ/APPLaunch 統合）と `legacy-deb-only`（独立実行ファイル＝Framebuffer C / **Python** / SDL / Qt / **Rust も可**）、(2) マニフェストは CLAUDE.md 記載の `app.yaml` **ではなく** `app-builder.json`（lvgl 系）または `packaging/meta.env`＋`build.sh`＋`stage.sh`（framebuffer/python 系）、(3) 配布は `.deb` 生成 →`czdev publish`→ apt リポジトリへ PR（publish 系は Python 3 のみで可・Rust 不要）、(4) **公式は 2026-06-01 に Rust フロントエンド/エミュレータを削除**し C/SDL2 へ舵、(5) **Windows 開発ループは未完成**（QUICKSTART 明記: mac/Linux のみ e2e サポート）、(6) `docs/architecture.md`（Tauri 2 + QEMU 構想）と実体（czdev + SDL2 + dlopen）に不整合＝流動的。**設計方針（Rust 維持 vs C 移行）は実機到着後に確定**（本記録は観測層・変更前提）。 |
+| 2026-07-19 | **【重大訂正】CardputerZero は BMM150 磁力計を本体内蔵（公式 Kickstarter スペックで確定）**。従来 HANDOFF は「内蔵 IMU=BMI270 6軸・地磁気非搭載」と誤記し、App16 の絶対方位は CoreS3 の BMM150 流用を前提としていたが、公式スペック画像に **BMI270 + BMM150 IMU (gyroscope + accelerometer + magnetometer)** と明記。§1.1 IMU 行・App16「必要ハードウェア」/制約ブロック/タスク（§方位・§要較正）を「CardputerZero 単体で BMM150 heading 取得可・外付けコンパス不要・CoreS3 流用は冗長/検証用」に訂正。CoreS3 mag JSON 経路（`cores3-frontend`/`cores3_bridge`）は相互検証・較正用として保持。**併せて §1.1 を公式スペックへ完全準拠化**: ディスプレイ ST7789V2→**v3**、カメラに **3280×2464 / CSI 4-Lane**、バッテリに **BQ27220 燃料計**、新規行 **音声（ES8389 codec・MEMS mic・1W SP・3.5mm TRS）／ビデオコーデック（H.264・MPEG-4 @1080p30）／赤外線（IR TX&RX）** を追加。§App10 の「スピーカー/イヤフォンジャック要確認」注記（L1507 付近）を確定情報へ更新。⚠️ スペックは preliminary（出荷時変更あり得る）につき実機到着後 `i2cdetect`／実測で最終確認 |
 
 ---
 
@@ -81,17 +82,20 @@
 | GPU | VideoCore-IV @ 400MHz |
 | RAM | 512MB LPDDR2 |
 | ストレージ | microSD (標準版: 32GB 付属) |
-| ディスプレイ | 1.9" LCD ST7789V2 (320×170) |
+| ディスプレイ | 1.9" LCD ST7789v3 (320×170) |
 | キーボード | 46キー マトリクス |
-| バッテリー | 3.7V 1500mAh Li-Po |
+| バッテリー | 3.7V 1500mAh Li-Po（BQ27220 燃料計） |
 | Wi-Fi | 2.4GHz 802.11 b/g/n |
 | Bluetooth | 4.2 / BLE |
 | 有線LAN | 10/100M Ethernet |
 | USB | USB-C × 2 (Host/Slave 切替) + USB-A × 1 |
-| カメラ (標準版) | Sony IMX219 8MP (CSI) |
-| IMU (標準版) | Bosch BMI270 6軸 |
+| カメラ (標準版) | Sony IMX219 8MP (3280×2464) / CSI 4-Lane |
+| IMU (標準版) | Bosch BMI270（6軸: ジャイロ＋加速度）＋ BMM150（3軸地磁気）＝9軸相当 |
 | RTC | Epson RX8130CE |
 | HDMI | 最大 1080p30 出力 |
+| ビデオコーデック | デコード H.264/MPEG-4 @1080p30・エンコード H.264 @1080p30 |
+| 音声 | ES8389 コーデック・MEMS マイク・1W スピーカー・3.5mm TRS 出力 |
+| 赤外線 | IR トランシーバ（送信 TX + 受信 RX） |
 | サイズ | 85 × 54mm (クレジットカードサイズ) |
 
 ### 1.2 拡張インターフェース
@@ -1503,7 +1507,7 @@ sudo apt install -y rtl-433
 # 起動: rtl_433 -f 433.92M -A (433MHz 帯の自動デコード)
 
 # FM ラジオ (CLI 音声再生)
-# ※ CardputerZero にスピーカー / イヤフォンジャック要確認
+# 音声出力: 本体 1W スピーカー / 3.5mm TRS 出力（ES8389 codec・公式スペック確定）
 rtl_fm -f 76.1M -M wbfm -s 200000 | aplay -r 48000 -f S16_LE
 ```
 
@@ -3434,11 +3438,11 @@ print(f"Object: {t_obj_c:.2f}℃")
 ### App 16: 星座盤 (`stellar-map`)
 
 **優先度**: ★★★☆☆
-**必要ハードウェア**: 追加モジュール不要（本体内蔵で完結）。任意で GNSS（Cap LoRa-1262 の AT6668）・外付けコンパス
+**必要ハードウェア**: 追加モジュール不要（本体内蔵で完結）。任意で GNSS（Cap LoRa-1262 の AT6668）
 
-- 本体内蔵の **RX8130CE RTC**（電池バックアップ）・**BMI270 IMU**・Wi-Fi/有線 LAN で完結
+- 本体内蔵の **RX8130CE RTC**（電池バックアップ）・**BMI270＋BMM150 IMU**（ジャイロ＋加速度＋地磁気）・Wi-Fi/有線 LAN で完結
 - 位置・時刻の自動取得に **AT6668 GNSS**（Cap LoRa-1262・UART）を任意併用（App 01 と共有）
-- 絶対方位が必要な場合のみ 外付け I2C コンパス（QMC5883L 等）を任意増設（後述の制約に注意）
+- **絶対方位は本体内蔵 BMM150（3軸地磁気）で取得**（外付けコンパス不要）。要ハード/ソフトアイアン＋傾き補正（後述の制約に注意）
 
 #### 概要
 
@@ -3583,16 +3587,16 @@ y = cy + r * math.sin(theta)
 #### ⚠️ 制約・注意事項
 
 ```text
-・方位（絶対方角）は CoreS3 の地磁気センサ (BMM150) を流用して解決する【2026-07-07 実機確定】。
-  CardputerZero 内蔵 IMU (BMI270) は 6 軸で地磁気非搭載だが、併用する CoreS3 フロント
-  エンドには BMM150 が載る。CoreS3 の BMM150 は BMI270 の補助 I2C 配下にあり i2cdetect
-  には出ないが、M5Unified の M5.Imu.getMag() で取得可能と実機 (COM5) で確認。CoreS3 が
-  mag を USB CDC の JSON に載せて CardputerZero へ送る（shared/cores3_bridge の Mag）。
-  → 「空にかざすと該当方向を表示」する向き合わせが CoreS3 併用時に実現できる。
-・CoreS3 非併用（CardputerZero 単体）時は方位が取れないため、北方向の手動アライン＋
-  BMI270 ジャイロの相対追従にフォールバック（または Grove I2C に外付けコンパス増設）。
+・方位（絶対方角）は CardputerZero 本体内蔵の BMM150（3軸地磁気）で取得する
+  【2026-07-19 公式スペックで訂正】。当初「内蔵 IMU=BMI270 6軸・地磁気非搭載」と誤記し
+  CoreS3 の BMM150 流用を前提にしていたが、公式 Kickstarter スペックで本体が
+  BMI270＋BMM150（ジャイロ＋加速度＋地磁気）搭載と判明。→ CardputerZero 単体で heading を
+  算出でき、「空にかざすと該当方向を表示」する向き合わせが CoreS3 併用なしで実現できる。
+・CoreS3 の BMM150 流用経路（shared/cores3_bridge の Mag・firmware/cores3-frontend の
+  mag JSON）は App16 方位には不要になったが、実機での相互検証・較正用として残す。
 ・BMM150 の heading は要ハード/ソフトアイアン・傾き補正。生値の絶対方位はそのまま
-  信用せず、上位で較正する（CoreS3 は x/y/z も送る）。軸割当・符号は実機で要確認。
+  信用せず、上位で較正する。軸割当・符号は実機で要確認。単体で絶対方位が取れるため、
+  北方向の手動アライン＋BMI270 ジャイロ相対追従のフォールバックは不要。
 ・データ（HYG / OpenNGC / Stellarium 星座線）および元リポジトリのコードは、それぞれ
   ライセンスが異なる。元 wisnc/stellar-map は無ライセンス＝コード非流用、一次データから
   再実装（詳細は本節データソース表・§9 調査結果）。
@@ -4017,7 +4021,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [x] **[App 16・調査]** ライセンス調査完了（2026-07-07）。**元 wisnc/stellar-map はライセンス無し＝全権留保→コード流用不可・着想のみで再実装**。HYG=**CC BY-SA 4.0** / OpenNGC=**CC BY-SA 4.0**（両者 表示＋継承・要クレジット）/ Stellarium 現代星座線（線分定義）=**MIT**（Xalioth 再許諾・星座絵は対象外）/ Skyfield=**MIT** / JPL DE 暦=実質 PD。→ 方針: 一次データから再実装、データは CC BY-SA 4.0 を維持しアプリ内 About でクレジット明記（詳細は §3 App16 データソース表）
 - [ ] **[App 16・調査]** JPL DE ephemeris（NAIF）の再配布利用条件を一次情報で最終確認（実質パブリックドメインの想定を裏取り）
 - [x] **[App 16・先行]** 投影 PoC 完了（2026-07-07・`apps/stellar-map/poc/star_poc.py`）。恒星と星座線は Skyfield 不要（古典的な恒星時→地平座標変換で自己完結）と判断し、Pillow のみで 320×170 に投影→PNG 出力。札幌 2026-07-07 21:30 で北斗七星/夏の大三角/はくちょう座を天文的に妥当に描画、地平線下（オリオン等）を除外、23/35 星を確認。惑星・月は次段で Skyfield 追加
-- [x] **[App 16・方位]** CoreS3 の地磁気 (BMM150) を CardputerZero へ流用する経路を実装・実機確定（2026-07-07・COM5）。`M5.Imu.getMag()` で取得可（i2cdetect には出ないが aux 配下）。`firmware/cores3-frontend` が `"mag":{ok,x,y,z,heading}` を USB CDC JSON に追加、`shared/cores3_bridge` に `Mag` を追加（テスト 11/11 PASS）。※heading は要ハード/ソフトアイアン・傾き補正
+- [x] **[App 16・方位]** CoreS3 の地磁気 (BMM150) を CardputerZero へ流用する経路を実装・実機確定（2026-07-07・COM5）。`M5.Imu.getMag()` で取得可（i2cdetect には出ないが aux 配下）。`firmware/cores3-frontend` が `"mag":{ok,x,y,z,heading}` を USB CDC JSON に追加、`shared/cores3_bridge` に `Mag` を追加（テスト 11/11 PASS）。※heading は要ハード/ソフトアイアン・傾き補正。**【2026-07-19 訂正】CardputerZero は本体に BMM150 内蔵（公式スペック）のため、App16 方位はこの流用に依存しない。本経路は相互検証・較正用として保持**
 - [x] **[App 16]** HYG 実データ取込＋前処理ツール完了（2026-07-07・`apps/stellar-map/tools/build_star_catalog.py`）。HYG v4.1 CSV(約34MB) を自動DL→裸眼可視(等級≤6.5)を抽出し `stars.bin`(20B固定長・8,920星・約174KB)＋`stars_meta.json`＋`named_stars.json`(357件) を生成。生データ・生成物は非コミット(`data/.gitignore`)。`render_catalog.py` で実データ描画を可視検証（北斗七星/夏の大三角/夏の天の川が天文的に妥当）。**知見**: 等級6.5全星は320×170に密すぎ→LCD表示は mag≤4.0〜4.5 が適切
 - [x] **[App 16]** OpenNGC(DSO)＋Stellarium 星座線の取込完了（2026-07-07）。`build_constellations.py`＝Stellarium `western/index.json`(MIT・Xalioth 再許諾) から **88星座/674線分(HIP ペア)** を `constellation_lines.json` に抽出。`build_dso.py`＝OpenNGC `NGC.csv`(CC BY-SA 4.0) から Messier または 等級≤8 の **330 DSO** を `dso.bin`(16B `<fffi`=ra,dec,mag,type) に。`shared/star_catalog` に `Dso`/`load_dso`/`load_constellation_lines` 追加、`render_catalog.py` が星座線(暗シアン)＋DSO(マゼンタ 2px)を描画（`--no-lines`/`--no-dso` で切替）。実データ描画で星座線と天の川沿いの DSO 集中を可視検証。生データ・生成物とも非コミット
 - [x] **[App 16]** `shared/star_catalog/`（Python）完了: `transform.py`(ユリウス日→恒星時→地平座標→円形全天図ピクセル・PoC から昇格)＋`catalog.py`(`stars.bin`/メタ/固有名ローダ・`by_name`/`by_hip`)。App 01 Sky Plot の極座標投影を流用
@@ -4025,7 +4029,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 16]** czdev 到着後: `ui/draw_scene()` の LVGL 描画実装（塗り矩形＋線＋1bpp フォント）＋ czdev エミュレータ／実機での描画・性能検証
 - [ ] **[App 16]** RX8130CE RTC（`/dev/rtc`）＋ NTP（`systemd-timesyncd`）＋ AT6668 GNSS UTC の時刻取得系を確立（`shared/gnss_at6668/` を App 01 と共有）
 - [ ] **[App 16]** HDMI 接続検出（`/sys/class/drm/*/status`）→ LCD ⇔ 1080p フルスクリーン・プラネタリウムの自動レイアウト切替
-- [ ] **[App 16・要較正]** BMM150 の方位較正（ハード/ソフトアイアン＋加速度による傾き補正）で heading を実用精度に。CoreS3 非併用時は BMI270 ジャイロ相対追従＋北手動アラインにフォールバック
+- [ ] **[App 16・要較正]** 本体内蔵 BMM150 の方位較正（ハード/ソフトアイアン＋加速度による傾き補正）で heading を実用精度に。**【2026-07-19 訂正】CardputerZero 単体で BMM150 を持つため CoreS3 流用・ジャイロ相対追従フォールバックは不要**
 - [x] **[App 16]** 惑星・月・月相の描画（2026-07-07・Skyfield 1.54＋DE421）。`tools/ephem.py`＝`sky_bodies(dt_utc,lat,lon)` が惑星(水金火木土)と月の地平座標(Skyfield `.altaz()`・地心視差込み)・惑星等級(`planetary_magnitude`)・月の輝面比/満ち欠けを返す。DE421 は `data/raw/` に自動DL(NASA/JPL・実質PD)。`render_catalog.py` が惑星(ゴールド+ラベル)・月(淡白+満ち欠け%)を描画(`--no-planets`)。2026-07-08 03:30 で Moon 50% wan＋Saturn 等の可視を確認。依存は `tools/requirements.txt`(Pillow+skyfield)。等級ベースのドットサイズ/明るさ調整は実機で最終調整
 - [ ] **[App 16]** 恒星の等級ベース明るさ/サイズの実機微調整（現状は 3 クラスの色＋サイズ）と、星座線/DSO/惑星の実機での密度・ラベル衝突の調整
 
