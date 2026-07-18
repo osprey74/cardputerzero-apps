@@ -7,9 +7,11 @@
 //
 //   画面遷移:
 //     [SETUP  ] 左右スワイプでプリセット選択、タップで開始。
-//     [RUNNING] タップ=一時停止 / 下スワイプ=リセット (SETUP へ)。
+//     [RUNNING] タップ無効 (誤操作防止)。下スワイプでメニューを開く。
+//     [MENU   ] 実行中メニュー。PAUSE=一時停止 / END=SETUP へ / BACK=実行へ。
 //     [PAUSED ] タップ=再開 / 下スワイプ=リセット。
-//     [DONE   ] 超過カウント中。タップまたは下スワイプで SETUP へ戻る。
+//     [DONE   ] 超過カウント中。タップでは戻らない。下スワイプで終了確認へ。
+//     [CONFIRM] 終了確認。END=SETUP へ / BACK=DONE へ (下スワイプでも取消)。
 //
 //   ちらつき防止に M5Canvas (PSRAM オフスクリーン) へ描画し一括転送する。
 //   最後に選んだプリセットは NVS (Preferences) に保存し、次回起動時に復元する。
@@ -42,7 +44,7 @@ static constexpr int PRESET_COUNT = sizeof(PRESET_MIN) / sizeof(PRESET_MIN[0]);
 static constexpr int PRESET_DEFAULT = 5;  // = 90 分 (インデックス)
 
 // ---- 状態機械 --------------------------------------------------------------
-enum State { ST_SETUP = 0, ST_RUNNING, ST_PAUSED, ST_DONE };
+enum State { ST_SETUP = 0, ST_RUNNING, ST_PAUSED, ST_DONE, ST_CONFIRM, ST_MENU };
 static State g_state = ST_SETUP;
 static int   g_preset = PRESET_DEFAULT;  // 選択中プリセットのインデックス
 
@@ -54,6 +56,26 @@ static uint32_t g_paused_acc = 0;  // 累積の一時停止時間 [ms]
 // ---- タッチ判定パラメータ --------------------------------------------------
 static constexpr int SWIPE_THRESHOLD = 50;  // スワイプと判定する移動量 [px]
 static constexpr int TAP_MAX_MOVE    = 16;  // タップと判定する最大移動量 [px]
+
+// ---- 終了確認ダイアログのボタン配置 (320×240 横向き) ----------------------
+// DONE で下スワイプすると表示。左=BACK (タイマーへ戻る) / 右=END (終了)。
+static constexpr int BTN_Y      = 150;  // 2 ボタン共通の上端
+static constexpr int BTN_H      = 56;   // ボタン高
+static constexpr int BTN_W      = 124;  // ボタン幅
+static constexpr int BTN_BACK_X = 24;   // 左ボタン左端
+static constexpr int BTN_END_X  = 172;  // 右ボタン左端
+
+// ---- 実行中メニューのボタン配置 (PAUSE / BACK / END の3ボタン横並び) ------
+// RUNNING で下スワイプすると表示。縦位置は BTN_Y / BTN_H を共用する。
+static constexpr int MBTN_W       = 88;   // 各ボタン幅
+static constexpr int MBTN_PAUSE_X = 16;   // 左: PAUSE
+static constexpr int MBTN_BACK_X  = 116;  // 中: BACK
+static constexpr int MBTN_END_X   = 216;  // 右: END
+
+// 点 (x,y) が矩形 (rx,ry,rw,rh) 内かを判定する。
+static bool inRect(int x, int y, int rx, int ry, int rw, int rh) {
+  return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+}
 
 // ---- 描画バッファ / 永続化 -------------------------------------------------
 static M5Canvas   g_canvas(&M5.Display);
@@ -294,16 +316,111 @@ static void drawTimer() {
   g_canvas.setTextDatum(textdatum_t::bottom_center);
   g_canvas.setTextColor(COL_LABEL, COL_BG);
   g_canvas.setTextSize(1);
-  const char *hint = (g_state == ST_DONE)   ? "tap: back to menu"
+  const char *hint = (g_state == ST_DONE)   ? "swipe down: end"
                    : (g_state == ST_PAUSED) ? "tap: resume  /  swipe down: reset"
-                                            : "tap: pause  /  swipe down: reset";
+                                            : "swipe down: menu";
   g_canvas.drawString(hint, g_canvas.width() / 2, g_canvas.height() - 6);
+}
+
+// 終了確認画面: DONE から抜ける前に END / BACK を選ばせる。
+//   BACK … 超過カウント (DONE) に戻る   END … タイマー終了 → SETUP へ
+static void drawConfirm() {
+  const int W = g_canvas.width();
+  g_canvas.fillScreen(COL_BG);
+
+  // タイトル。
+  g_canvas.setTextDatum(textdatum_t::top_center);
+  g_canvas.setTextColor(COL_VALUE, COL_BG);
+  g_canvas.setTextSize(3);
+  g_canvas.drawString("END TIMER?", W / 2, 34);
+
+  // 現在の超過 (延長) 時間を小さく併記。BACK 選択時の目安。
+  long remMs = remainingMs();
+  bool over  = (remMs < 0);
+  long secs  = (over ? -remMs : remMs) / 1000;
+  char buf[16], sub[24];
+  fmtTime(secs, buf, sizeof(buf));
+  snprintf(sub, sizeof(sub), over ? "overrun +%s" : "left %s", buf);
+  g_canvas.setTextColor(COL_LABEL, COL_BG);
+  g_canvas.setTextSize(2);
+  g_canvas.drawString(sub, W / 2, 84);
+
+  g_canvas.setTextDatum(textdatum_t::middle_center);
+  g_canvas.setTextSize(2);
+
+  // 左: BACK (安全側・シアン)。
+  g_canvas.drawRoundRect(BTN_BACK_X, BTN_Y, BTN_W, BTN_H, 8, COL_ACCENT);
+  g_canvas.setTextColor(COL_ACCENT, COL_BG);
+  g_canvas.drawString("BACK", BTN_BACK_X + BTN_W / 2, BTN_Y + BTN_H / 2);
+
+  // 右: END (終了・赤)。
+  g_canvas.drawRoundRect(BTN_END_X, BTN_Y, BTN_W, BTN_H, 8, COL_RED);
+  g_canvas.setTextColor(COL_RED, COL_BG);
+  g_canvas.drawString("END", BTN_END_X + BTN_W / 2, BTN_Y + BTN_H / 2);
+
+  // 補足ヒント。
+  g_canvas.setTextDatum(textdatum_t::bottom_center);
+  g_canvas.setTextColor(COL_LABEL, COL_BG);
+  g_canvas.setTextSize(1);
+  g_canvas.drawString("tap a button  /  swipe down: back", W / 2,
+                      g_canvas.height() - 6);
+}
+
+// 実行中メニュー: RUNNING から下スワイプで開く。誤タッチで終了しないための緩衝。
+//   PAUSE … 一時停止 (ST_PAUSED)   BACK … 実行に戻る   END … 終了 → SETUP へ
+static void drawMenu() {
+  const int W = g_canvas.width();
+  g_canvas.fillScreen(COL_BG);
+
+  // タイトル。
+  g_canvas.setTextDatum(textdatum_t::top_center);
+  g_canvas.setTextColor(COL_VALUE, COL_BG);
+  g_canvas.setTextSize(3);
+  g_canvas.drawString("TIMER MENU", W / 2, 34);
+
+  // 現在の残り時間を併記 (メニューを開いても計測は継続している目安)。
+  long remMs = remainingMs();
+  bool over  = (remMs < 0);
+  long secs  = (over ? -remMs : remMs) / 1000;
+  char buf[16], sub[24];
+  fmtTime(secs, buf, sizeof(buf));
+  snprintf(sub, sizeof(sub), over ? "overrun +%s" : "left %s", buf);
+  g_canvas.setTextColor(COL_LABEL, COL_BG);
+  g_canvas.setTextSize(2);
+  g_canvas.drawString(sub, W / 2, 84);
+
+  g_canvas.setTextDatum(textdatum_t::middle_center);
+  g_canvas.setTextSize(2);
+
+  // 左: PAUSE (オレンジ)。
+  g_canvas.drawRoundRect(MBTN_PAUSE_X, BTN_Y, MBTN_W, BTN_H, 8, COL_WARN);
+  g_canvas.setTextColor(COL_WARN, COL_BG);
+  g_canvas.drawString("PAUSE", MBTN_PAUSE_X + MBTN_W / 2, BTN_Y + BTN_H / 2);
+
+  // 中: BACK (安全側・シアン)。
+  g_canvas.drawRoundRect(MBTN_BACK_X, BTN_Y, MBTN_W, BTN_H, 8, COL_ACCENT);
+  g_canvas.setTextColor(COL_ACCENT, COL_BG);
+  g_canvas.drawString("BACK", MBTN_BACK_X + MBTN_W / 2, BTN_Y + BTN_H / 2);
+
+  // 右: END (終了・赤)。
+  g_canvas.drawRoundRect(MBTN_END_X, BTN_Y, MBTN_W, BTN_H, 8, COL_RED);
+  g_canvas.setTextColor(COL_RED, COL_BG);
+  g_canvas.drawString("END", MBTN_END_X + MBTN_W / 2, BTN_Y + BTN_H / 2);
+
+  // 補足ヒント。
+  g_canvas.setTextDatum(textdatum_t::bottom_center);
+  g_canvas.setTextColor(COL_LABEL, COL_BG);
+  g_canvas.setTextSize(1);
+  g_canvas.drawString("tap a button  /  swipe down: back", W / 2,
+                      g_canvas.height() - 6);
 }
 
 // 現在状態を描画し一括転送する。
 static void drawCurrent() {
-  if (g_state == ST_SETUP) drawSetup();
-  else                     drawTimer();
+  if (g_state == ST_SETUP)        drawSetup();
+  else if (g_state == ST_CONFIRM) drawConfirm();
+  else if (g_state == ST_MENU)    drawMenu();
+  else                            drawTimer();
   drawBatteryCorner();
   g_canvas.pushSprite(0, 0);
 }
@@ -334,8 +451,8 @@ static void handleTouch() {
       break;
 
     case ST_RUNNING:
-      if (isDown)     resetToSetup();
-      else if (isTap) pauseTimer();
+      // 公演中の誤タッチ対策: タップは無効。下スワイプでメニューを開く。
+      if (isDown) g_state = ST_MENU;
       break;
 
     case ST_PAUSED:
@@ -344,7 +461,36 @@ static void handleTouch() {
       break;
 
     case ST_DONE:
-      if (isTap || isDown) resetToSetup();
+      // 発動後は軽いタップで途切れないよう、下スワイプで終了確認へ進む。
+      if (isDown) g_state = ST_CONFIRM;
+      break;
+
+    case ST_CONFIRM:
+      // ボタンをタップして確定。誤操作防止のため領域外タップは無視する。
+      if (isTap) {
+        if (inRect(d.x, d.y, BTN_END_X, BTN_Y, BTN_W, BTN_H)) {
+          resetToSetup();          // END → 時間選択へ戻る
+        } else if (inRect(d.x, d.y, BTN_BACK_X, BTN_Y, BTN_W, BTN_H)) {
+          g_state = ST_DONE;       // BACK → 超過カウントに戻る
+        }
+      } else if (isDown) {
+        g_state = ST_DONE;         // 下スワイプでも確認を取り消し
+      }
+      break;
+
+    case ST_MENU:
+      // ボタンをタップして確定。領域外タップは無視 (誤操作防止)。
+      if (isTap) {
+        if (inRect(d.x, d.y, MBTN_END_X, BTN_Y, MBTN_W, BTN_H)) {
+          resetToSetup();          // END → 時間選択へ戻る
+        } else if (inRect(d.x, d.y, MBTN_PAUSE_X, BTN_Y, MBTN_W, BTN_H)) {
+          pauseTimer();            // PAUSE → 一時停止
+        } else if (inRect(d.x, d.y, MBTN_BACK_X, BTN_Y, MBTN_W, BTN_H)) {
+          g_state = ST_RUNNING;    // BACK → 実行に戻る
+        }
+      } else if (isDown) {
+        g_state = ST_RUNNING;      // 下スワイプでメニューを閉じる
+      }
       break;
   }
 }
