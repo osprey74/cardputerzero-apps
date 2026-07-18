@@ -181,7 +181,7 @@ static uint8_t g_enc_uid[ENC_MAX + 1][4] = {{0}};
 static bool    g_enc_uid_ok[ENC_MAX + 1] = {false};
 static int8_t  g_enc_ident[ENC_MAX + 1]  = {-1};  // ENC_IDENTITY index / -1=unknown
 
-#define FW_VERSION "0.6.3"   // METER のエンコーダ表示を縦 2 行・赤→青 順に
+#define FW_VERSION "0.6.4"   // TIMER 誤操作防止: 実行中メニュー/終了確認ダイアログを追加
 
 // ---- IMU 水準器・下げ振り (内蔵 BMI270) ------------------------------------
 // 単体アプリ firmware/cores3-level と同じ角度ロジック。協働中も CoreS3 画面の
@@ -210,7 +210,7 @@ static float g_offX = 0, g_offY = 0, g_offA = 0, g_offB = 0;
 static const int PRESET_MIN[]      = {5, 15, 30, 45, 60, 90, 100, 120};  // プリセット [分]
 static constexpr int PRESET_COUNT   = sizeof(PRESET_MIN) / sizeof(PRESET_MIN[0]);
 static constexpr int PRESET_DEFAULT = 5;   // 既定インデックス (= 90 分)
-enum TimerState { TM_SETUP = 0, TM_RUNNING, TM_PAUSED, TM_DONE };
+enum TimerState { TM_SETUP = 0, TM_RUNNING, TM_PAUSED, TM_DONE, TM_CONFIRM, TM_MENU };
 static int      g_tm_state   = TM_SETUP;
 static int      g_tm_preset  = PRESET_DEFAULT;  // 選択中プリセットのインデックス
 static uint32_t g_tm_total_ms  = 0;   // 設定総時間 [ms]
@@ -893,6 +893,53 @@ static void drawTimerBattery() {
   g_canvas.setTextDatum(textdatum_t::top_left);  // 既定に戻す
 }
 
+// ---- 誤操作防止ダイアログ (MENU / CONFIRM) のボタン配置 (縦積み・全幅) -------
+// 公演中に指が触れてもタイマーが途切れないよう、RUNNING は下スワイプで MENU、
+// DONE は下スワイプで CONFIRM を挟む。いずれもボタンのタップで初めて確定する。
+static constexpr int TDLG_X = 20;   // ボタン左端
+static constexpr int TDLG_W = 200;  // ボタン幅 (240 - 左右 20)
+static constexpr int TDLG_H = 46;   // ボタン高
+// 実行中メニュー: PAUSE / BACK / END の 3 ボタン。
+static constexpr int TMENU_PAUSE_Y = 120;
+static constexpr int TMENU_BACK_Y  = 178;
+static constexpr int TMENU_END_Y   = 236;
+// 終了確認: BACK / END の 2 ボタン。
+static constexpr int TCONF_BACK_Y  = 150;
+static constexpr int TCONF_END_Y   = 208;
+
+// 点 (x,y) が全幅ボタン (上端 by) の矩形内かを判定する。
+static bool tmInBtn(int x, int y, int by) {
+  return x >= TDLG_X && x < TDLG_X + TDLG_W && y >= by && y < by + TDLG_H;
+}
+
+// 全幅ボタンを枠線 + 中央ラベルで描く。
+static void tmDrawBtn(int by, const char *label, uint16_t col) {
+  g_canvas.drawRoundRect(TDLG_X, by, TDLG_W, TDLG_H, 8, col);
+  g_canvas.setTextDatum(textdatum_t::middle_center);
+  g_canvas.setTextColor(col, COL_BG);
+  g_canvas.setTextSize(3);
+  g_canvas.drawString(label, TDLG_X + TDLG_W / 2, by + TDLG_H / 2);
+}
+
+// ダイアログ共通ヘッダ (タイトル + 現在の残り/超過時間)。
+static void tmDialogHeader(const char *title) {
+  const int cx = g_canvas.width() / 2;
+  g_canvas.setTextDatum(textdatum_t::top_center);
+  g_canvas.setTextColor(COL_VALUE, COL_BG);
+  g_canvas.setTextSize(3);
+  g_canvas.drawString(title, cx, BAR_H + 16);
+
+  long remMs = tmRemainingMs();
+  bool over  = (remMs < 0);
+  long secs  = (over ? -remMs : remMs) / 1000;
+  char buf[16], sub[24];
+  tmFmt(secs, buf, sizeof(buf));
+  snprintf(sub, sizeof(sub), over ? "overrun +%s" : "left %s", buf);
+  g_canvas.setTextColor(COL_LABEL, COL_BG);
+  g_canvas.setTextSize(2);
+  g_canvas.drawString(sub, cx, BAR_H + 52);
+}
+
 // TIMER ページ: プリセット選択 (SETUP) / カウントダウン (RUNNING/PAUSED/DONE)。
 // 縦向き 240×320。ドーナツを中央に置き、内側に残り/経過時刻を重ねる。
 static void drawTimer() {
@@ -940,6 +987,33 @@ static void drawTimer() {
     g_canvas.setTextColor(COL_LABEL, COL_BG);
     g_canvas.setTextSize(1);
     g_canvas.drawString("swipe up/down  /  tap: start", cx, H - 24);
+    drawTimerBattery();
+    return;
+  }
+
+  // ---- MENU: 実行中メニュー (PAUSE / BACK / END) ----
+  if (g_tm_state == TM_MENU) {
+    tmDialogHeader("TIMER MENU");
+    tmDrawBtn(TMENU_PAUSE_Y, "PAUSE", COL_WARN);
+    tmDrawBtn(TMENU_BACK_Y,  "BACK",  COL_ACCENT);
+    tmDrawBtn(TMENU_END_Y,   "END",   COL_RED);
+    g_canvas.setTextDatum(textdatum_t::bottom_center);
+    g_canvas.setTextColor(COL_LABEL, COL_BG);
+    g_canvas.setTextSize(1);
+    g_canvas.drawString("tap a button  /  swipe: back", cx, H - 24);
+    drawTimerBattery();
+    return;
+  }
+
+  // ---- CONFIRM: 終了確認 (BACK / END) ----
+  if (g_tm_state == TM_CONFIRM) {
+    tmDialogHeader("END TIMER?");
+    tmDrawBtn(TCONF_BACK_Y, "BACK", COL_ACCENT);
+    tmDrawBtn(TCONF_END_Y,  "END",  COL_RED);
+    g_canvas.setTextDatum(textdatum_t::bottom_center);
+    g_canvas.setTextColor(COL_LABEL, COL_BG);
+    g_canvas.setTextSize(1);
+    g_canvas.drawString("tap a button  /  swipe: back", cx, H - 24);
     drawTimerBattery();
     return;
   }
@@ -1010,9 +1084,9 @@ static void drawTimer() {
   g_canvas.setTextDatum(textdatum_t::bottom_center);
   g_canvas.setTextColor(COL_LABEL, COL_BG);
   g_canvas.setTextSize(1);
-  const char *hint = (g_tm_state == TM_DONE)   ? "tap: back to setup"
+  const char *hint = (g_tm_state == TM_DONE)   ? "swipe: end"
                    : (g_tm_state == TM_PAUSED) ? "tap: resume / swipe: reset"
-                                               : "tap: pause / swipe: reset";
+                                               : "swipe: menu";
   g_canvas.drawString(hint, cx, H - 24);
   drawTimerBattery();
 }
@@ -1137,15 +1211,30 @@ static void handleTouch() {
           } else if (tap) { tmStart(); g_redraw = true; }
           break;
         case TM_RUNNING:
-          if (vSwipe)     { tmReset();  g_redraw = true; }
-          else if (tap)   { tmPause();  g_redraw = true; }
+          // 公演中の誤タッチ対策: タップ無効。スワイプでメニューを開く。
+          if (vSwipe) { g_tm_state = TM_MENU; g_redraw = true; }
           break;
         case TM_PAUSED:
           if (vSwipe)     { tmReset();  g_redraw = true; }
           else if (tap)   { tmResume(); g_redraw = true; }
           break;
         case TM_DONE:
-          if (tap || vSwipe) { tmReset(); g_redraw = true; }
+          // タップでは戻らない。スワイプで終了確認へ進む。
+          if (vSwipe) { g_tm_state = TM_CONFIRM; g_redraw = true; }
+          break;
+        case TM_MENU:
+          // ボタンをタップして確定。領域外タップは無視 (誤操作防止)。
+          if (tap) {
+            if (tmInBtn(d.x, d.y, TMENU_END_Y))        { tmReset();  g_redraw = true; }  // END → SETUP へ
+            else if (tmInBtn(d.x, d.y, TMENU_PAUSE_Y)) { tmPause();  g_redraw = true; }  // PAUSE → 一時停止
+            else if (tmInBtn(d.x, d.y, TMENU_BACK_Y))  { g_tm_state = TM_RUNNING; g_redraw = true; }  // BACK → 実行へ
+          } else if (vSwipe) { g_tm_state = TM_RUNNING; g_redraw = true; }  // スワイプで閉じる
+          break;
+        case TM_CONFIRM:
+          if (tap) {
+            if (tmInBtn(d.x, d.y, TCONF_END_Y))       { tmReset(); g_redraw = true; }  // END → SETUP へ
+            else if (tmInBtn(d.x, d.y, TCONF_BACK_Y)) { g_tm_state = TM_DONE; g_redraw = true; }  // BACK → DONE へ
+          } else if (vSwipe) { g_tm_state = TM_DONE; g_redraw = true; }  // スワイプで取消
           break;
       }
     } else if (abs(dx) < 16 && abs(dy) < 16 && g_page == PAGE_LEVEL) {
