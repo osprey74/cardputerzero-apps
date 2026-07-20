@@ -50,7 +50,8 @@ def tilt_compensated_heading(mx: float, my: float, mz: float,
                              offset_x: float = 0.0, offset_y: float = 0.0,
                              offset_z: float = 0.0,
                              scale_x: float = 1.0, scale_y: float = 1.0,
-                             scale_z: float = 1.0) -> float:
+                             scale_z: float = 1.0,
+                             offset=None, matrix=None) -> float:
     """加速度（重力）で磁気を水平面へ補正した方位角[deg]（tilt-compensated compass）。
 
     Freescale AN4248 の定式。加速度 (ax,ay,az) から roll/pitch を求め、ハード/ソフト
@@ -63,10 +64,22 @@ def tilt_compensated_heading(mx: float, my: float, mz: float,
 
     offset_z/scale_z は縦方向のハード/ソフトアイアン。水平 360° スイープでは推定できない
     ため既定 0/1（傾けたときの精度を上げるには 3 軸較正が要る）。
+
+    ``matrix``（3×3 を行優先 9 要素）と ``offset``（3 要素）を与えると、軸別 scale の
+    代わりに**楕円体フィットのソフトアイアン補正** ``corrected = matrix @ (raw - offset)``
+    を使う（軸非平行な歪みも補正でき、極端姿勢の残差が小さくなる）。両方指定時はこちら優先。
     """
-    bx = (mx - offset_x) * scale_x
-    by = (my - offset_y) * scale_y
-    bz = (mz - offset_z) * scale_z
+    if matrix is not None:
+        ox, oy, oz = offset if offset is not None else (offset_x, offset_y, offset_z)
+        dx, dy, dz = mx - ox, my - oy, mz - oz
+        m = matrix
+        bx = m[0] * dx + m[1] * dy + m[2] * dz
+        by = m[3] * dx + m[4] * dy + m[5] * dz
+        bz = m[6] * dx + m[7] * dy + m[8] * dz
+    else:
+        bx = (mx - offset_x) * scale_x
+        by = (my - offset_y) * scale_y
+        bz = (mz - offset_z) * scale_z
     if math.sqrt(ax * ax + ay * ay + az * az) < 1e-6:
         return wrap360(math.degrees(math.atan2(by, bx)))     # 水平前提フォールバック
     phi = math.atan2(ay, az)                                  # roll

@@ -59,20 +59,27 @@ class CoreS3HeadingSource(HeadingSource):
                  offset_x: Optional[float] = None, offset_y: Optional[float] = None,
                  offset_z: float = 0.0,
                  span_x: float = 1.0, span_y: float = 1.0,
-                 span_z: Optional[float] = None):
+                 span_z: Optional[float] = None,
+                 ell_offset=None, ell_matrix=None, accel_gate: float = 0.12):
         self._filter = HeadingFilter(alpha=alpha, declination=declination,
                                      zero_offset=zero_offset, invert=invert)
         self._port = port
         self._use_tilt = use_tilt
-        # ハード/ソフトアイアン較正: offset_x/y を両方与えたときのみ生 x/y/z から
-        # heading を再計算する（未指定ならファーム算出の生 heading をそのまま使う）。
-        # span は 3D 較正での各軸半スパン。scale=1/span で軸振幅を正規化する
-        # （傾き補正は 3 軸を混ぜるため、z も x/y と同じスケールに揃えるのが要点。
-        # z 未較正だと mz が桁違いに大きく heading を支配して暴れる）。
-        # _cal は 3 軸（tilt 用）、_cal_xy は水平前提用（heading_from_xy は x/y のみ）。
+        # 加速度ゲート[g]: |加速度|が 1g からこの幅を超えて外れたら「動作中」とみなし
+        # heading を更新しない（直前値保持）。動的加速度で pitch/roll 推定が狂うのを防ぐ。
+        # 0 以下で無効。傾き補正が有効なときのみ効く。
+        self._accel_gate = accel_gate
+        # 較正の優先順位: ①楕円体フィット(ell_offset+ell_matrix・軸非平行歪みも補正・最良)
+        # → ②ボックス法(offset_x/y[/z]+span・軸平行仮定) → ③無較正(生 heading)。
+        # _cal は tilt 用（tilt_compensated_heading の引数）、_cal_xy は加速度欠落時の
+        # 水平前提フォールバック用（heading_from_xy は x/y のみ）。
         self._cal = None
         self._cal_xy = None
-        if offset_x is not None and offset_y is not None:
+        if ell_matrix is not None and ell_offset is not None:
+            self._cal = {"offset": tuple(ell_offset), "matrix": tuple(ell_matrix)}
+            self._cal_xy = dict(offset_x=float(ell_offset[0]), offset_y=float(ell_offset[1]),
+                                scale_x=1.0, scale_y=1.0)   # 粗い 2D フォールバック
+        elif offset_x is not None and offset_y is not None:
             sz = span_z if span_z else (((span_x or 1.0) + (span_y or 1.0)) / 2.0)
             self._cal_xy = dict(offset_x=offset_x, offset_y=offset_y,
                                 scale_x=1.0 / (span_x or 1.0),
@@ -106,6 +113,11 @@ class CoreS3HeadingSource(HeadingSource):
                                 and None not in (acc.x, acc.y, acc.z))
                     if self._cal is not None and mag.x is not None and mag.y is not None:
                         if have_acc:
+                            # 加速度ゲート: 動作中（|a|≠1g）は更新せず直前値保持。
+                            if self._accel_gate > 0.0:
+                                norm = (acc.x ** 2 + acc.y ** 2 + acc.z ** 2) ** 0.5
+                                if abs(norm - 1.0) > self._accel_gate:
+                                    continue                                   # 動作中→スキップ
                             h = self._filter.update_tilt(mag.x, mag.y, mag.z,   # 傾き補正
                                                          acc.x, acc.y, acc.z, **self._cal)
                         else:

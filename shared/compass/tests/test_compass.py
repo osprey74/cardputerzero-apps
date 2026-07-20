@@ -120,6 +120,35 @@ def test_tilt_invariant_under_roll():
     assert abs(wrap180(h_flat - H)) > 2.0
 
 
+def test_tilt_matrix_identity_matches_peraxis():
+    # 単位行列＋ゼロオフセットの楕円体補正は、軸別 scale=1 と同じ heading。
+    ident = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+    for mx, my, mz, ax, ay, az in [(0.3, 0.7, 0.2, 0.0, 0.4, 0.9),
+                                   (-0.5, 0.5, -0.1, 0.2, -0.3, 0.9)]:
+        h_axis = tilt_compensated_heading(mx, my, mz, ax, ay, az)
+        h_mat = tilt_compensated_heading(mx, my, mz, ax, ay, az,
+                                         offset=(0.0, 0.0, 0.0), matrix=ident)
+        assert abs(wrap180(h_mat - h_axis)) < 1e-9
+
+
+def test_tilt_matrix_corrects_soft_iron():
+    # 楕円体（軸別ゲイン歪み）を仮定し、逆行列補正で真方位を回復する。
+    import math as _m
+    H = 40.0
+    hr = _m.radians(H)
+    # level・真方位 H の理想磁気（単位球）。
+    bx, by, bz = _m.cos(hr), _m.sin(hr), 0.2
+    # ソフトアイアン歪み: 各軸ゲイン (2.0, 0.5, 1.5) をかけた生値＋オフセット。
+    ox, oy, oz = 100.0, -50.0, 20.0
+    gx, gy, gz = 2.0, 0.5, 1.5
+    mx, my, mz = bx * gx + ox, by * gy + oy, bz * gz + oz
+    # 補正行列 = 逆ゲイン、オフセット除去。
+    matrix = [1 / gx, 0, 0, 0, 1 / gy, 0, 0, 0, 1 / gz]
+    h = tilt_compensated_heading(mx, my, mz, 0.0, 0.0, 1.0,
+                                 offset=(ox, oy, oz), matrix=matrix)
+    assert abs(wrap180(h - H)) < 1e-6
+
+
 def test_tilt_falls_back_when_accel_zero():
     # 加速度がほぼゼロなら水平前提にフォールバック。
     h = tilt_compensated_heading(0.3, 0.7, 0.1, 0.0, 0.0, 0.0)

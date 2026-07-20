@@ -60,9 +60,10 @@ _DEFAULT_CFG = os.path.expanduser("~/.config/cardputerzero/stellar_map.json")
 
 # 設定ファイルで指定できるキー（argparse の dest 名と一致させる）。
 _CFG_KEYS = {"lat", "lon", "tz", "mag_view", "mag_port", "declination",
-             "heading_offset", "heading_alpha", "heading_invert", "no_tilt",
+             "heading_offset", "heading_alpha", "heading_invert", "no_tilt", "accel_gate",
              "mag_offset_x", "mag_offset_y", "mag_offset_z",
-             "mag_span_x", "mag_span_y", "mag_span_z"}
+             "mag_span_x", "mag_span_y", "mag_span_z",
+             "mag_ellipsoid_offset", "mag_ellipsoid_matrix"}
 
 
 def _load_config(argv) -> tuple[dict, str]:
@@ -144,7 +145,10 @@ def make_heading_source(args):
                                    offset_z=args.mag_offset_z,
                                    span_x=args.mag_span_x,
                                    span_y=args.mag_span_y,
-                                   span_z=args.mag_span_z)
+                                   span_z=args.mag_span_z,
+                                   ell_offset=getattr(args, "mag_ellipsoid_offset", None),
+                                   ell_matrix=getattr(args, "mag_ellipsoid_matrix", None),
+                                   accel_gate=args.accel_gate)
     if args.heading is not None:
         return FixedHeadingSource(args.heading + args.heading_offset + args.declination)
     return None
@@ -182,6 +186,8 @@ def main() -> None:
                     help="方位の回転向きを反転")
     ap.add_argument("--no-tilt", action="store_true",
                     help="傾き補正を無効化（加速度があっても水平前提で heading を出す）")
+    ap.add_argument("--accel-gate", type=float, default=0.12,
+                    help="動作中(|a|が1gからこの幅[g]超で外れる)は heading 更新を止める。0で無効")
     # ハード/ソフトアイアン較正（calib_probe.py の推定値。両 offset 指定で x/y 補正が有効）。
     ap.add_argument("--mag-offset-x", type=float, default=None, help="ハードアイアン中心 x")
     ap.add_argument("--mag-offset-y", type=float, default=None, help="ハードアイアン中心 y")
