@@ -155,14 +155,17 @@ fn draw_scene(cv: &mut WindowCanvas, s: &Scene, show_lines: bool, show_dso: bool
         draw::line(cv, (cx - r, cy), (cx + r, cy), s.chrome.circle_color);
     }
 
-    // 星座線（L キーで ON/OFF）
-    if show_lines {
+    // レイヤトグル（L/D/P）は MAP モードのみ適用。LIST/ZOOM の lines/labels は
+    // UI コンテンツ（星座線・リスト行）なので常に描く。
+    let is_map = s.meta.mode == "MAP";
+    // 星座線（MAP では L キーで ON/OFF）
+    if !is_map || show_lines {
         for l in &s.lines {
             draw::line(cv, (l.0, l.1), (l.2, l.3), s.line_color);
         }
     }
-    // DSO（D キーで ON/OFF）= 一辺 side の塗り四角
-    if show_dso {
+    // DSO（MAP では D キーで ON/OFF）= 一辺 side の塗り四角
+    if !is_map || show_dso {
         for p in &s.dso {
             draw::fill_square(cv, p.0, p.1, p.2, [p.3, p.4, p.5]);
         }
@@ -177,8 +180,8 @@ fn draw_scene(cv: &mut WindowCanvas, s: &Scene, show_lines: bool, show_dso: bool
     for p in &s.points {
         draw::fill_square(cv, p.0, p.1, p.2, [p.3, p.4, p.5]);
     }
-    // 天体ラベル（惑星・月の名前・P キーで ON/OFF）
-    if show_labels {
+    // ラベル（MAP では惑星・月の名前を P キーで ON/OFF。LIST/ZOOM は UI 文字なので常に描く）
+    if !is_map || show_labels {
         for t in &s.labels {
             draw::text(cv, t.0, t.1, &t.2, [t.3, t.4, t.5], 1);
         }

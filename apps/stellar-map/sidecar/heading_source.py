@@ -14,6 +14,7 @@ CardputerZero 実機では内蔵 BMM150 を読む ``CZHeadingSource`` を同じ 
 from __future__ import annotations
 
 import threading
+import time
 from typing import Optional
 
 from shared.compass import HeadingFilter
@@ -94,6 +95,10 @@ class CoreS3HeadingSource(HeadingSource):
         self._press = {"R": 0, "B": 0}        # 未処理の押下エッジ回数
         self._prev_cnt = {}                   # role -> 前回 cnt
         self._prev_btn = {"R": 0, "B": 0}     # role -> 前回 btn
+        # ボタンデバウンス[s]: この間隔以内の連続押下エッジは 1 回に集約（チャタリング対策）。
+        # 青ボタンのチャタリングで ZOOM→LIST→ZOOM と二重遷移するのを防ぐ。
+        self._btn_debounce = 0.30
+        self._last_press_t = {"R": 0.0, "B": 0.0}
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="cores3-input",
                                         daemon=True)
@@ -155,7 +160,10 @@ class CoreS3HeadingSource(HeadingSource):
                     self._rot[role] += e.cnt - prev      # cnt 差で回転を累積（欠落に強い）
                 self._prev_cnt[role] = e.cnt
                 if e.btn and not self._prev_btn.get(role, 0):
-                    self._press[role] += 1               # 押下エッジ
+                    now = time.monotonic()               # 押下エッジ（デバウンス付き）
+                    if now - self._last_press_t[role] > self._btn_debounce:
+                        self._press[role] += 1
+                        self._last_press_t[role] = now
                 self._prev_btn[role] = e.btn
 
     def drain_input(self) -> dict:
