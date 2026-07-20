@@ -86,3 +86,5 @@ sub_dumps/
 # Claude / agent runtime
 .claude/local/
 .claude/sessions/
+.claude/settings.json
+.claude/settings.local.json

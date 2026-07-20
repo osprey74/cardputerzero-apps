@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(scp uconsole:/tmp/cn_3x.png \"C:/Users/ospre/AppData/Local/Temp/claude/g--dev-cardputerzero-apps/cffee972-7dea-43b1-b7fb-eda2623297b9/scratchpad/cnames.png\")"
-    ]
-  }
-}
