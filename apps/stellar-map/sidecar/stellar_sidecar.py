@@ -239,8 +239,11 @@ def _apply_nav(state, ev, n, m):
             state["pzrot"] = 0
             state["mode"] = "PZOOM"
     elif ev == "tab":
-        if mode == "MAP":
+        # 2 つのリストを切替（MAP/星座リスト→惑星リスト、惑星リスト→星座リスト）。
+        if mode in ("MAP", "LIST"):
             state["mode"] = "PLIST"
+        elif mode == "PLIST":
+            state["mode"] = "LIST"
     elif ev in ("up", "down"):
         d = -1 if ev == "up" else 1
         if mode == "LIST" and n:
