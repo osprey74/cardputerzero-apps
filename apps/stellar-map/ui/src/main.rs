@@ -13,8 +13,8 @@
 mod draw;
 mod font8x8;
 
-use std::io::{BufRead, BufReader};
-use std::process::{Command, Stdio};
+use std::io::{BufRead, BufReader, Write};
+use std::process::{ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use sdl2::event::Event;
@@ -268,12 +268,21 @@ fn save_png(cv: &mut WindowCanvas, dir: &str) {
     }
 }
 
+/// キーボードのナビ操作をサイドカーの stdin へ送る（CZ 単体・エンコーダ無し用）。
+fn nav_send(nav: &mut Option<ChildStdin>, cmd: &str) {
+    if let Some(w) = nav.as_mut() {
+        let _ = w.write_all(cmd.as_bytes());
+        let _ = w.flush();
+    }
+}
+
 /// reader から JSON Lines を読み、各 Scene を描く。screenshot 指定時は 1 フレームで終了。
 ///
 /// フレームごとに SDL イベントを汲む。これを怠ると X11/WM 上で窓が応答なし扱いになり、
 /// 初回フレーム以降が更新されず固着する（実機 uConsole で発生）。Quit で終了。
+/// `nav`（サイドカー stdin）があれば矢印/Enter/Tab/Esc をナビ操作として送る。
 fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, ep: &mut EventPump,
-                   screenshot: Option<&str>) {
+                   screenshot: Option<&str>, mut nav: Option<ChildStdin>) {
     let mut line = String::new();
     let mut show_lines = true;    // L: 星座線 ON/OFF
     let mut show_dso = true;      // D: DSO ON/OFF
@@ -306,6 +315,23 @@ fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, ep: &mut EventPump,
                 }
                 Event::KeyDown { keycode: Some(Keycode::S), .. } => {
                     shoot = true;
+                }
+                // ナビ操作（サイドカーへ送信・エンコーダ無しの CZ 単体用）
+                Event::KeyDown { keycode: Some(Keycode::Return), .. }
+                | Event::KeyDown { keycode: Some(Keycode::KpEnter), .. } => {
+                    nav_send(&mut nav, "enter\n");
+                }
+                Event::KeyDown { keycode: Some(Keycode::Tab), .. } => {
+                    nav_send(&mut nav, "tab\n");
+                }
+                Event::KeyDown { keycode: Some(Keycode::Up), .. } => {
+                    nav_send(&mut nav, "up\n");
+                }
+                Event::KeyDown { keycode: Some(Keycode::Down), .. } => {
+                    nav_send(&mut nav, "down\n");
+                }
+                Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+                    nav_send(&mut nav, "esc\n");
                 }
                 _ => {}
             }
@@ -371,23 +397,28 @@ fn main() -> std::io::Result<()> {
     let screenshot = std::env::var("CZ_SCREENSHOT").ok();
 
     if std::env::var("STELLAR_FROM_STDIN").is_ok() {
-        // sidecar.py | stellar-map
+        // sidecar.py | stellar-map（キーボードナビ無し＝エンコーダ運用）
         let stdin = std::io::stdin();
-        run(stdin.lock(), &mut canvas, &mut event_pump, screenshot.as_deref());
+        run(stdin.lock(), &mut canvas, &mut event_pump, screenshot.as_deref(), None);
         return Ok(());
     }
 
-    // サイドカーを子プロセス起動して Scene を読む。
+    // サイドカーを子プロセス起動し、Scene を読む＋キーボードナビを stdin へ書く。
+    // 引数は STELLAR_SIDECAR_ARGS（空白区切り・既定 --interval 0.2）。ポート/較正は config。
     let sidecar = std::env::var("STELLAR_SIDECAR")
         .unwrap_or_else(|_| "../sidecar/stellar_sidecar.py".to_string());
+    let sidecar_args = std::env::var("STELLAR_SIDECAR_ARGS")
+        .unwrap_or_else(|_| "--interval 0.2".to_string());
     let mut cmd = Command::new("python3");
     cmd.arg(&sidecar);
-    if screenshot.is_none() {
-        cmd.arg("--interval").arg("30"); // 常駐時は 30s 毎に更新（スクショ時は 1 発）
+    for a in sidecar_args.split_whitespace() {
+        cmd.arg(a);
     }
-    let mut child = cmd.stdout(Stdio::piped()).spawn()?;
+    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
     let stdout = child.stdout.take().expect("sidecar stdout");
-    run(BufReader::new(stdout), &mut canvas, &mut event_pump, screenshot.as_deref());
+    let child_stdin = child.stdin.take();
+    run(BufReader::new(stdout), &mut canvas, &mut event_pump, screenshot.as_deref(),
+        child_stdin);
     let _ = child.kill();
     Ok(())
 }

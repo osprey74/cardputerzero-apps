@@ -34,6 +34,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -184,7 +185,81 @@ def build_once(args, cat, lines, dsos, hsrc=None, bcache=None, scache=None,
 _NO_INPUT = {"red_rot": 0, "blue_rot": 0, "red_press": 0, "blue_press": 0}
 
 
-def build_frame(args, cat, lines, dsos, cnames, groups, bstars, hsrc, bcache, scache, state):
+class StdinNav:
+    """UI（キーボード）からの操作を標準入力の行で受ける（CZ 単体・エンコーダ無し用）。
+
+    UI がサイドカーを子プロセス起動し、キー名（enter/tab/up/down/esc）を 1 行ずつ
+    stdin へ書く。パイプ運用（stdin=/dev/null）では即 EOF でスレッド終了＝無害。
+    """
+
+    def __init__(self):
+        import collections
+        self._q = collections.deque()
+        self._lock = threading.Lock()
+        self._t = threading.Thread(target=self._run, name="stdin-nav", daemon=True)
+        self._t.start()
+
+    def _run(self):
+        try:
+            while True:
+                line = sys.stdin.readline()
+                if line == "":
+                    break                       # EOF
+                ev = line.strip().lower()
+                if ev:
+                    with self._lock:
+                        self._q.append(ev)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def drain(self):
+        with self._lock:
+            out = list(self._q)
+            self._q.clear()
+        return out
+
+
+def _apply_nav(state, ev, n, m):
+    """キーボードのナビ操作イベント ev で状態機械を遷移させる（エンコーダと並行）。
+
+    enter=深く / tab=惑星リスト / up,down=カーソルor拡縮 / esc=一段戻る。
+    """
+    mode = state["mode"]
+    if ev == "enter":
+        if mode == "MAP":
+            state["mode"] = "LIST"
+        elif mode == "LIST" and n:
+            state["selected"] = state["cursor"]
+            state["czoom"] = 1.0
+            state["zrot"] = 0
+            state["mode"] = "ZOOM"
+        elif mode == "PLIST" and m:
+            state["pselected"] = state["pcursor"]
+            state["pzoom"] = 1.0
+            state["pzrot"] = 0
+            state["mode"] = "PZOOM"
+    elif ev == "tab":
+        if mode == "MAP":
+            state["mode"] = "PLIST"
+    elif ev in ("up", "down"):
+        d = -1 if ev == "up" else 1
+        if mode == "LIST" and n:
+            state["cursor"] = (state["cursor"] + d) % n
+        elif mode == "PLIST" and m:
+            state["pcursor"] = (state["pcursor"] + d) % m
+        elif mode == "ZOOM":
+            f = 1.15 if ev == "up" else 1.0 / 1.15
+            state["czoom"] = min(8.0, max(0.3, state["czoom"] * f))
+        elif mode == "PZOOM":
+            f = 1.15 if ev == "up" else 1.0 / 1.15
+            state["pzoom"] = min(8.0, max(0.3, state["pzoom"] * f))
+    elif ev == "esc":
+        state["mode"] = {"ZOOM": "LIST", "LIST": "MAP",
+                         "PZOOM": "PLIST", "PLIST": "MAP"}.get(mode, mode)
+
+
+def build_frame(args, cat, lines, dsos, cnames, groups, bstars, hsrc, bcache, scache,
+                state, nav=None):
     """Chain Encoder 入力で 5 モード遷移し、モードに応じた Scene を返す。
 
     星座（赤起点）: MAP --赤--> LIST（赤回転=カーソル/青=選択→ZOOM/赤=MAP）、ZOOM --青--> LIST。
@@ -203,8 +278,13 @@ def build_frame(args, cat, lines, dsos, cnames, groups, bstars, hsrc, bcache, sc
                           "kind": "star", "hip": bs["hip"], "group": bs["group"]})
     m = len(blist)
     sens = max(1, int(args.enc_sensitivity))
-    mode = state["mode"]
 
+    # キーボード（stdin）ナビ＝エンコーダと並行に状態機械を動かす（CZ 単体対応）。
+    if nav is not None:
+        for ev in nav.drain():
+            _apply_nav(state, ev, n, m)
+
+    mode = state["mode"]
     if mode == "MAP":
         if inp["red_press"]:
             state["mode"] = "LIST"
@@ -369,19 +449,20 @@ def main() -> None:
              "czoom": 1.0, "zrot": 0,                               # 星座拡大の拡縮
              "pcursor": 0, "pselected": 0, "prot": 0,               # 惑星/月（青）
              "pzoom": 1.0, "pzrot": 0}                              # 惑星拡大の拡縮
+    nav = StdinNav()   # UI（キーボード）からの操作を stdin で受ける（CZ 単体対応）
     try:
         if args.interval and args.interval > 0:
             while True:
                 sys.stdout.write(json.dumps(
                     build_frame(args, cat, lines, dsos, cnames, groups, bstars,
-                                hsrc, bcache, scache, state),
+                                hsrc, bcache, scache, state, nav),
                     separators=(",", ":")) + "\n")
                 sys.stdout.flush()
                 time.sleep(args.interval)
         else:
             sys.stdout.write(json.dumps(
                 build_frame(args, cat, lines, dsos, cnames, groups, bstars,
-                            hsrc, bcache, scache, state),
+                            hsrc, bcache, scache, state, nav),
                 separators=(",", ":")) + "\n")
     finally:
         if hsrc is not None:
