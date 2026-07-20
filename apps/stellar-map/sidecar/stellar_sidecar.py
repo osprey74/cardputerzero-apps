@@ -63,7 +63,7 @@ def _now_local():
 _DEFAULT_CFG = os.path.expanduser("~/.config/cardputerzero/stellar_map.json")
 
 # 設定ファイルで指定できるキー（argparse の dest 名と一致させる）。
-_CFG_KEYS = {"lat", "lon", "tz", "mag_view", "mag_port", "declination",
+_CFG_KEYS = {"lat", "lon", "tz", "mag_view", "mag_port", "declination", "mirror_ew",
              "heading_offset", "heading_alpha", "heading_invert", "no_tilt", "accel_gate",
              "enc_sensitivity",
              "mag_offset_x", "mag_offset_y", "mag_offset_z",

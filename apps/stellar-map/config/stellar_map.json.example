@@ -6,6 +6,9 @@
   "tz": 9.0,
   "mag_view": 4.5,
 
+  "_mirror_comment": "true=地上から見上げる向き（東=左・実際の星座の形）。false=天球を外から見下ろす向き（東=右・鏡像）。",
+  "mirror_ew": true,
+
   "mag_port": "/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_44:1B:F6:E5:53:DC-if00",
 
   "_cal_comment": "ハード/ソフトアイアン 3D 較正（tools/calib3d.py＝全方位に転がして採取）。傾き補正には x/y/z の 3 軸が必須。span は全磁場スパン（≈340）で、水平スイープ calib_probe.py の水平成分（≈186）とは別物。",
