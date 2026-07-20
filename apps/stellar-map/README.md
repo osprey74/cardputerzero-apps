@@ -80,6 +80,7 @@ python tools/render_catalog.py --shape square --no-aa
 | `D` | DSO（深宇宙天体）表示 ON/OFF（既定 ON） |
 | `P` | 惑星・月の名前 表示 ON/OFF（既定 ON） |
 | `C` | 星座名 表示 ON/OFF（既定 OFF・低解像度での混雑回避） |
+| `S` | スクリーンショット PNG 保存（`STELLAR_SHOTS_DIR` → `$HOME/stellar_shots`） |
 
 方位は地磁気（BMM150）で自機の向きを画面上に固定（方式A）。個体・取付依存の較正／姿勢
 オフセットは `~/.config/cardputerzero/stellar_map.json`（例 `config/stellar_map.json.example`）。

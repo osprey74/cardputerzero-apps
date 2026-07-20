@@ -171,8 +171,8 @@ fn draw_scene(cv: &mut WindowCanvas, s: &Scene, show_lines: bool, show_dso: bool
     }
     // 情報パネル
     draw_panel(cv, &s.meta);
-
-    cv.present();
+    // present() は呼ばない: read_pixels でのスクショは present 前に読む必要がある
+    // （実 X では present 後のバックバッファが未定義＝黒になる）。呼び出し側で present。
 }
 
 fn save_bmp(cv: &mut WindowCanvas, path: &str) {
@@ -182,6 +182,49 @@ fn save_bmp(cv: &mut WindowCanvas, path: &str) {
         .expect("surface");
     surf.save_bmp(path).expect("save_bmp");
     eprintln!("screenshot -> {path} ({w}x{h})");
+}
+
+/// スクショ保存先ディレクトリ（STELLAR_SHOTS_DIR → $HOME/stellar_shots → ./stellar_shots）。
+fn shots_dir() -> String {
+    if let Ok(d) = std::env::var("STELLAR_SHOTS_DIR") {
+        return d;
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return format!("{home}/stellar_shots");
+    }
+    "stellar_shots".to_string()
+}
+
+/// 現在フレームを PNG 保存（`S` キー）。read_pixels は **present 前**に呼ぶこと。
+fn save_png(cv: &mut WindowCanvas, dir: &str) {
+    let (w, h) = match cv.output_size() {
+        Ok(s) => s,
+        Err(e) => { eprintln!("[warn] output_size: {e}"); return; }
+    };
+    let data = match cv.read_pixels(None, PixelFormatEnum::RGB24) {
+        Ok(d) => d,
+        Err(e) => { eprintln!("[warn] read_pixels: {e}"); return; }
+    };
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        eprintln!("[warn] mkdir {dir}: {e}");
+        return;
+    }
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let path = format!("{dir}/stellar_{ts}.png");
+    let file = match std::fs::File::create(&path) {
+        Ok(f) => f,
+        Err(e) => { eprintln!("[warn] create {path}: {e}"); return; }
+    };
+    let mut enc = png::Encoder::new(file, w, h);
+    enc.set_color(png::ColorType::Rgb);
+    enc.set_depth(png::BitDepth::Eight);
+    match enc.write_header().and_then(|mut wr| wr.write_image_data(&data)) {
+        Ok(_) => eprintln!("screenshot -> {path} ({w}x{h})"),
+        Err(e) => eprintln!("[warn] png write: {e}"),
+    }
 }
 
 /// reader から JSON Lines を読み、各 Scene を描く。screenshot 指定時は 1 フレームで終了。
@@ -195,10 +238,12 @@ fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, ep: &mut EventPump,
     let mut show_dso = true;      // D: DSO ON/OFF
     let mut show_labels = true;   // P: 惑星・月の名前 ON/OFF
     let mut show_cnames = false;  // C: 星座名 ON/OFF（既定 OFF＝低解像度で混雑回避）
+    let shots = shots_dir();
     let mut last: Option<Scene> = None;
     while !STOP.load(Ordering::Relaxed) {
-        // イベント処理: Quit で終了、L/D/P/C でレイヤ切替（切替時は最新フレームを即再描画）。
+        // イベント処理: Quit で終了、L/D/P/C でレイヤ切替、S でスクショ保存。
         let mut toggled = false;
+        let mut shoot = false;
         for event in ep.poll_iter() {
             match event {
                 Event::Quit { .. } => STOP.store(true, Ordering::SeqCst),
@@ -218,12 +263,24 @@ fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, ep: &mut EventPump,
                     show_cnames = !show_cnames;
                     toggled = true;
                 }
+                Event::KeyDown { keycode: Some(Keycode::S), .. } => {
+                    shoot = true;
+                }
                 _ => {}
+            }
+        }
+        // S: 最新フレームを描き直して PNG 保存（read_pixels は present 前）。
+        if shoot {
+            if let Some(s) = &last {
+                draw_scene(cv, s, show_lines, show_dso, show_labels, show_cnames);
+                save_png(cv, &shots);
+                cv.present();
             }
         }
         if toggled {
             if let Some(s) = &last {
                 draw_scene(cv, s, show_lines, show_dso, show_labels, show_cnames);
+                cv.present();
             }
         }
         line.clear();
@@ -243,9 +300,10 @@ fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, ep: &mut EventPump,
             Ok(scene) => {
                 draw_scene(cv, &scene, show_lines, show_dso, show_labels, show_cnames);
                 if let Some(path) = screenshot {
-                    save_bmp(cv, path);
+                    save_bmp(cv, path);   // present 前に読む（黒回避）
                     return;
                 }
+                cv.present();
                 last = Some(scene);
             }
             Err(e) => eprintln!("[warn] Scene パース失敗: {e}"),
