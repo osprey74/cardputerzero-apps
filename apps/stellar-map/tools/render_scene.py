@@ -46,8 +46,11 @@ def render_scene(scene: dict) -> Image.Image:
     except OSError:
         font = font_sm = ImageFont.load_default()
 
+    for x, y, w, h, r, g, b in scene.get("rects", []):     # 塗り矩形（背景・最初に）
+        d.rectangle([x, y, x + w - 1, y + h - 1], fill=(r, g, b))
+
     ch = scene.get("chrome", {})
-    if ch.get("circle"):
+    if ch.get("circle") and ch["circle"][2] > 0:
         cx, cy, r = ch["circle"]
         cc = tuple(ch.get("circle_color", [60, 66, 70]))
         d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=cc)
@@ -72,8 +75,10 @@ def render_scene(scene: dict) -> Image.Image:
     for x, y, t, r, g, b in scene.get("labels", []):
         d.text((x, y), t, fill=(r, g, b), font=font_sm)
 
-    # 情報パネル（meta から）。UI 側の描画例。
+    # 情報パネル（meta から）。UI 側の描画例。MAP モードのみ（LIST/ZOOM は labels/rects）。
     meta = scene.get("meta", {})
+    if meta.get("mode", "MAP") != "MAP":
+        return img
     px = 174
     d.line([170, 0, 170, h], fill=(60, 66, 70))
     d.text((px, 6), "STELLAR MAP", fill=COL_ACCENT, font=font)

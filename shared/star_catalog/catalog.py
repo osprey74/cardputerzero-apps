@@ -131,6 +131,27 @@ def load_constellation_names(data_dir: str | Path,
     return out
 
 
+def load_constellation_groups(data_dir: str | Path) -> list[dict]:
+    """星座ごとのグループ ``[{"iau","name","pairs"}]`` を返す（名前順）。無ければ []。
+
+    App16 の星座リスト/拡大表示 UI 用（`pairs`=構成 HIP ペア列）。
+    """
+    d = Path(data_dir)
+    p = d / "constellation_lines.json"
+    if not p.exists():
+        return []
+    obj = json.loads(p.read_text(encoding="utf-8"))
+    groups = []
+    for c in obj.get("constellations", []):
+        pairs = [(int(a), int(b)) for a, b in c.get("pairs", [])]
+        if not pairs:
+            continue
+        groups.append({"iau": c.get("iau", ""), "name": c.get("name", ""),
+                       "pairs": pairs})
+    groups.sort(key=lambda g: (g["name"] or g["iau"]).lower())
+    return groups
+
+
 def load_constellation_lines(data_dir: str | Path) -> list[tuple[int, int]]:
     """constellation_lines.json の HIP ペア列を読み込む。無ければ []。"""
     d = Path(data_dir)

@@ -44,8 +44,9 @@ for p in (_REPO, os.path.join(_APP, "tools")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from shared.star_catalog import (build_scene, compute_sky,  # noqa: E402
-                                 load_catalog, load_constellation_lines,
+from shared.star_catalog import (build_list_scene, build_scene,  # noqa: E402
+                                 build_zoom_scene, compute_sky, load_catalog,
+                                 load_constellation_groups, load_constellation_lines,
                                  load_constellation_names, load_dso)
 
 
@@ -61,6 +62,7 @@ _DEFAULT_CFG = os.path.expanduser("~/.config/cardputerzero/stellar_map.json")
 # 設定ファイルで指定できるキー（argparse の dest 名と一致させる）。
 _CFG_KEYS = {"lat", "lon", "tz", "mag_view", "mag_port", "declination",
              "heading_offset", "heading_alpha", "heading_invert", "no_tilt", "accel_gate",
+             "enc_sensitivity",
              "mag_offset_x", "mag_offset_y", "mag_offset_z",
              "mag_span_x", "mag_span_y", "mag_span_z",
              "mag_ellipsoid_offset", "mag_ellipsoid_matrix"}
@@ -130,6 +132,53 @@ def build_once(args, cat, lines, dsos, hsrc=None, bcache=None, scache=None,
                        heading=heading, sky=sky)
 
 
+_NO_INPUT = {"red_rot": 0, "blue_rot": 0, "red_press": 0, "blue_press": 0}
+
+
+def build_frame(args, cat, lines, dsos, cnames, groups, hsrc, bcache, scache, state):
+    """Chain Encoder 入力でモード遷移し、モードに応じた Scene を返す。
+
+    MAP --赤押下--> LIST（赤回転=カーソル / 青押下=選択→ZOOM / 赤押下=MAP）
+    ZOOM --青押下--> LIST。星座リスト/拡大は star_catalog の build_list/zoom_scene。
+    """
+    inp = hsrc.drain_input() if (hsrc is not None and hasattr(hsrc, "drain_input")) else _NO_INPUT
+    n = len(groups)
+    mode = state["mode"]
+    if mode == "MAP":
+        if inp["red_press"]:
+            state["mode"] = "LIST"
+    elif mode == "LIST":
+        if n:
+            state["rot"] += inp["red_rot"]
+            sens = max(1, int(args.enc_sensitivity))
+            steps = int(state["rot"] / sens)
+            if steps:
+                state["cursor"] = (state["cursor"] + steps) % n
+                state["rot"] -= steps * sens
+        if inp["blue_press"] and n:
+            state["selected"] = state["cursor"]
+            state["mode"] = "ZOOM"
+        elif inp["red_press"]:
+            state["mode"] = "MAP"
+    elif mode == "ZOOM":
+        if inp["blue_press"]:
+            state["mode"] = "LIST"
+
+    mode = state["mode"]
+    if mode == "LIST":
+        dt_local = datetime.fromisoformat(args.dt) if args.dt else _now_local()
+        return build_list_scene(groups, state["cursor"], dt_local, args.tz,
+                                args.lat, args.lon)
+    if mode == "ZOOM" and n:
+        dt_local = datetime.fromisoformat(args.dt) if args.dt else _now_local()
+        heading = hsrc.heading() if hsrc is not None else None
+        return build_zoom_scene(groups[state["selected"]], cat, dt_local, args.tz,
+                                args.lat, args.lon,
+                                heading=heading if heading is not None else 0.0,
+                                mirror_ew=args.mirror_ew)
+    return build_once(args, cat, lines, dsos, hsrc, bcache, scache, cnames)
+
+
 def make_heading_source(args):
     """--mag-port / --heading から方位ソースを組む（無ければ None）。"""
     from heading_source import CoreS3HeadingSource, FixedHeadingSource
@@ -188,6 +237,8 @@ def main() -> None:
                     help="傾き補正を無効化（加速度があっても水平前提で heading を出す）")
     ap.add_argument("--accel-gate", type=float, default=0.12,
                     help="動作中(|a|が1gからこの幅[g]超で外れる)は heading 更新を止める。0で無効")
+    ap.add_argument("--enc-sensitivity", type=float, default=2.0,
+                    help="星座リストのカーソル移動感度（この回転カウントで1行進む）")
     # ハード/ソフトアイアン較正（calib_probe.py の推定値。両 offset 指定で x/y 補正が有効）。
     ap.add_argument("--mag-offset-x", type=float, default=None, help="ハードアイアン中心 x")
     ap.add_argument("--mag-offset-y", type=float, default=None, help="ハードアイアン中心 y")
@@ -208,23 +259,27 @@ def main() -> None:
     cat = load_catalog(args.data)
     lines = load_constellation_lines(args.data)
     cnames = load_constellation_names(args.data, cat)
+    groups = load_constellation_groups(args.data)
     dsos, _n, _m = load_dso(args.data)
 
     hsrc = make_heading_source(args)
     bcache: dict = {"bodies": None, "t": None}   # 惑星・月の低頻度キャッシュ
     scache: dict = {"sky": None, "t": None}      # 恒星・星座線・DSO の alt/az キャッシュ
+    state = {"mode": "MAP", "cursor": 0, "selected": 0, "rot": 0}  # Chain Encoder 状態機械
     try:
         if args.interval and args.interval > 0:
             while True:
-                sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos, hsrc,
-                                                       bcache, scache, cnames),
-                                            separators=(",", ":")) + "\n")
+                sys.stdout.write(json.dumps(
+                    build_frame(args, cat, lines, dsos, cnames, groups,
+                                hsrc, bcache, scache, state),
+                    separators=(",", ":")) + "\n")
                 sys.stdout.flush()
                 time.sleep(args.interval)
         else:
-            sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos, hsrc,
-                                                   bcache, scache, cnames),
-                                        separators=(",", ":")) + "\n")
+            sys.stdout.write(json.dumps(
+                build_frame(args, cat, lines, dsos, cnames, groups,
+                            hsrc, bcache, scache, state),
+                separators=(",", ":")) + "\n")
     finally:
         if hsrc is not None:
             hsrc.close()

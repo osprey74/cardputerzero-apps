@@ -87,8 +87,15 @@ class CoreS3HeadingSource(HeadingSource):
             self._cal = dict(self._cal_xy, offset_z=offset_z, scale_z=1.0 / (sz or 1.0))
         self._lock = threading.Lock()
         self._value: Optional[float] = None
+        # Chain Encoder 入力（App16 星座リスト/拡大 UI 用）: role R/B の回転累積＋押下エッジ。
+        # 同じリーダスレッドで mag と一緒に読む（1 ポート 1 リーダ）。drain_input() で取り出す。
+        self._enc_lock = threading.Lock()
+        self._rot = {"R": 0, "B": 0}          # 未処理の回転カウント
+        self._press = {"R": 0, "B": 0}        # 未処理の押下エッジ回数
+        self._prev_cnt = {}                   # role -> 前回 cnt
+        self._prev_btn = {"R": 0, "B": 0}     # role -> 前回 btn
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, name="cores3-mag",
+        self._thread = threading.Thread(target=self._run, name="cores3-input",
                                         daemon=True)
         self._thread.start()
 
@@ -104,6 +111,7 @@ class CoreS3HeadingSource(HeadingSource):
                 for frame in rd.frames():
                     if self._stop.is_set():
                         break
+                    self._process_encoders(frame)   # mag の有無に依らず毎フレーム
                     mag = frame.mag
                     if mag is None or not mag.ok:
                         continue
@@ -134,6 +142,34 @@ class CoreS3HeadingSource(HeadingSource):
     def _fail(self, msg: str) -> None:
         import sys
         print(f"# heading source: {msg}", file=sys.stderr)
+
+    def _process_encoders(self, frame) -> None:
+        """フレームの各エンコーダから回転累積と押下エッジ(0→1)を貯める。"""
+        for e in frame.encoders:
+            role = e.role
+            if role not in ("R", "B"):
+                continue
+            with self._enc_lock:
+                prev = self._prev_cnt.get(role)
+                if prev is not None:
+                    self._rot[role] += e.cnt - prev      # cnt 差で回転を累積（欠落に強い）
+                self._prev_cnt[role] = e.cnt
+                if e.btn and not self._prev_btn.get(role, 0):
+                    self._press[role] += 1               # 押下エッジ
+                self._prev_btn[role] = e.btn
+
+    def drain_input(self) -> dict:
+        """前回 drain 以降の入力を返してクリア。
+
+        返り値: {"red_rot","blue_rot","red_press","blue_press"}
+        （*_rot=回転カウント累積、*_press=押下回数）。
+        """
+        with self._enc_lock:
+            out = {"red_rot": self._rot["R"], "blue_rot": self._rot["B"],
+                   "red_press": self._press["R"], "blue_press": self._press["B"]}
+            self._rot["R"] = self._rot["B"] = 0
+            self._press["R"] = self._press["B"] = 0
+        return out
 
     def heading(self) -> Optional[float]:
         with self._lock:

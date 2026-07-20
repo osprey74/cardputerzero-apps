@@ -179,12 +179,131 @@ def build_scene(dt_local, tz: float, lat: float, lon: float, *,
         "cnames": clabels, "cname_color": COL_CNAME,
         "points": points,
         "labels": labels,
+        "rects": [],
         "meta": {
             "time_local": dt_local.strftime("%Y-%m-%d %H:%M"),
             "tz": tz, "lat": lat, "lon": lon, "mag_view": mag_view,
             "mirror_ew": mirror_ew, "heading": round(heading % 360.0, 1),
-            "moon": moon_meta,
+            "mode": "MAP", "moon": moon_meta,
             "counts": {"stars": len(sky["stars"]), "lines": len(out_lines),
                        "dso": len(dso_pts), "planets": planets_n},
         },
     }
+
+
+# 星座リスト/拡大表示 UI（App16・Chain Encoder 操作）の配色。
+COL_LIST_HI = [38, 66, 104]      # カーソル行のハイライト背景
+COL_LIST_TXT = [205, 215, 230]   # カーソル行の文字
+COL_LIST_DIM = [120, 132, 148]   # 非カーソル行の文字
+COL_LIST_HDR = [79, 195, 247]    # 見出し（アクセント）
+COL_HINT = [130, 132, 110]       # 操作ヒント
+
+
+def _meta(dt_local, tz, lat, lon, mode, **extra):
+    m = {"time_local": dt_local.strftime("%Y-%m-%d %H:%M"), "tz": tz,
+         "lat": lat, "lon": lon, "mag_view": 0.0, "mirror_ew": False,
+         "heading": 0.0, "mode": mode, "moon": None,
+         "counts": {"stars": 0, "lines": 0, "dso": 0, "planets": 0}}
+    m.update(extra)
+    return m
+
+
+def _empty_chrome():
+    # 円・方位を描かない（LIST/ZOOM 用）。UI は circle 半径<=0 で地平線円を省く。
+    return {"circle": [CX, CY, 0], "circle_color": COL_HORIZON,
+            "dir_color": COL_DIR, "dirs": []}
+
+
+def build_list_scene(groups, cursor, dt_local, tz, lat, lon, *,
+                     visible: int = 11, row_h: int = 12, top: int = 18) -> dict:
+    """星座リスト画面の Scene。cursor 行をハイライトしスクロール表示。"""
+    labels = [[6, 3, "CONSTELLATIONS", *COL_LIST_HDR]]
+    rects = []
+    n = len(groups)
+    if n:
+        cursor %= n
+        start = max(0, min(cursor - visible // 2, max(0, n - visible)))
+        for i in range(min(visible, n - start)):
+            idx = start + i
+            g = groups[idx]
+            y = top + i * row_h
+            text = ("%s %s" % (g["iau"], g["name"]))[:36]
+            if idx == cursor:
+                rects.append([2, y - 1, 316, row_h, *COL_LIST_HI])
+                labels.append([6, y, text, *COL_LIST_TXT])
+            else:
+                labels.append([6, y, text, *COL_LIST_DIM])
+        sel = groups[cursor]["name"] or groups[cursor]["iau"]
+    else:
+        labels.append([6, top, "(no data)", *COL_LIST_DIM])
+        sel = ""
+    labels.append([6, H - 10, "RED:back  turn:move  BLUE:zoom", *COL_HINT])
+    return {"w": W, "h": H, "chrome": _empty_chrome(),
+            "lines": [], "line_color": COL_LINE, "dso": [],
+            "cnames": [], "cname_color": COL_CNAME, "points": [],
+            "labels": labels, "rects": rects,
+            "meta": _meta(dt_local, tz, lat, lon, "LIST",
+                          cursor=cursor + 1 if n else 0, total=n, sel=sel)}
+
+
+def build_zoom_scene(group, cat, dt_local, tz, lat, lon, *,
+                     heading: float = 0.0, mirror_ew: bool = False) -> dict:
+    """選択星座だけを「今見えている角度で」拡大した Scene。
+
+    現在時刻・地点・heading で各構成星を地平投影（＝地図と同じ向き）し、その xy の
+    バウンディングボックスを画面いっぱいへ拡大平行移動する（回転はそのまま＝今見えている角度）。
+    """
+    from datetime import timedelta
+    dt_utc = dt_local - timedelta(hours=tz)
+    jd = julian_date(dt_utc.year, dt_utc.month, dt_utc.day,
+                     dt_utc.hour, dt_utc.minute, dt_utc.second)
+    lst = lst_deg(jd, lon)
+
+    pts = {}
+    for hip in {h for pair in group["pairs"] for h in pair}:
+        st = cat.by_hip(hip)
+        if st is None:
+            continue
+        alt, az = radec_to_altaz(st.ra_deg, st.dec_deg, lat, lst)
+        x, y = altaz_to_plot_xy(alt, az, CX, CY, R, mirror_ew, heading)
+        pts[hip] = (x, y, st.mag)
+
+    name = group["name"] or group["iau"]
+    labels = [[6, 3, name, *COL_LIST_HDR],
+              [6, H - 10, "BLUE:back to list", *COL_HINT]]
+    if len(pts) < 2:
+        return {"w": W, "h": H, "chrome": _empty_chrome(),
+                "lines": [], "line_color": COL_LINE, "dso": [],
+                "cnames": [], "cname_color": COL_CNAME, "points": [],
+                "labels": labels, "rects": [],
+                "meta": _meta(dt_local, tz, lat, lon, "ZOOM", sel=name)}
+
+    xs = [p[0] for p in pts.values()]
+    ys = [p[1] for p in pts.values()]
+    minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+    cx0, cy0 = (minx + maxx) / 2.0, (miny + maxy) / 2.0
+    bw, bh = max(maxx - minx, 1e-3), max(maxy - miny, 1e-3)
+    # 画面中央 (160,88) に半幅 150 / 半高 74 で収める（回転は保持）。
+    scale = min(300.0 / bw, 148.0 / bh)
+    scale = max(0.5, min(scale, 24.0))
+    tcx, tcy = 160.0, 88.0
+
+    def tf(x, y):
+        return round(tcx + scale * (x - cx0)), round(tcy + scale * (y - cy0))
+
+    tp = {h: tf(x, y) for h, (x, y, _mag) in pts.items()}
+    out_lines = []
+    for a, b in group["pairs"]:
+        if a in tp and b in tp:
+            xa, ya = tp[a]
+            xb, yb = tp[b]
+            out_lines.append([xa, ya, xb, yb])
+    points = []
+    for h, (x, y, mag) in pts.items():
+        nx, ny = tp[h]
+        points.append([nx, ny, max(2, _star_side(mag) + 1), *_star_color(mag)])
+    return {"w": W, "h": H, "chrome": _empty_chrome(),
+            "lines": out_lines, "line_color": COL_LINE, "dso": [],
+            "cnames": [], "cname_color": COL_CNAME, "points": points,
+            "labels": labels, "rects": [],
+            "meta": _meta(dt_local, tz, lat, lon, "ZOOM", sel=name)}

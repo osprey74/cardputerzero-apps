@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::{Color, PixelFormatEnum};
+use sdl2::rect::Rect;
 use sdl2::render::WindowCanvas;
 use sdl2::EventPump;
 use serde::Deserialize;
@@ -47,6 +48,9 @@ struct Scene {
     /// DSO のみ (x, y, side, r, g, b)。UI で ON/OFF 切替できるよう points と分離。
     #[serde(default)]
     dso: Vec<(i32, i32, i32, u8, u8, u8)>,
+    /// (x, y, w, h, r, g, b)。塗り矩形（星座リストのカーソルハイライト等）。
+    #[serde(default)]
+    rects: Vec<(i32, i32, i32, i32, u8, u8, u8)>,
     /// (x, y, side, r, g, b)。恒星→惑星→月。
     #[serde(default)]
     points: Vec<(i32, i32, i32, u8, u8, u8)>,
@@ -80,8 +84,14 @@ struct Meta {
     time_local: String,
     lat: f64,
     lon: f64,
+    #[serde(default = "default_mode")]
+    mode: String,
     moon: Option<Moon>,
     counts: Counts,
+}
+
+fn default_mode() -> String {
+    "MAP".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -131,11 +141,19 @@ fn draw_scene(cv: &mut WindowCanvas, s: &Scene, show_lines: bool, show_dso: bool
     cv.set_draw_color(Color::RGB(0, 0, 0));
     cv.clear();
 
-    // chrome: 地平線円＋十字（circle_color）
+    // 塗り矩形（星座リストのカーソルハイライト等・背景として最初に）
+    for rc in &s.rects {
+        cv.set_draw_color(Color::RGB(rc.4, rc.5, rc.6));
+        let _ = cv.fill_rect(Rect::new(rc.0, rc.1, rc.2.max(0) as u32, rc.3.max(0) as u32));
+    }
+
+    // chrome: 地平線円＋十字（circle_color）。半径<=0 は非表示（LIST/ZOOM）。
     let (cx, cy, r) = s.chrome.circle;
-    draw::circle(cv, cx, cy, r, s.chrome.circle_color);
-    draw::line(cv, (cx, cy - r), (cx, cy + r), s.chrome.circle_color);
-    draw::line(cv, (cx - r, cy), (cx + r, cy), s.chrome.circle_color);
+    if r > 0 {
+        draw::circle(cv, cx, cy, r, s.chrome.circle_color);
+        draw::line(cv, (cx, cy - r), (cx, cy + r), s.chrome.circle_color);
+        draw::line(cv, (cx - r, cy), (cx + r, cy), s.chrome.circle_color);
+    }
 
     // 星座線（L キーで ON/OFF）
     if show_lines {
@@ -169,8 +187,10 @@ fn draw_scene(cv: &mut WindowCanvas, s: &Scene, show_lines: bool, show_dso: bool
     for d in &s.chrome.dirs {
         draw::text(cv, d.0, d.1, &d.2, s.chrome.dir_color, 1);
     }
-    // 情報パネル
-    draw_panel(cv, &s.meta);
+    // 情報パネル（MAP モードのみ。LIST/ZOOM は Scene の labels/rects で構成）
+    if s.meta.mode == "MAP" {
+        draw_panel(cv, &s.meta);
+    }
     // present() は呼ばない: read_pixels でのスクショは present 前に読む必要がある
     // （実 X では present 後のバックバッファが未定義＝黒になる）。呼び出し側で present。
 }

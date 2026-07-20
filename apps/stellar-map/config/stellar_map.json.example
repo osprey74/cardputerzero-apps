@@ -28,6 +28,9 @@
   "_gate_comment": "加速度ゲート[g]: |a|が1gからこの幅超で外れる(=動作中)は heading 更新を止め直前値保持。動的加速度による pitch/roll 誤差を排除（静止+実用傾き角で残差~4°）。0で無効。",
   "accel_gate": 0.12,
 
+  "_enc_comment": "星座リストのカーソル移動感度（この回転カウントで1行進む・大きいほど鈍い）。Chain Encoder 赤の回転。",
+  "enc_sensitivity": 2.0,
+
   "_ellipsoid_comment": "任意: 楕円体フィット較正（tools/calib3d.py）。offset(3)+matrix(3x3行優先9)で corrected=matrix@(raw-offset)。指定するとボックスの mag_offset/span より優先。球面度は上がるが傾き残差改善は限定的（残差の主因は動的加速度で accel_gate が実効的）。既定は未使用。",
   "mag_ellipsoid_offset": null,
   "mag_ellipsoid_matrix": null

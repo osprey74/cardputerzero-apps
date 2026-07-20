@@ -82,6 +82,18 @@ python tools/render_catalog.py --shape square --no-aa
 | `C` | 星座名 表示 ON/OFF（既定 OFF・低解像度での混雑回避） |
 | `S` | スクリーンショット PNG 保存（`STELLAR_SHOTS_DIR` → `$HOME/stellar_shots`） |
 
+## Chain Encoder 操作（星座リスト / 拡大表示）
+
+3 モードの状態機械（サイドカー側）。CoreS3 の Chain Encoder 赤/青で操作。
+
+| 操作 | 動作 |
+| --- | --- |
+| 星座盤で **赤 押込** | 星座リスト表示 |
+| リストで **赤 回転** | カーソル移動（感度 `enc_sensitivity`） |
+| リストで **青 押込** | その星座を「今見えている角度で」拡大表示 |
+| 拡大表示で **青 押込** | リストへ戻る |
+| リストで **赤 押込** | 星座盤へ戻る |
+
 方位は地磁気（BMM150）で自機の向きを画面上に固定（方式A）。個体・取付依存の較正／姿勢
 オフセットは `~/.config/cardputerzero/stellar_map.json`（例 `config/stellar_map.json.example`）。
 
