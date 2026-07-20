@@ -89,6 +89,25 @@ def load_dso(data_dir: str | Path) -> tuple[list[Dso], dict, dict]:
     return dsos, names, meta
 
 
+def _centroid_radec(hips, cat: "StarCatalog"):
+    """構成星 HIP 集合の球面重心 (ra_deg, dec_deg) を返す（RA 巻き・極でも破綻せず）。無ければ None。"""
+    x = y = z = 0.0
+    n = 0
+    for h in hips:
+        st = cat.by_hip(h)
+        if st is None:
+            continue
+        ra = math.radians(st.ra_deg)
+        dec = math.radians(st.dec_deg)
+        x += math.cos(dec) * math.cos(ra)
+        y += math.cos(dec) * math.sin(ra)
+        z += math.sin(dec)
+        n += 1
+    if n == 0:
+        return None
+    return math.degrees(math.atan2(y, x)) % 360.0, math.degrees(math.atan2(z, math.hypot(x, y)))
+
+
 def load_constellation_names(data_dir: str | Path,
                              cat: "StarCatalog") -> list[tuple[str, float, float]]:
     """星座名ラベルを ``[(label, ra_deg, dec_deg)]`` で返す。無ければ []。
@@ -105,36 +124,48 @@ def load_constellation_names(data_dir: str | Path,
     obj = json.loads(p.read_text(encoding="utf-8"))
     out: list[tuple[str, float, float]] = []
     for c in obj.get("constellations", []):
-        hips: set[int] = set()
-        for a, b in c.get("pairs", []):
-            hips.add(int(a))
-            hips.add(int(b))
-        x = y = z = 0.0
-        n = 0
-        for h in hips:
-            st = cat.by_hip(h)
-            if st is None:
-                continue
-            ra = math.radians(st.ra_deg)
-            dec = math.radians(st.dec_deg)
-            x += math.cos(dec) * math.cos(ra)
-            y += math.cos(dec) * math.sin(ra)
-            z += math.sin(dec)
-            n += 1
-        if n == 0:
-            continue
-        ra_c = math.degrees(math.atan2(y, x)) % 360.0
-        dec_c = math.degrees(math.atan2(z, math.hypot(x, y)))
+        hips = {int(v) for a, b in c.get("pairs", []) for v in (a, b)}
+        ctr = _centroid_radec(hips, cat)
         label = c.get("iau") or c.get("name") or ""
-        if label:
-            out.append((label, ra_c, dec_c))
+        if ctr and label:
+            out.append((label, ctr[0], ctr[1]))
     return out
 
 
-def load_constellation_groups(data_dir: str | Path) -> list[dict]:
-    """星座ごとのグループ ``[{"iau","name","pairs"}]`` を返す（名前順）。無ければ []。
+# IAU 3 文字略号 → ラテン語正式名（88 星座）。星座リスト表示用。
+IAU_LATIN = {
+    "And": "Andromeda", "Ant": "Antlia", "Aps": "Apus", "Aqr": "Aquarius",
+    "Aql": "Aquila", "Ara": "Ara", "Ari": "Aries", "Aur": "Auriga",
+    "Boo": "Bootes", "Cae": "Caelum", "Cam": "Camelopardalis", "Cnc": "Cancer",
+    "CVn": "Canes Venatici", "CMa": "Canis Major", "CMi": "Canis Minor",
+    "Cap": "Capricornus", "Car": "Carina", "Cas": "Cassiopeia", "Cen": "Centaurus",
+    "Cep": "Cepheus", "Cet": "Cetus", "Cha": "Chamaeleon", "Cir": "Circinus",
+    "Col": "Columba", "Com": "Coma Berenices", "CrA": "Corona Australis",
+    "CrB": "Corona Borealis", "Crv": "Corvus", "Crt": "Crater", "Cru": "Crux",
+    "Cyg": "Cygnus", "Del": "Delphinus", "Dor": "Dorado", "Dra": "Draco",
+    "Equ": "Equuleus", "Eri": "Eridanus", "For": "Fornax", "Gem": "Gemini",
+    "Gru": "Grus", "Her": "Hercules", "Hor": "Horologium", "Hya": "Hydra",
+    "Hyi": "Hydrus", "Ind": "Indus", "Lac": "Lacerta", "Leo": "Leo",
+    "LMi": "Leo Minor", "Lep": "Lepus", "Lib": "Libra", "Lup": "Lupus",
+    "Lyn": "Lynx", "Lyr": "Lyra", "Men": "Mensa", "Mic": "Microscopium",
+    "Mon": "Monoceros", "Mus": "Musca", "Nor": "Norma", "Oct": "Octans",
+    "Oph": "Ophiuchus", "Ori": "Orion", "Pav": "Pavo", "Peg": "Pegasus",
+    "Per": "Perseus", "Phe": "Phoenix", "Pic": "Pictor", "Psc": "Pisces",
+    "PsA": "Piscis Austrinus", "Pup": "Puppis", "Pyx": "Pyxis", "Ret": "Reticulum",
+    "Sge": "Sagitta", "Sgr": "Sagittarius", "Sco": "Scorpius", "Scl": "Sculptor",
+    "Sct": "Scutum", "Ser": "Serpens", "Sex": "Sextans", "Tau": "Taurus",
+    "Tel": "Telescopium", "Tri": "Triangulum", "TrA": "Triangulum Australe",
+    "Tuc": "Tucana", "UMa": "Ursa Major", "UMi": "Ursa Minor", "Vel": "Vela",
+    "Vir": "Virgo", "Vol": "Volans", "Vul": "Vulpecula",
+}
 
-    App16 の星座リスト/拡大表示 UI 用（`pairs`=構成 HIP ペア列）。
+
+def load_constellation_groups(data_dir: str | Path,
+                              cat: "StarCatalog" = None) -> list[dict]:
+    """星座ごとのグループ ``[{"iau","name","latin","pairs","ra","dec"}]`` を返す（略号順）。
+
+    App16 の星座リスト/拡大表示 UI 用（`pairs`=構成 HIP ペア列・`latin`=ラテン語正式名）。
+    ``cat`` を渡すと各星座の球面重心 ``ra``/``dec`` を付与（リストの up/-- 判定用）。無ければ []。
     """
     d = Path(data_dir)
     p = d / "constellation_lines.json"
@@ -146,9 +177,16 @@ def load_constellation_groups(data_dir: str | Path) -> list[dict]:
         pairs = [(int(a), int(b)) for a, b in c.get("pairs", [])]
         if not pairs:
             continue
-        groups.append({"iau": c.get("iau", ""), "name": c.get("name", ""),
-                       "pairs": pairs})
-    groups.sort(key=lambda g: (g["name"] or g["iau"]).lower())
+        iau = c.get("iau", "")
+        g = {"iau": iau, "name": c.get("name", ""),
+             "latin": IAU_LATIN.get(iau, c.get("name", "")), "pairs": pairs,
+             "ra": None, "dec": None}
+        if cat is not None:
+            ctr = _centroid_radec({v for a, b in pairs for v in (a, b)}, cat)
+            if ctr:
+                g["ra"], g["dec"] = ctr
+        groups.append(g)
+    groups.sort(key=lambda g: g["iau"].lower())
     return groups
 
 

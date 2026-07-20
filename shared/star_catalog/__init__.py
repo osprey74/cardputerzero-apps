@@ -12,7 +12,8 @@ from __future__ import annotations
 from .catalog import (Dso, Star, StarCatalog, load_catalog,
                       load_constellation_groups, load_constellation_lines,
                       load_constellation_names, load_dso)
-from .scene import build_list_scene, build_scene, build_zoom_scene, compute_sky
+from .scene import (build_list_scene, build_plist_scene, build_pzoom_scene,
+                    build_scene, build_zoom_scene, compute_sky)
 from .transform import (altaz_to_plot_xy, gmst_deg, julian_date, lst_deg,
                         mag_to_color, mag_to_radius, radec_to_altaz)
 
@@ -21,6 +22,7 @@ __all__ = [
     "load_constellation_lines", "load_constellation_names",
     "load_constellation_groups", "build_scene", "compute_sky",
     "build_list_scene", "build_zoom_scene",
+    "build_plist_scene", "build_pzoom_scene",
     "julian_date", "gmst_deg", "lst_deg", "radec_to_altaz",
     "altaz_to_plot_xy", "mag_to_radius", "mag_to_color",
 ]

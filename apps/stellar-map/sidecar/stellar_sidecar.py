@@ -44,8 +44,9 @@ for p in (_REPO, os.path.join(_APP, "tools")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from shared.star_catalog import (build_list_scene, build_scene,  # noqa: E402
-                                 build_zoom_scene, compute_sky, load_catalog,
+from shared.star_catalog import (build_list_scene, build_plist_scene,  # noqa: E402
+                                 build_pzoom_scene, build_scene, build_zoom_scene,
+                                 compute_sky, load_catalog,
                                  load_constellation_groups, load_constellation_lines,
                                  load_constellation_names, load_dso)
 
@@ -85,6 +86,43 @@ def _load_config(argv) -> tuple[dict, str]:
     return {}, path
 
 
+def _get_bodies(args, bcache, dt_local):
+    """惑星・月を返す（bodies-interval 秒キャッシュ）。skyfield 無/--no-planets は None。"""
+    if args.no_planets:
+        return None
+    now = time.monotonic()
+    if (bcache is not None and bcache.get("bodies") is not None
+            and bcache.get("t") is not None
+            and now - bcache["t"] < args.bodies_interval):
+        return bcache["bodies"]
+    try:
+        from ephem import sky_bodies
+        dt_utc = dt_local - timedelta(hours=args.tz)
+        bodies = sky_bodies(dt_utc, args.lat, args.lon, args.data)
+        if bcache is not None:
+            bcache["bodies"] = bodies
+            bcache["t"] = now
+        return bodies
+    except Exception as ex:  # noqa: BLE001
+        print(f"# planets/moon disabled (skyfield?): {ex}", file=sys.stderr)
+        return None
+
+
+def _bodies_list(bodies):
+    """bodies dict → 惑星/月リスト [{name,alt,az,mag,kind}]（PLIST/PZOOM 用）。"""
+    out = []
+    if not bodies:
+        return out
+    for p in bodies.get("planets", []):
+        out.append({"name": p["name"], "alt": p["alt"], "az": p["az"],
+                    "mag": p.get("mag", 0.0), "kind": "planet"})
+    mo = bodies.get("moon")
+    if mo:
+        out.append({"name": "Moon", "alt": mo["alt"], "az": mo["az"],
+                    "mag": mo.get("mag", -12.7), "kind": "moon"})
+    return out
+
+
 def build_once(args, cat, lines, dsos, hsrc=None, bcache=None, scache=None,
                cnames=None) -> dict:
     dt_local = datetime.fromisoformat(args.dt) if args.dt else _now_local()
@@ -103,25 +141,7 @@ def build_once(args, cat, lines, dsos, hsrc=None, bcache=None, scache=None,
             scache["sky"] = sky
             scache["t"] = now
 
-    bodies = None
-    if not args.no_planets:
-        # 惑星・月は動きが遅い（月でも ~15°/h）。Skyfield 計算は重い（~65ms）ので
-        # bodies-interval 秒ごとに再計算してキャッシュ、恒星＋heading 回転は毎フレーム。
-        now = time.monotonic()
-        if (bcache is not None and bcache.get("bodies") is not None
-                and bcache.get("t") is not None
-                and now - bcache["t"] < args.bodies_interval):
-            bodies = bcache["bodies"]
-        else:
-            try:
-                from ephem import sky_bodies
-                dt_utc = dt_local - timedelta(hours=args.tz)
-                bodies = sky_bodies(dt_utc, args.lat, args.lon, args.data)
-                if bcache is not None:
-                    bcache["bodies"] = bodies
-                    bcache["t"] = now
-            except Exception as ex:  # noqa: BLE001
-                print(f"# planets/moon disabled (skyfield?): {ex}", file=sys.stderr)
+    bodies = _get_bodies(args, bcache, dt_local)
     # 方位: ライブソース優先 → 無ければ None（未ロック時は 0=北上にフォールバック）。
     heading = hsrc.heading() if hsrc is not None else None
     if heading is None:
@@ -136,21 +156,27 @@ _NO_INPUT = {"red_rot": 0, "blue_rot": 0, "red_press": 0, "blue_press": 0}
 
 
 def build_frame(args, cat, lines, dsos, cnames, groups, hsrc, bcache, scache, state):
-    """Chain Encoder 入力でモード遷移し、モードに応じた Scene を返す。
+    """Chain Encoder 入力で 5 モード遷移し、モードに応じた Scene を返す。
 
-    MAP --赤押下--> LIST（赤回転=カーソル / 青押下=選択→ZOOM / 赤押下=MAP）
-    ZOOM --青押下--> LIST。星座リスト/拡大は star_catalog の build_list/zoom_scene。
+    星座（赤起点）: MAP --赤--> LIST（赤回転=カーソル/青=選択→ZOOM/赤=MAP）、ZOOM --青--> LIST。
+    惑星（青起点・逆操作）: MAP --青--> PLIST（青回転=カーソル/赤=選択→PZOOM/青=MAP）、PZOOM --赤--> PLIST。
     """
     inp = hsrc.drain_input() if (hsrc is not None and hasattr(hsrc, "drain_input")) else _NO_INPUT
+    dt_local = datetime.fromisoformat(args.dt) if args.dt else _now_local()
     n = len(groups)
+    blist = _bodies_list(_get_bodies(args, bcache, dt_local))
+    m = len(blist)
+    sens = max(1, int(args.enc_sensitivity))
     mode = state["mode"]
+
     if mode == "MAP":
         if inp["red_press"]:
             state["mode"] = "LIST"
+        elif inp["blue_press"]:
+            state["mode"] = "PLIST"
     elif mode == "LIST":
         if n:
             state["rot"] += inp["red_rot"]
-            sens = max(1, int(args.enc_sensitivity))
             steps = int(state["rot"] / sens)
             if steps:
                 state["cursor"] = (state["cursor"] + steps) % n
@@ -163,19 +189,39 @@ def build_frame(args, cat, lines, dsos, cnames, groups, hsrc, bcache, scache, st
     elif mode == "ZOOM":
         if inp["blue_press"]:
             state["mode"] = "LIST"
+    elif mode == "PLIST":
+        if m:
+            state["prot"] += inp["blue_rot"]
+            steps = int(state["prot"] / sens)
+            if steps:
+                state["pcursor"] = (state["pcursor"] + steps) % m
+                state["prot"] -= steps * sens
+        if inp["red_press"] and m:
+            state["pselected"] = state["pcursor"]
+            state["mode"] = "PZOOM"
+        elif inp["blue_press"]:
+            state["mode"] = "MAP"
+    elif mode == "PZOOM":
+        if inp["red_press"]:
+            state["mode"] = "PLIST"
 
     mode = state["mode"]
+    heading = hsrc.heading() if hsrc is not None else None
+    heading = heading if heading is not None else 0.0
     if mode == "LIST":
-        dt_local = datetime.fromisoformat(args.dt) if args.dt else _now_local()
         return build_list_scene(groups, state["cursor"], dt_local, args.tz,
                                 args.lat, args.lon)
     if mode == "ZOOM" and n:
-        dt_local = datetime.fromisoformat(args.dt) if args.dt else _now_local()
-        heading = hsrc.heading() if hsrc is not None else None
         return build_zoom_scene(groups[state["selected"]], cat, dt_local, args.tz,
-                                args.lat, args.lon,
-                                heading=heading if heading is not None else 0.0,
+                                args.lat, args.lon, heading=heading,
                                 mirror_ew=args.mirror_ew)
+    if mode == "PLIST":
+        return build_plist_scene(blist, state["pcursor"], dt_local, args.tz,
+                                 args.lat, args.lon)
+    if mode == "PZOOM" and m:
+        return build_pzoom_scene(blist[state["pselected"] % m], cat, dt_local,
+                                 args.tz, args.lat, args.lon, heading=heading,
+                                 mirror_ew=args.mirror_ew)
     return build_once(args, cat, lines, dsos, hsrc, bcache, scache, cnames)
 
 
@@ -259,13 +305,14 @@ def main() -> None:
     cat = load_catalog(args.data)
     lines = load_constellation_lines(args.data)
     cnames = load_constellation_names(args.data, cat)
-    groups = load_constellation_groups(args.data)
+    groups = load_constellation_groups(args.data, cat)
     dsos, _n, _m = load_dso(args.data)
 
     hsrc = make_heading_source(args)
     bcache: dict = {"bodies": None, "t": None}   # 惑星・月の低頻度キャッシュ
     scache: dict = {"sky": None, "t": None}      # 恒星・星座線・DSO の alt/az キャッシュ
-    state = {"mode": "MAP", "cursor": 0, "selected": 0, "rot": 0}  # Chain Encoder 状態機械
+    state = {"mode": "MAP", "cursor": 0, "selected": 0, "rot": 0,   # 星座（赤）
+             "pcursor": 0, "pselected": 0, "prot": 0}               # 惑星/月（青）
     try:
         if args.interval and args.interval > 0:
             while True:

@@ -54,6 +54,9 @@ struct Scene {
     /// (x, y, side, r, g, b)。恒星→惑星→月。
     #[serde(default)]
     points: Vec<(i32, i32, i32, u8, u8, u8)>,
+    /// (x, y, r, g, b)。1 等星の目印＝3×3 十字（拡大表示のランドマーク）。
+    #[serde(default)]
+    crosses: Vec<(i32, i32, u8, u8, u8)>,
     /// (x, y, text, r, g, b)。惑星・月の名前。
     #[serde(default)]
     labels: Vec<(i32, i32, String, u8, u8, u8)>,
@@ -179,6 +182,12 @@ fn draw_scene(cv: &mut WindowCanvas, s: &Scene, show_lines: bool, show_dso: bool
     // 点（恒星/惑星/月）= 一辺 side の塗り四角
     for p in &s.points {
         draw::fill_square(cv, p.0, p.1, p.2, [p.3, p.4, p.5]);
+    }
+    // 1 等星の目印 = 3×3 十字（水平3px＋垂直3px）
+    for c in &s.crosses {
+        let (x, y, col) = (c.0, c.1, [c.2, c.3, c.4]);
+        draw::line(cv, (x - 1, y), (x + 1, y), col);
+        draw::line(cv, (x, y - 1), (x, y + 1), col);
     }
     // ラベル（MAP では惑星・月の名前を P キーで ON/OFF。LIST/ZOOM は UI 文字なので常に描く）
     if !is_map || show_labels {

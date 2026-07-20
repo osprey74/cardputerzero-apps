@@ -71,6 +71,9 @@ def render_scene(scene: dict) -> Image.Image:
         d.text((x, y), text, fill=cnc, font=font_sm)
     for x, y, side, r, g, b in scene.get("points", []):
         draw_square(d, x, y, side, (r, g, b))
+    for x, y, r, g, b in scene.get("crosses", []):        # 1 等星の目印 = 3×3 十字
+        d.line([x - 1, y, x + 1, y], fill=(r, g, b))
+        d.line([x, y - 1, x, y + 1], fill=(r, g, b))
 
     for x, y, t, r, g, b in scene.get("labels", []):
         d.text((x, y), t, fill=(r, g, b), font=font_sm)
