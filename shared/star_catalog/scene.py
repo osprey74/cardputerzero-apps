@@ -23,6 +23,7 @@ CX, CY, R = 85, 85, 80
 COL_DIR = [255, 165, 0]
 COL_HORIZON = [60, 66, 70]
 COL_LINE = [40, 90, 110]
+COL_CNAME = [120, 130, 110]     # 星座名ラベル（くすんだ黄緑灰・控えめ）
 COL_DSO = [200, 120, 200]
 COL_PLANET = [255, 215, 120]
 COL_MOON = [225, 225, 205]
@@ -40,7 +41,7 @@ def _star_side(mag: float) -> int:
 
 
 def compute_sky(dt_local, tz: float, lat: float, lon: float, *,
-                cat, lines=None, dsos=None, mag_view: float = 4.5) -> dict:
+                cat, lines=None, dsos=None, cnames=None, mag_view: float = 4.5) -> dict:
     """時刻・地点から可視天体の地平座標 (alt/az) を計算する（**heading 非依存**）。
 
     赤道→地平座標変換は全恒星ぶんで重い一方、alt/az は heading に依らず時刻・地点だけで
@@ -84,11 +85,20 @@ def compute_sky(dt_local, tz: float, lat: float, lon: float, *,
                 continue
             sky_dso.append((alt, az))
 
-    return {"lines": sky_lines, "stars": sky_stars, "dso": sky_dso}
+    sky_cnames = []
+    if cnames:
+        for label, ra, dec in cnames:
+            alt, az = radec_to_altaz(ra, dec, lat, lst)
+            if alt < 0:
+                continue
+            sky_cnames.append((alt, az, label))
+
+    return {"lines": sky_lines, "stars": sky_stars, "dso": sky_dso,
+            "cnames": sky_cnames}
 
 
 def build_scene(dt_local, tz: float, lat: float, lon: float, *,
-                cat=None, lines=None, dsos=None, bodies=None,
+                cat=None, lines=None, dsos=None, cnames=None, bodies=None,
                 mag_view: float = 4.5, mirror_ew: bool = False,
                 heading: float = 0.0, sky=None) -> dict:
     """Scene 辞書を返す。座標は 320×170 の整数デバイス画素。
@@ -103,7 +113,7 @@ def build_scene(dt_local, tz: float, lat: float, lon: float, *,
     """
     if sky is None:
         sky = compute_sky(dt_local, tz, lat, lon, cat=cat, lines=lines,
-                          dsos=dsos, mag_view=mag_view)
+                          dsos=dsos, cnames=cnames, mag_view=mag_view)
 
     def proj_altaz(alt, az):
         x, y = altaz_to_plot_xy(alt, az, CX, CY, R, mirror_ew, heading)
@@ -120,6 +130,12 @@ def build_scene(dt_local, tz: float, lat: float, lon: float, *,
     for alt, az in sky["dso"]:
         x, y = proj_altaz(alt, az)
         dso_pts.append([x, y, 2, *COL_DSO])
+
+    # 星座名ラベル（UI トグル用・独立配列）。[x, y, text]。
+    clabels = []
+    for alt, az, label in sky.get("cnames", []):
+        x, y = proj_altaz(alt, az)
+        clabels.append([x, y, label])
 
     # points: [x, y, side, r, g, b]。恒星→惑星→月（後ほど上に載る）。
     points = []
@@ -160,6 +176,7 @@ def build_scene(dt_local, tz: float, lat: float, lon: float, *,
                    "dir_color": COL_DIR, "dirs": chrome_dirs},
         "lines": out_lines, "line_color": COL_LINE,
         "dso": dso_pts,
+        "cnames": clabels, "cname_color": COL_CNAME,
         "points": points,
         "labels": labels,
         "meta": {

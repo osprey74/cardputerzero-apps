@@ -89,6 +89,48 @@ def load_dso(data_dir: str | Path) -> tuple[list[Dso], dict, dict]:
     return dsos, names, meta
 
 
+def load_constellation_names(data_dir: str | Path,
+                             cat: "StarCatalog") -> list[tuple[str, float, float]]:
+    """星座名ラベルを ``[(label, ra_deg, dec_deg)]`` で返す。無ければ []。
+
+    `constellation_lines.json` の ``constellations`` グループ（iau/name/pairs）から、
+    各星座の構成星（HIP）の位置を単位ベクトル平均して**重心 RA/Dec**を求める
+    （RA 0/360 のまたぎや極でも破綻しない球面重心）。ラベルは IAU 3 文字略号
+    （Ori / UMa …）を優先＝低解像度 LCD でも収まる。星表に無い HIP は無視。
+    """
+    d = Path(data_dir)
+    p = d / "constellation_lines.json"
+    if not p.exists():
+        return []
+    obj = json.loads(p.read_text(encoding="utf-8"))
+    out: list[tuple[str, float, float]] = []
+    for c in obj.get("constellations", []):
+        hips: set[int] = set()
+        for a, b in c.get("pairs", []):
+            hips.add(int(a))
+            hips.add(int(b))
+        x = y = z = 0.0
+        n = 0
+        for h in hips:
+            st = cat.by_hip(h)
+            if st is None:
+                continue
+            ra = math.radians(st.ra_deg)
+            dec = math.radians(st.dec_deg)
+            x += math.cos(dec) * math.cos(ra)
+            y += math.cos(dec) * math.sin(ra)
+            z += math.sin(dec)
+            n += 1
+        if n == 0:
+            continue
+        ra_c = math.degrees(math.atan2(y, x)) % 360.0
+        dec_c = math.degrees(math.atan2(z, math.hypot(x, y)))
+        label = c.get("iau") or c.get("name") or ""
+        if label:
+            out.append((label, ra_c, dec_c))
+    return out
+
+
 def load_constellation_lines(data_dir: str | Path) -> list[tuple[int, int]]:
     """constellation_lines.json の HIP ペア列を読み込む。無ければ []。"""
     d = Path(data_dir)

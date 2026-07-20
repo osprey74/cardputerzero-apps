@@ -45,7 +45,8 @@ for p in (_REPO, os.path.join(_APP, "tools")):
         sys.path.insert(0, p)
 
 from shared.star_catalog import (build_scene, compute_sky,  # noqa: E402
-                                 load_catalog, load_constellation_lines, load_dso)
+                                 load_catalog, load_constellation_lines,
+                                 load_constellation_names, load_dso)
 
 
 def _now_local():
@@ -81,10 +82,11 @@ def _load_config(argv) -> tuple[dict, str]:
     return {}, path
 
 
-def build_once(args, cat, lines, dsos, hsrc=None, bcache=None, scache=None) -> dict:
+def build_once(args, cat, lines, dsos, hsrc=None, bcache=None, scache=None,
+               cnames=None) -> dict:
     dt_local = datetime.fromisoformat(args.dt) if args.dt else _now_local()
 
-    # 恒星・星座線・DSO の alt/az は heading 非依存で重い→sky-interval 秒キャッシュ。
+    # 恒星・星座線・DSO・星座名の alt/az は heading 非依存で重い→sky-interval 秒キャッシュ。
     # 毎フレームは build_scene が alt/az→画素の投影（heading 回転）だけ回す。
     now = time.monotonic()
     if (scache is not None and scache.get("sky") is not None
@@ -93,7 +95,7 @@ def build_once(args, cat, lines, dsos, hsrc=None, bcache=None, scache=None) -> d
         sky = scache["sky"]
     else:
         sky = compute_sky(dt_local, args.tz, args.lat, args.lon, cat=cat,
-                          lines=lines, dsos=dsos, mag_view=args.mag_view)
+                          lines=lines, dsos=dsos, cnames=cnames, mag_view=args.mag_view)
         if scache is not None:
             scache["sky"] = sky
             scache["t"] = now
@@ -199,6 +201,7 @@ def main() -> None:
     # カタログ類は一度だけロード（惑星・月は毎フレーム再計算）。
     cat = load_catalog(args.data)
     lines = load_constellation_lines(args.data)
+    cnames = load_constellation_names(args.data, cat)
     dsos, _n, _m = load_dso(args.data)
 
     hsrc = make_heading_source(args)
@@ -207,12 +210,14 @@ def main() -> None:
     try:
         if args.interval and args.interval > 0:
             while True:
-                sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos, hsrc, bcache, scache),
+                sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos, hsrc,
+                                                       bcache, scache, cnames),
                                             separators=(",", ":")) + "\n")
                 sys.stdout.flush()
                 time.sleep(args.interval)
         else:
-            sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos, hsrc, bcache, scache),
+            sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos, hsrc,
+                                                   bcache, scache, cnames),
                                         separators=(",", ":")) + "\n")
     finally:
         if hsrc is not None:

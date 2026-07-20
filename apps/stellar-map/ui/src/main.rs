@@ -50,10 +50,19 @@ struct Scene {
     /// (x, y, side, r, g, b)。恒星→惑星→月。
     #[serde(default)]
     points: Vec<(i32, i32, i32, u8, u8, u8)>,
-    /// (x, y, text, r, g, b)。
+    /// (x, y, text, r, g, b)。惑星・月の名前。
     #[serde(default)]
     labels: Vec<(i32, i32, String, u8, u8, u8)>,
+    /// (x, y, text)。星座名ラベル（UI で ON/OFF 切替）。
+    #[serde(default)]
+    cnames: Vec<(i32, i32, String)>,
+    #[serde(default = "default_cname_color")]
+    cname_color: [u8; 3],
     meta: Meta,
+}
+
+fn default_cname_color() -> [u8; 3] {
+    [120, 130, 110]
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,8 +125,9 @@ fn draw_panel(cv: &mut WindowCanvas, m: &Meta) {
     }
 }
 
-/// 1 フレームを 320×170 に描く。show_lines / show_dso はキーボードトグル状態。
-fn draw_scene(cv: &mut WindowCanvas, s: &Scene, show_lines: bool, show_dso: bool) {
+/// 1 フレームを 320×170 に描く。show_* はキーボードトグル状態。
+fn draw_scene(cv: &mut WindowCanvas, s: &Scene, show_lines: bool, show_dso: bool,
+              show_labels: bool, show_cnames: bool) {
     cv.set_draw_color(Color::RGB(0, 0, 0));
     cv.clear();
 
@@ -139,13 +149,21 @@ fn draw_scene(cv: &mut WindowCanvas, s: &Scene, show_lines: bool, show_dso: bool
             draw::fill_square(cv, p.0, p.1, p.2, [p.3, p.4, p.5]);
         }
     }
+    // 星座名（C キーで ON/OFF）＝恒星の下に控えめに
+    if show_cnames {
+        for c in &s.cnames {
+            draw::text(cv, c.0, c.1, &c.2, s.cname_color, 1);
+        }
+    }
     // 点（恒星/惑星/月）= 一辺 side の塗り四角
     for p in &s.points {
         draw::fill_square(cv, p.0, p.1, p.2, [p.3, p.4, p.5]);
     }
-    // 天体ラベル
-    for t in &s.labels {
-        draw::text(cv, t.0, t.1, &t.2, [t.3, t.4, t.5], 1);
+    // 天体ラベル（惑星・月の名前・P キーで ON/OFF）
+    if show_labels {
+        for t in &s.labels {
+            draw::text(cv, t.0, t.1, &t.2, [t.3, t.4, t.5], 1);
+        }
     }
     // 方位（N/E/S/W）
     for d in &s.chrome.dirs {
@@ -173,11 +191,13 @@ fn save_bmp(cv: &mut WindowCanvas, path: &str) {
 fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, ep: &mut EventPump,
                    screenshot: Option<&str>) {
     let mut line = String::new();
-    let mut show_lines = true;   // L キーで星座線 ON/OFF
-    let mut show_dso = true;     // D キーで DSO ON/OFF
+    let mut show_lines = true;    // L: 星座線 ON/OFF
+    let mut show_dso = true;      // D: DSO ON/OFF
+    let mut show_labels = true;   // P: 惑星・月の名前 ON/OFF
+    let mut show_cnames = false;  // C: 星座名 ON/OFF（既定 OFF＝低解像度で混雑回避）
     let mut last: Option<Scene> = None;
     while !STOP.load(Ordering::Relaxed) {
-        // イベント処理: Quit で終了、L/D でレイヤ切替（切替時は最新フレームを即再描画）。
+        // イベント処理: Quit で終了、L/D/P/C でレイヤ切替（切替時は最新フレームを即再描画）。
         let mut toggled = false;
         for event in ep.poll_iter() {
             match event {
@@ -190,12 +210,20 @@ fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, ep: &mut EventPump,
                     show_dso = !show_dso;
                     toggled = true;
                 }
+                Event::KeyDown { keycode: Some(Keycode::P), .. } => {
+                    show_labels = !show_labels;
+                    toggled = true;
+                }
+                Event::KeyDown { keycode: Some(Keycode::C), .. } => {
+                    show_cnames = !show_cnames;
+                    toggled = true;
+                }
                 _ => {}
             }
         }
         if toggled {
             if let Some(s) = &last {
-                draw_scene(cv, s, show_lines, show_dso);
+                draw_scene(cv, s, show_lines, show_dso, show_labels, show_cnames);
             }
         }
         line.clear();
@@ -213,7 +241,7 @@ fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, ep: &mut EventPump,
         }
         match serde_json::from_str::<Scene>(t) {
             Ok(scene) => {
-                draw_scene(cv, &scene, show_lines, show_dso);
+                draw_scene(cv, &scene, show_lines, show_dso, show_labels, show_cnames);
                 if let Some(path) = screenshot {
                     save_bmp(cv, path);
                     return;

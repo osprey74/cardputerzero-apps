@@ -63,6 +63,9 @@ def render_scene(scene: dict) -> Image.Image:
 
     for x, y, side, r, g, b in scene.get("dso", []):     # DSO（恒星の下に）
         draw_square(d, x, y, side, (r, g, b))
+    cnc = tuple(scene.get("cname_color", [120, 130, 110]))
+    for x, y, text in scene.get("cnames", []):           # 星座名（恒星の下に）
+        d.text((x, y), text, fill=cnc, font=font_sm)
     for x, y, side, r, g, b in scene.get("points", []):
         draw_square(d, x, y, side, (r, g, b))
 

@@ -72,6 +72,18 @@ python sidecar/stellar_sidecar.py --dt 2026-07-08T03:30 | python tools/render_sc
 python tools/render_catalog.py --shape square --no-aa
 ```
 
+## UI キー割当（実機 SDL2）
+
+| キー | 動作 |
+| --- | --- |
+| `L` | 星座線 表示 ON/OFF（既定 ON） |
+| `D` | DSO（深宇宙天体）表示 ON/OFF（既定 ON） |
+| `P` | 惑星・月の名前 表示 ON/OFF（既定 ON） |
+| `C` | 星座名 表示 ON/OFF（既定 OFF・低解像度での混雑回避） |
+
+方位は地磁気（BMM150）で自機の向きを画面上に固定（方式A）。個体・取付依存の較正／姿勢
+オフセットは `~/.config/cardputerzero/stellar_map.json`（例 `config/stellar_map.json.example`）。
+
 ## 状態
 
 | 部位 | 状態 |
