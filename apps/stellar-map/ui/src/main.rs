@@ -18,6 +18,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
 use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::render::WindowCanvas;
 use sdl2::EventPump;
@@ -43,7 +44,10 @@ struct Scene {
     #[serde(default)]
     lines: Vec<(i32, i32, i32, i32)>,
     line_color: [u8; 3],
-    /// (x, y, side, r, g, b)。配列順に描く (DSO→星→惑星→月)。
+    /// DSO のみ (x, y, side, r, g, b)。UI で ON/OFF 切替できるよう points と分離。
+    #[serde(default)]
+    dso: Vec<(i32, i32, i32, u8, u8, u8)>,
+    /// (x, y, side, r, g, b)。恒星→惑星→月。
     #[serde(default)]
     points: Vec<(i32, i32, i32, u8, u8, u8)>,
     /// (x, y, text, r, g, b)。
@@ -112,8 +116,8 @@ fn draw_panel(cv: &mut WindowCanvas, m: &Meta) {
     }
 }
 
-/// 1 フレームを 320×170 に描く。
-fn draw_scene(cv: &mut WindowCanvas, s: &Scene) {
+/// 1 フレームを 320×170 に描く。show_lines / show_dso はキーボードトグル状態。
+fn draw_scene(cv: &mut WindowCanvas, s: &Scene, show_lines: bool, show_dso: bool) {
     cv.set_draw_color(Color::RGB(0, 0, 0));
     cv.clear();
 
@@ -123,11 +127,19 @@ fn draw_scene(cv: &mut WindowCanvas, s: &Scene) {
     draw::line(cv, (cx, cy - r), (cx, cy + r), s.chrome.circle_color);
     draw::line(cv, (cx - r, cy), (cx + r, cy), s.chrome.circle_color);
 
-    // 星座線
-    for l in &s.lines {
-        draw::line(cv, (l.0, l.1), (l.2, l.3), s.line_color);
+    // 星座線（L キーで ON/OFF）
+    if show_lines {
+        for l in &s.lines {
+            draw::line(cv, (l.0, l.1), (l.2, l.3), s.line_color);
+        }
     }
-    // 点（恒星/DSO/惑星/月）= 一辺 side の塗り四角
+    // DSO（D キーで ON/OFF）= 一辺 side の塗り四角
+    if show_dso {
+        for p in &s.dso {
+            draw::fill_square(cv, p.0, p.1, p.2, [p.3, p.4, p.5]);
+        }
+    }
+    // 点（恒星/惑星/月）= 一辺 side の塗り四角
     for p in &s.points {
         draw::fill_square(cv, p.0, p.1, p.2, [p.3, p.4, p.5]);
     }
@@ -161,10 +173,29 @@ fn save_bmp(cv: &mut WindowCanvas, path: &str) {
 fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, ep: &mut EventPump,
                    screenshot: Option<&str>) {
     let mut line = String::new();
+    let mut show_lines = true;   // L キーで星座線 ON/OFF
+    let mut show_dso = true;     // D キーで DSO ON/OFF
+    let mut last: Option<Scene> = None;
     while !STOP.load(Ordering::Relaxed) {
+        // イベント処理: Quit で終了、L/D でレイヤ切替（切替時は最新フレームを即再描画）。
+        let mut toggled = false;
         for event in ep.poll_iter() {
-            if let Event::Quit { .. } = event {
-                STOP.store(true, Ordering::SeqCst);
+            match event {
+                Event::Quit { .. } => STOP.store(true, Ordering::SeqCst),
+                Event::KeyDown { keycode: Some(Keycode::L), .. } => {
+                    show_lines = !show_lines;
+                    toggled = true;
+                }
+                Event::KeyDown { keycode: Some(Keycode::D), .. } => {
+                    show_dso = !show_dso;
+                    toggled = true;
+                }
+                _ => {}
+            }
+        }
+        if toggled {
+            if let Some(s) = &last {
+                draw_scene(cv, s, show_lines, show_dso);
             }
         }
         line.clear();
@@ -182,11 +213,12 @@ fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, ep: &mut EventPump,
         }
         match serde_json::from_str::<Scene>(t) {
             Ok(scene) => {
-                draw_scene(cv, &scene);
+                draw_scene(cv, &scene, show_lines, show_dso);
                 if let Some(path) = screenshot {
                     save_bmp(cv, path);
                     return;
                 }
+                last = Some(scene);
             }
             Err(e) => eprintln!("[warn] Scene パース失敗: {e}"),
         }

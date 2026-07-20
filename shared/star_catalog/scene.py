@@ -39,17 +39,15 @@ def _star_side(mag: float) -> int:
     return 3 if mag <= 1.5 else 2 if mag <= 2.5 else 1
 
 
-def build_scene(dt_local, tz: float, lat: float, lon: float, *,
-                cat, lines=None, dsos=None, bodies=None,
-                mag_view: float = 4.5, mirror_ew: bool = False,
-                heading: float = 0.0) -> dict:
-    """Scene 辞書を返す。座標は 320×170 の整数デバイス画素。
+def compute_sky(dt_local, tz: float, lat: float, lon: float, *,
+                cat, lines=None, dsos=None, mag_view: float = 4.5) -> dict:
+    """時刻・地点から可視天体の地平座標 (alt/az) を計算する（**heading 非依存**）。
 
-    引数の cat/lines/dsos/bodies は呼び出し側でロード済みのものを渡す
-    （catalog.load_* / ephem.sky_bodies）。地平線下の要素は除外して詰める。
-
-    heading[deg]（自機の向く方位角・北=0・東回り）を与えると全天図・方位ラベルを
-    回転し、その方位を画面上（12 時方向）に固定する（App16 方式A）。既定 0 は北=上。
+    赤道→地平座標変換は全恒星ぶんで重い一方、alt/az は heading に依らず時刻・地点だけで
+    決まる（地平線下の除外も heading 非依存）。そこで本関数の結果を数秒キャッシュし、
+    毎フレームの `build_scene` は安価な「alt/az → 画素」投影だけを回す（App16 方式A の
+    heading 回転を軽くする）。恒星は日周運動で ~0.25°/分 と遅く、キャッシュ間隔での
+    ずれは表示画素以下。
     """
     from datetime import timedelta
     dt_utc = dt_local - timedelta(hours=tz)
@@ -57,47 +55,77 @@ def build_scene(dt_local, tz: float, lat: float, lon: float, *,
                      dt_utc.hour, dt_utc.minute, dt_utc.second)
     lst = lst_deg(jd, lon)
 
-    def proj(ra, dec):
-        alt, az = radec_to_altaz(ra, dec, lat, lst)
-        x, y = altaz_to_plot_xy(alt, az, CX, CY, R, mirror_ew, heading)
-        return alt, round(x), round(y)
+    sky_lines = []
+    if lines:
+        for ha, hb in lines:
+            sa, sb = cat.by_hip(ha), cat.by_hip(hb)
+            if not sa or not sb:
+                continue
+            aa, za = radec_to_altaz(sa.ra_deg, sa.dec_deg, lat, lst)
+            ab, zb = radec_to_altaz(sb.ra_deg, sb.dec_deg, lat, lst)
+            if aa < 0 or ab < 0:
+                continue
+            sky_lines.append((aa, za, ab, zb))
+
+    sky_stars = []
+    for st in cat.stars:
+        if st.mag > mag_view:
+            continue
+        alt, az = radec_to_altaz(st.ra_deg, st.dec_deg, lat, lst)
+        if alt < 0:
+            continue
+        sky_stars.append((alt, az, _star_side(st.mag), _star_color(st.mag)))
+
+    sky_dso = []
+    if dsos:
+        for o in dsos:
+            alt, az = radec_to_altaz(o.ra_deg, o.dec_deg, lat, lst)
+            if alt < 0:
+                continue
+            sky_dso.append((alt, az))
+
+    return {"lines": sky_lines, "stars": sky_stars, "dso": sky_dso}
+
+
+def build_scene(dt_local, tz: float, lat: float, lon: float, *,
+                cat=None, lines=None, dsos=None, bodies=None,
+                mag_view: float = 4.5, mirror_ew: bool = False,
+                heading: float = 0.0, sky=None) -> dict:
+    """Scene 辞書を返す。座標は 320×170 の整数デバイス画素。
+
+    ``sky`` に `compute_sky()` の結果を渡すと再計算を省く（毎フレームの heading 回転を
+    軽くするキャッシュ経路）。未指定なら内部で `compute_sky()` を呼ぶ（後方互換）。
+    heading[deg]（自機の向く方位角・北=0・東回り）でその方位を画面上（12 時）に固定。
+
+    恒星・星座線・DSO は `sky`（alt/az・地平線下除外済み）から投影。惑星・月は `bodies`
+    （ephem.sky_bodies の alt/az）から投影。DSO は UI 側で ON/OFF 切替できるよう
+    ``points`` とは別の ``dso`` 配列に出す（恒星/惑星/月は ``points``）。
+    """
+    if sky is None:
+        sky = compute_sky(dt_local, tz, lat, lon, cat=cat, lines=lines,
+                          dsos=dsos, mag_view=mag_view)
 
     def proj_altaz(alt, az):
         x, y = altaz_to_plot_xy(alt, az, CX, CY, R, mirror_ew, heading)
         return round(x), round(y)
 
     out_lines = []
-    if lines:
-        for ha, hb in lines:
-            sa, sb = cat.by_hip(ha), cat.by_hip(hb)
-            if not sa or not sb:
-                continue
-            aa, xa, ya = proj(sa.ra_deg, sa.dec_deg)
-            ab, xb, yb = proj(sb.ra_deg, sb.dec_deg)
-            if aa < 0 or ab < 0:
-                continue
-            out_lines.append([xa, ya, xb, yb])
+    for aa, za, ab, zb in sky["lines"]:
+        xa, ya = proj_altaz(aa, za)
+        xb, yb = proj_altaz(ab, zb)
+        out_lines.append([xa, ya, xb, yb])
 
-    # points: [x, y, side, r, g, b]。描画順=DSO→恒星→惑星→月（後ほど上に載る）。
+    # DSO は独立配列（UI トグル用）。[x, y, side, r, g, b]。
+    dso_pts = []
+    for alt, az in sky["dso"]:
+        x, y = proj_altaz(alt, az)
+        dso_pts.append([x, y, 2, *COL_DSO])
+
+    # points: [x, y, side, r, g, b]。恒星→惑星→月（後ほど上に載る）。
     points = []
-    dso_n = 0
-    if dsos:
-        for o in dsos:
-            alt, x, y = proj(o.ra_deg, o.dec_deg)
-            if alt < 0:
-                continue
-            dso_n += 1
-            points.append([x, y, 2, *COL_DSO])
-
-    star_n = 0
-    for st in cat.stars:
-        if st.mag > mag_view:
-            continue
-        alt, x, y = proj(st.ra_deg, st.dec_deg)
-        if alt < 0:
-            continue
-        star_n += 1
-        points.append([x, y, _star_side(st.mag), *_star_color(st.mag)])
+    for alt, az, side, col in sky["stars"]:
+        x, y = proj_altaz(alt, az)
+        points.append([x, y, side, *col])
 
     labels = []
     planets_n = 0
@@ -131,6 +159,7 @@ def build_scene(dt_local, tz: float, lat: float, lon: float, *,
         "chrome": {"circle": [CX, CY, R], "circle_color": COL_HORIZON,
                    "dir_color": COL_DIR, "dirs": chrome_dirs},
         "lines": out_lines, "line_color": COL_LINE,
+        "dso": dso_pts,
         "points": points,
         "labels": labels,
         "meta": {
@@ -138,7 +167,7 @@ def build_scene(dt_local, tz: float, lat: float, lon: float, *,
             "tz": tz, "lat": lat, "lon": lon, "mag_view": mag_view,
             "mirror_ew": mirror_ew, "heading": round(heading % 360.0, 1),
             "moon": moon_meta,
-            "counts": {"stars": star_n, "lines": len(out_lines),
-                       "dso": dso_n, "planets": planets_n},
+            "counts": {"stars": len(sky["stars"]), "lines": len(out_lines),
+                       "dso": len(dso_pts), "planets": planets_n},
         },
     }

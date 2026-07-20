@@ -61,6 +61,8 @@ def render_scene(scene: dict) -> Image.Image:
     for x1, y1, x2, y2 in scene.get("lines", []):
         d.line([x1, y1, x2, y2], fill=lc)
 
+    for x, y, side, r, g, b in scene.get("dso", []):     # DSO（恒星の下に）
+        draw_square(d, x, y, side, (r, g, b))
     for x, y, side, r, g, b in scene.get("points", []):
         draw_square(d, x, y, side, (r, g, b))
 
