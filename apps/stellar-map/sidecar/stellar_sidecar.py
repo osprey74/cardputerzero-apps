@@ -81,16 +81,27 @@ def _load_config(argv) -> tuple[dict, str]:
     return {}, path
 
 
-def build_once(args, cat, lines, dsos, hsrc=None) -> dict:
+def build_once(args, cat, lines, dsos, hsrc=None, bcache=None) -> dict:
     dt_local = datetime.fromisoformat(args.dt) if args.dt else _now_local()
     bodies = None
     if not args.no_planets:
-        try:
-            from ephem import sky_bodies
-            dt_utc = dt_local - timedelta(hours=args.tz)
-            bodies = sky_bodies(dt_utc, args.lat, args.lon, args.data)
-        except Exception as ex:  # noqa: BLE001
-            print(f"# planets/moon disabled (skyfield?): {ex}", file=sys.stderr)
+        # 惑星・月は動きが遅い（月でも ~15°/h）。Skyfield 計算は重い（~65ms）ので
+        # bodies-interval 秒ごとに再計算してキャッシュ、恒星＋heading 回転は毎フレーム。
+        now = time.monotonic()
+        if (bcache is not None and bcache.get("bodies") is not None
+                and bcache.get("t") is not None
+                and now - bcache["t"] < args.bodies_interval):
+            bodies = bcache["bodies"]
+        else:
+            try:
+                from ephem import sky_bodies
+                dt_utc = dt_local - timedelta(hours=args.tz)
+                bodies = sky_bodies(dt_utc, args.lat, args.lon, args.data)
+                if bcache is not None:
+                    bcache["bodies"] = bodies
+                    bcache["t"] = now
+            except Exception as ex:  # noqa: BLE001
+                print(f"# planets/moon disabled (skyfield?): {ex}", file=sys.stderr)
     # 方位: ライブソース優先 → 無ければ None（未ロック時は 0=北上にフォールバック）。
     heading = hsrc.heading() if hsrc is not None else None
     if heading is None:
@@ -133,6 +144,8 @@ def main() -> None:
     ap.add_argument("--mag-view", type=float, default=4.5)
     ap.add_argument("--mirror-ew", action="store_true")
     ap.add_argument("--no-planets", action="store_true")
+    ap.add_argument("--bodies-interval", type=float, default=10.0,
+                    help="惑星・月の再計算間隔[秒]（Skyfield は重いので低頻度キャッシュ）")
     ap.add_argument("--interval", type=float, default=0.0,
                     help="秒。>0 でこの間隔でフレームを繰り返し出力（JSON Lines）")
     # 方式A: 自機の向きを画面上に固定する方位入力。
@@ -172,15 +185,16 @@ def main() -> None:
     dsos, _n, _m = load_dso(args.data)
 
     hsrc = make_heading_source(args)
+    bcache: dict = {"bodies": None, "t": None}   # 惑星・月の低頻度キャッシュ
     try:
         if args.interval and args.interval > 0:
             while True:
-                sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos, hsrc),
+                sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos, hsrc, bcache),
                                             separators=(",", ":")) + "\n")
                 sys.stdout.flush()
                 time.sleep(args.interval)
         else:
-            sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos, hsrc),
+            sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos, hsrc, bcache),
                                         separators=(",", ":")) + "\n")
     finally:
         if hsrc is not None:
