@@ -54,8 +54,9 @@ def render_scene(scene: dict) -> Image.Image:
         cx, cy, r = ch["circle"]
         cc = tuple(ch.get("circle_color", [60, 66, 70]))
         d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=cc)
-        d.line([cx - r, cy, cx + r, cy], fill=cc)
-        d.line([cx, cy - r, cx, cy + r], fill=cc)
+        if ch.get("cross", True):
+            d.line([cx - r, cy, cx + r, cy], fill=cc)
+            d.line([cx, cy - r, cx, cy + r], fill=cc)
         dc = tuple(ch.get("dir_color", [255, 165, 0]))
         for x, y, t in ch.get("dirs", []):
             d.text((x, y), t, fill=dc, font=font_sm)

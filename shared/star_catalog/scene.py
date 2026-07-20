@@ -210,9 +210,51 @@ def _meta(dt_local, tz, lat, lon, mode, **extra):
 
 
 def _empty_chrome():
-    # 円・方位を描かない（LIST/ZOOM 用）。UI は circle 半径<=0 で地平線円を省く。
+    # 円・方位を描かない（LIST 用）。UI は circle 半径<=0 で地平線円を省く。
     return {"circle": [CX, CY, 0], "circle_color": COL_HORIZON,
-            "dir_color": COL_DIR, "dirs": []}
+            "dir_color": COL_DIR, "dirs": [], "cross": False}
+
+
+def _edge_point(cx, cy, x, y, margin=8):
+    """(x,y) が画面内ならそのまま、外なら中心 (cx,cy) からの視線が画面枠に当たる点へ寄せる。
+
+    拡大表示で方角マークが画面外でも、縁に「その方角のポインタ」として常に見えるようにする。
+    """
+    if margin <= x <= W - margin and margin <= y <= H - margin:
+        return x, y
+    dx, dy = x - cx, y - cy
+    if abs(dx) < 1e-6 and abs(dy) < 1e-6:
+        return x, y
+    ts = []
+    if dx > 0:
+        ts.append((W - margin - cx) / dx)
+    elif dx < 0:
+        ts.append((margin - cx) / dx)
+    if dy > 0:
+        ts.append((H - margin - cy) / dy)
+    elif dy < 0:
+        ts.append((margin - cy) / dy)
+    ts = [t for t in ts if t > 0]
+    s = min(ts) if ts else 1.0
+    return cx + dx * s, cy + dy * s
+
+
+def _zoom_chrome(tf, scale, heading, mirror_ew):
+    """拡大表示用 chrome＝地平線円と方角 N/S/E/W を拡大変換 tf で写したもの。
+
+    天球外周（地平線円）を同じ拡大・平行移動で描く（近ければ弧が画面に見える）。方角
+    N/S/E/W は画面外でも縁にクランプして常に表示（コンパス代わり）。中心の天頂十字は
+    拡大では紛らわしいので出さない（cross=False）。
+    """
+    cxp, cyp = tf(CX, CY)
+    dirs = []
+    for t, az in (("N", 0.0), ("E", 90.0), ("S", 180.0), ("W", 270.0)):
+        x, y = altaz_to_plot_xy(0.0, az, CX, CY, R + 3, mirror_ew, heading)
+        px, py = _edge_point(160.0, 88.0, *tf(x, y))
+        dirs.append([round(px) - 3, round(py) - 5, t])
+    return {"circle": [cxp, cyp, round(R * scale)],
+            "circle_color": COL_HORIZON, "dir_color": COL_DIR,
+            "dirs": dirs, "cross": False}
 
 
 def build_list_scene(groups, cursor, dt_local, tz, lat, lon, *,
@@ -293,11 +335,13 @@ def _bright_landmarks(cat, lst, lat, heading, mirror_ew, tf, exclude=None,
 
 
 def build_zoom_scene(group, cat, dt_local, tz, lat, lon, *,
-                     heading: float = 0.0, mirror_ew: bool = False) -> dict:
+                     heading: float = 0.0, mirror_ew: bool = False,
+                     zoom_mult: float = 1.0) -> dict:
     """選択星座を「今見えている角度で」拡大した Scene（＋目印の明るい星）。
 
     構成星を地平投影→bbox を画面いっぱいへ拡大平行移動（回転は保持）。さらに星座に
     含まれない 1・2 等星を同じ変換で投影し、探す目安として 1等=十字/2等=点で重ねる。
+    zoom_mult は青ノブ回転による手動拡縮（1.0=画面フィット。目印星も同倍率で拡縮）。
     """
     lst = _lst_for(dt_local, tz, lon)
     pts = {}
@@ -324,7 +368,8 @@ def build_zoom_scene(group, cat, dt_local, tz, lat, lon, *,
     minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
     cx0, cy0 = (minx + maxx) / 2.0, (miny + maxy) / 2.0
     bw, bh = max(maxx - minx, 1e-3), max(maxy - miny, 1e-3)
-    scale = max(0.5, min(min(300.0 / bw, 148.0 / bh), 24.0))
+    base = min(300.0 / bw, 148.0 / bh)          # 画面フィット倍率
+    scale = max(0.3, min(base * zoom_mult, 80.0))
     tcx, tcy = 160.0, 88.0
 
     def tf(x, y):
@@ -342,7 +387,7 @@ def build_zoom_scene(group, cat, dt_local, tz, lat, lon, *,
     for h, (x, y, mag) in pts.items():
         nx, ny = tp[h]
         points.append([nx, ny, max(2, _star_side(mag) + 1), *_star_color(mag)])
-    return {"w": W, "h": H, "chrome": _empty_chrome(),
+    return {"w": W, "h": H, "chrome": _zoom_chrome(tf, scale, heading, mirror_ew),
             "lines": out_lines, "line_color": COL_LINE, "dso": [],
             "cnames": [], "cname_color": COL_CNAME, "points": points,
             "crosses": crosses, "labels": labels, "rects": [],
@@ -351,8 +396,8 @@ def build_zoom_scene(group, cat, dt_local, tz, lat, lon, *,
 
 def build_plist_scene(bodies_list, cursor, dt_local, tz, lat, lon, *,
                       visible: int = 11, row_h: int = 12, top: int = 18) -> dict:
-    """惑星・月リスト画面の Scene。bodies_list=[{"name","alt","az","mag","kind"}...]。"""
-    labels = [[6, 3, "PLANETS & MOON", *COL_LIST_HDR]]
+    """惑星・月・1等星リスト画面の Scene。bodies_list=[{"name","alt","az","mag","kind"}...]。"""
+    labels = [[6, 3, "PLANETS / MOON / STARS", *COL_LIST_HDR]]
     rects = []
     n = len(bodies_list)
     if n:
@@ -384,30 +429,55 @@ def build_plist_scene(bodies_list, cursor, dt_local, tz, lat, lon, *,
 
 def build_pzoom_scene(body, cat, dt_local, tz, lat, lon, *,
                       heading: float = 0.0, mirror_ew: bool = False,
-                      zoom: float = 6.0) -> dict:
-    """選択した惑星/月を中心に据えた拡大 Scene（＋目印の明るい星）。
+                      zoom: float = 6.0, group=None) -> dict:
+    """選択した惑星/月/1等星を中心に据えた拡大 Scene（＋目印の明るい星）。
 
-    body={"name","alt","az","kind"}。天体を画面中央に置き固定倍率 zoom で拡大、
-    周囲の 1・2 等星を目印として 1等=十字/2等=点で描く（探す目安）。
+    body={"name","alt","az","kind","hip"}。天体を画面中央に置き固定倍率 zoom で拡大、
+    周囲の 1・2 等星を目印として 1等=十字/2等=点で描く。天球外周円＋方角も表示。
+    body が星座所属の 1 等星で ``group`` を渡すと、その星座線・構成星・星座名も描く。
     """
     lst = _lst_for(dt_local, tz, lon)
     name = body["name"]
     labels = [[6, 3, name, *COL_LIST_HDR],
               [6, H - 10, "RED:back to list", *COL_HINT]]
     bx, by = altaz_to_plot_xy(body["alt"], body["az"], CX, CY, R, mirror_ew, heading)
-    tcx, tcy = 160.0, 88.0
 
     def tf(x, y):
-        return round(tcx + zoom * (x - bx)), round(tcy + zoom * (y - by))
+        return round(160.0 + zoom * (x - bx)), round(88.0 + zoom * (y - by))
 
-    crosses, dots = _bright_landmarks(cat, lst, lat, heading, mirror_ew, tf)
+    out_lines = []
+    member = {}          # hip -> ((nx,ny), mag)
+    exclude = set()
+    if body.get("hip"):
+        exclude.add(body["hip"])
+    if group:
+        for hip in {h for pair in group["pairs"] for h in pair}:
+            st = cat.by_hip(hip)
+            if st is None:
+                continue
+            x, y = altaz_to_plot_xy(*radec_to_altaz(st.ra_deg, st.dec_deg, lat, lst),
+                                    cx=CX, cy=CY, radius=R, mirror_ew=mirror_ew,
+                                    heading=heading)
+            member[hip] = (tf(x, y), st.mag)
+        for a, b in group["pairs"]:
+            if a in member and b in member:
+                out_lines.append([member[a][0][0], member[a][0][1],
+                                  member[b][0][0], member[b][0][1]])
+        exclude |= set(member.keys())
+        labels.append([6, 16, group.get("latin") or group["iau"], *COL_CNAME])
+
+    crosses, dots = _bright_landmarks(cat, lst, lat, heading, mirror_ew, tf,
+                                      exclude=exclude)
     points = list(dots)
-    # 天体本体（惑星=ゴールド/月=淡白）を中央に大きめで。
-    col = COL_MOON if body.get("kind") == "moon" else COL_PLANET
+    for hip, ((nx, ny), mag) in member.items():
+        points.append([nx, ny, max(2, _star_side(mag) + 1), *_star_color(mag)])
+    # 本体（1等星=白 / 惑星=ゴールド / 月=淡白）を中央に大きめで。
+    kind = body.get("kind")
+    col = COL_STAR1 if kind == "star" else (COL_MOON if kind == "moon" else COL_PLANET)
     points.append([160, 88, 3, *col])
     labels.insert(1, [166, 84, name, *col])
-    return {"w": W, "h": H, "chrome": _empty_chrome(),
-            "lines": [], "line_color": COL_LINE, "dso": [],
+    return {"w": W, "h": H, "chrome": _zoom_chrome(tf, zoom, heading, mirror_ew),
+            "lines": out_lines, "line_color": COL_LINE, "dso": [],
             "cnames": [], "cname_color": COL_CNAME, "points": points,
             "crosses": crosses, "labels": labels, "rects": [],
             "meta": _meta(dt_local, tz, lat, lon, "PZOOM", sel=name)}

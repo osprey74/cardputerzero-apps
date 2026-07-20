@@ -80,6 +80,13 @@ struct Chrome {
     dir_color: [u8; 3],
     /// (x, y, "N"|"E"|"S"|"W")。
     dirs: Vec<(i32, i32, String)>,
+    /// 中心の十字（天頂十字）を描くか。拡大表示では紛らわしいので false。
+    #[serde(default = "default_true")]
+    cross: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,8 +161,10 @@ fn draw_scene(cv: &mut WindowCanvas, s: &Scene, show_lines: bool, show_dso: bool
     let (cx, cy, r) = s.chrome.circle;
     if r > 0 {
         draw::circle(cv, cx, cy, r, s.chrome.circle_color);
-        draw::line(cv, (cx, cy - r), (cx, cy + r), s.chrome.circle_color);
-        draw::line(cv, (cx - r, cy), (cx + r, cy), s.chrome.circle_color);
+        if s.chrome.cross {
+            draw::line(cv, (cx, cy - r), (cx, cy + r), s.chrome.circle_color);
+            draw::line(cv, (cx - r, cy), (cx + r, cy), s.chrome.circle_color);
+        }
     }
 
     // レイヤトグル（L/D/P）は MAP モードのみ適用。LIST/ZOOM の lines/labels は

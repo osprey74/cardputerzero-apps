@@ -46,9 +46,10 @@ for p in (_REPO, os.path.join(_APP, "tools")):
 
 from shared.star_catalog import (build_list_scene, build_plist_scene,  # noqa: E402
                                  build_pzoom_scene, build_scene, build_zoom_scene,
-                                 compute_sky, load_catalog,
+                                 compute_sky, julian_date, load_catalog,
                                  load_constellation_groups, load_constellation_lines,
-                                 load_constellation_names, load_dso)
+                                 load_constellation_names, load_dso, lst_deg,
+                                 radec_to_altaz)
 
 
 def _now_local():
@@ -108,6 +109,34 @@ def _get_bodies(args, bcache, dt_local):
         return None
 
 
+def _bright_star_catalog(cat, groups, mag_cut=1.5):
+    """1 等星（mag<=1.5 の命名星）を [{name,hip,ra,dec,mag,group}] で返す（明るい順）。
+
+    group=その星が構成星に含まれる星座グループ（拡大時に星座線/名を出すため）。無ければ None。
+    """
+    hip2grp = {}
+    for g in groups:
+        for a, b in g["pairs"]:
+            hip2grp.setdefault(a, g)
+            hip2grp.setdefault(b, g)
+    out, seen = [], set()
+    for name, idx in getattr(cat, "named", {}).items():
+        st = cat.stars[idx]
+        if st.mag > mag_cut or st.hip in seen:
+            continue
+        seen.add(st.hip)
+        out.append({"name": name, "hip": st.hip, "ra": st.ra_deg, "dec": st.dec_deg,
+                    "mag": st.mag, "group": hip2grp.get(st.hip)})
+    out.sort(key=lambda s: s["mag"])
+    return out
+
+
+def _lst_now(args, dt_local):
+    dt_utc = dt_local - timedelta(hours=args.tz)
+    return lst_deg(julian_date(dt_utc.year, dt_utc.month, dt_utc.day,
+                               dt_utc.hour, dt_utc.minute, dt_utc.second), args.lon)
+
+
 def _bodies_list(bodies):
     """bodies dict → 惑星/月リスト [{name,alt,az,mag,kind}]（PLIST/PZOOM 用）。"""
     out = []
@@ -155,7 +184,7 @@ def build_once(args, cat, lines, dsos, hsrc=None, bcache=None, scache=None,
 _NO_INPUT = {"red_rot": 0, "blue_rot": 0, "red_press": 0, "blue_press": 0}
 
 
-def build_frame(args, cat, lines, dsos, cnames, groups, hsrc, bcache, scache, state):
+def build_frame(args, cat, lines, dsos, cnames, groups, bstars, hsrc, bcache, scache, state):
     """Chain Encoder 入力で 5 モード遷移し、モードに応じた Scene を返す。
 
     星座（赤起点）: MAP --赤--> LIST（赤回転=カーソル/青=選択→ZOOM/赤=MAP）、ZOOM --青--> LIST。
@@ -164,7 +193,14 @@ def build_frame(args, cat, lines, dsos, cnames, groups, hsrc, bcache, scache, st
     inp = hsrc.drain_input() if (hsrc is not None and hasattr(hsrc, "drain_input")) else _NO_INPUT
     dt_local = datetime.fromisoformat(args.dt) if args.dt else _now_local()
     n = len(groups)
+    # 惑星/月 ＋ 1 等星（現在の alt/az を毎フレーム計算）を 1 つのリストに。
     blist = _bodies_list(_get_bodies(args, bcache, dt_local))
+    if bstars:
+        lst = _lst_now(args, dt_local)
+        for bs in bstars:
+            alt, az = radec_to_altaz(bs["ra"], bs["dec"], args.lat, lst)
+            blist.append({"name": bs["name"], "alt": alt, "az": az, "mag": bs["mag"],
+                          "kind": "star", "hip": bs["hip"], "group": bs["group"]})
     m = len(blist)
     sens = max(1, int(args.enc_sensitivity))
     mode = state["mode"]
@@ -183,10 +219,18 @@ def build_frame(args, cat, lines, dsos, cnames, groups, hsrc, bcache, scache, st
                 state["rot"] -= steps * sens
         if inp["blue_press"] and n:
             state["selected"] = state["cursor"]
+            state["czoom"] = 1.0            # 拡縮倍率リセット（画面フィットから）
+            state["zrot"] = 0
             state["mode"] = "ZOOM"
         elif inp["red_press"]:
             state["mode"] = "MAP"
     elif mode == "ZOOM":
+        # 青回転で拡大/縮小（目印星も同倍率）。青押下でリストへ戻る。
+        state["zrot"] += inp["blue_rot"]
+        zsteps = int(state["zrot"] / sens)
+        if zsteps:
+            state["czoom"] = min(8.0, max(0.3, state["czoom"] * (1.15 ** zsteps)))
+            state["zrot"] -= zsteps * sens
         if inp["blue_press"]:
             state["mode"] = "LIST"
     elif mode == "PLIST":
@@ -198,10 +242,18 @@ def build_frame(args, cat, lines, dsos, cnames, groups, hsrc, bcache, scache, st
                 state["prot"] -= steps * sens
         if inp["red_press"] and m:
             state["pselected"] = state["pcursor"]
+            state["pzoom"] = 1.0            # 拡縮倍率リセット
+            state["pzrot"] = 0
             state["mode"] = "PZOOM"
         elif inp["blue_press"]:
             state["mode"] = "MAP"
     elif mode == "PZOOM":
+        # 赤回転で拡大/縮小（目印星も同倍率）。赤押下でリストへ戻る。
+        state["pzrot"] += inp["red_rot"]
+        psteps = int(state["pzrot"] / sens)
+        if psteps:
+            state["pzoom"] = min(8.0, max(0.3, state["pzoom"] * (1.15 ** psteps)))
+            state["pzrot"] -= psteps * sens
         if inp["red_press"]:
             state["mode"] = "PLIST"
 
@@ -214,14 +266,15 @@ def build_frame(args, cat, lines, dsos, cnames, groups, hsrc, bcache, scache, st
     if mode == "ZOOM" and n:
         return build_zoom_scene(groups[state["selected"]], cat, dt_local, args.tz,
                                 args.lat, args.lon, heading=heading,
-                                mirror_ew=args.mirror_ew)
+                                mirror_ew=args.mirror_ew, zoom_mult=state["czoom"])
     if mode == "PLIST":
         return build_plist_scene(blist, state["pcursor"], dt_local, args.tz,
                                  args.lat, args.lon)
     if mode == "PZOOM" and m:
-        return build_pzoom_scene(blist[state["pselected"] % m], cat, dt_local,
-                                 args.tz, args.lat, args.lon, heading=heading,
-                                 mirror_ew=args.mirror_ew)
+        entry = blist[state["pselected"] % m]
+        return build_pzoom_scene(entry, cat, dt_local, args.tz, args.lat, args.lon,
+                                 heading=heading, mirror_ew=args.mirror_ew,
+                                 zoom=6.0 * state["pzoom"], group=entry.get("group"))
     return build_once(args, cat, lines, dsos, hsrc, bcache, scache, cnames)
 
 
@@ -306,25 +359,28 @@ def main() -> None:
     lines = load_constellation_lines(args.data)
     cnames = load_constellation_names(args.data, cat)
     groups = load_constellation_groups(args.data, cat)
+    bstars = _bright_star_catalog(cat, groups)   # 1 等星（リストに追加・星座所属付き）
     dsos, _n, _m = load_dso(args.data)
 
     hsrc = make_heading_source(args)
     bcache: dict = {"bodies": None, "t": None}   # 惑星・月の低頻度キャッシュ
     scache: dict = {"sky": None, "t": None}      # 恒星・星座線・DSO の alt/az キャッシュ
     state = {"mode": "MAP", "cursor": 0, "selected": 0, "rot": 0,   # 星座（赤）
-             "pcursor": 0, "pselected": 0, "prot": 0}               # 惑星/月（青）
+             "czoom": 1.0, "zrot": 0,                               # 星座拡大の拡縮
+             "pcursor": 0, "pselected": 0, "prot": 0,               # 惑星/月（青）
+             "pzoom": 1.0, "pzrot": 0}                              # 惑星拡大の拡縮
     try:
         if args.interval and args.interval > 0:
             while True:
                 sys.stdout.write(json.dumps(
-                    build_frame(args, cat, lines, dsos, cnames, groups,
+                    build_frame(args, cat, lines, dsos, cnames, groups, bstars,
                                 hsrc, bcache, scache, state),
                     separators=(",", ":")) + "\n")
                 sys.stdout.flush()
                 time.sleep(args.interval)
         else:
             sys.stdout.write(json.dumps(
-                build_frame(args, cat, lines, dsos, cnames, groups,
+                build_frame(args, cat, lines, dsos, cnames, groups, bstars,
                             hsrc, bcache, scache, state),
                 separators=(",", ":")) + "\n")
     finally:
