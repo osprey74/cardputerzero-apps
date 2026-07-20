@@ -59,17 +59,18 @@ def altaz_to_plot_xy(alt: float, az: float, cx: float, cy: float, radius: float,
                      mirror_ew: bool = False, heading: float = 0.0) -> tuple[float, float]:
     """地平座標 → 円形全天図ピクセル (中心=天頂/外周=地平線)。
 
-    既定は東=右 (App01 Sky Plot 準拠)。mirror_ew=True で見上げる向き (planisphere)。
+    星座早見盤と同じ「見上げ式」＝**向いている方位を画面下(正面の地平線)に置く**。
+    mirror_ew=True で見上げ向き(北向き時 東=右/西=左・実際の星座形)、False で鏡像(地図向き)。
 
-    heading[deg] は「自機が向いている方位角」(北=0・東回り)。既定 0 なら北=上の
-    従来挙動。値を与えると全天図を回転し、その方位が 12 時方向 (画面上) に来る
-    (App16 方式A: 地磁気で自機の向きを上に固定)。方位ソースは実機では CardputerZero
-    内蔵 BMM150、先行検証では CoreS3 の BMM150 (USB CDC)。
+    heading[deg] は「自機が向いている方位角」(北=0・東回り)。既定 0 なら北を向いた状態で、
+    N=下・S=上・E=右・W=左 (mirror_ew=True)。値を与えると全天図を回転し、その方位が
+    6 時方向 (画面下＝正面の地平線) に来る (App16 方式A)。方位ソースは実機では
+    CardputerZero 内蔵 BMM150、先行検証では CoreS3 の BMM150 (USB CDC)。
     """
     r = radius * (1.0 - alt / 90.0)
     az_rel = (az - heading) % 360.0        # 自機の向き基準へ回転
     a = (360.0 - az_rel) if mirror_ew else az_rel
-    theta = math.radians(a - 90.0)   # 向いている方位を 12 時方向へ
+    theta = math.radians(a + 90.0)   # 向いている方位を 6 時方向(画面下＝正面の地平線)へ
     return cx + r * math.cos(theta), cy + r * math.sin(theta)
 
 
