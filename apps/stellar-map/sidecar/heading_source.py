@@ -57,20 +57,27 @@ class CoreS3HeadingSource(HeadingSource):
                  declination: float = 0.0, zero_offset: float = 0.0,
                  invert: bool = False, use_tilt: bool = True,
                  offset_x: Optional[float] = None, offset_y: Optional[float] = None,
-                 span_x: float = 1.0, span_y: float = 1.0):
+                 offset_z: float = 0.0,
+                 span_x: float = 1.0, span_y: float = 1.0,
+                 span_z: Optional[float] = None):
         self._filter = HeadingFilter(alpha=alpha, declination=declination,
                                      zero_offset=zero_offset, invert=invert)
         self._port = port
         self._use_tilt = use_tilt
-        # ハード/ソフトアイアン較正: offset_x/y を両方与えたときのみ生 x/y から
+        # ハード/ソフトアイアン較正: offset_x/y を両方与えたときのみ生 x/y/z から
         # heading を再計算する（未指定ならファーム算出の生 heading をそのまま使う）。
-        # span は 360° スイープの x/y 半スパン (calib_probe の sx/sy)。scale=1/span で
-        # 軸振幅を正規化する（atan2 は比のみ効くため軸間の相対スケールが要点）。
+        # span は 3D 較正での各軸半スパン。scale=1/span で軸振幅を正規化する
+        # （傾き補正は 3 軸を混ぜるため、z も x/y と同じスケールに揃えるのが要点。
+        # z 未較正だと mz が桁違いに大きく heading を支配して暴れる）。
+        # _cal は 3 軸（tilt 用）、_cal_xy は水平前提用（heading_from_xy は x/y のみ）。
         self._cal = None
+        self._cal_xy = None
         if offset_x is not None and offset_y is not None:
-            self._cal = dict(offset_x=offset_x, offset_y=offset_y,
-                             scale_x=1.0 / (span_x or 1.0),
-                             scale_y=1.0 / (span_y or 1.0))
+            sz = span_z if span_z else (((span_x or 1.0) + (span_y or 1.0)) / 2.0)
+            self._cal_xy = dict(offset_x=offset_x, offset_y=offset_y,
+                                scale_x=1.0 / (span_x or 1.0),
+                                scale_y=1.0 / (span_y or 1.0))
+            self._cal = dict(self._cal_xy, offset_z=offset_z, scale_z=1.0 / (sz or 1.0))
         self._lock = threading.Lock()
         self._value: Optional[float] = None
         self._stop = threading.Event()
@@ -102,7 +109,7 @@ class CoreS3HeadingSource(HeadingSource):
                             h = self._filter.update_tilt(mag.x, mag.y, mag.z,   # 傾き補正
                                                          acc.x, acc.y, acc.z, **self._cal)
                         else:
-                            h = self._filter.update_xy(mag.x, mag.y, **self._cal)  # 水平前提
+                            h = self._filter.update_xy(mag.x, mag.y, **self._cal_xy)  # 水平前提
                     elif mag.heading is not None:
                         h = self._filter.update(mag.heading)                    # 生 heading
                     else:

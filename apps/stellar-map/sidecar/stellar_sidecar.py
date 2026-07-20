@@ -60,7 +60,8 @@ _DEFAULT_CFG = os.path.expanduser("~/.config/cardputerzero/stellar_map.json")
 # 設定ファイルで指定できるキー（argparse の dest 名と一致させる）。
 _CFG_KEYS = {"lat", "lon", "tz", "mag_view", "mag_port", "declination",
              "heading_offset", "heading_alpha", "heading_invert", "no_tilt",
-             "mag_offset_x", "mag_offset_y", "mag_span_x", "mag_span_y"}
+             "mag_offset_x", "mag_offset_y", "mag_offset_z",
+             "mag_span_x", "mag_span_y", "mag_span_z"}
 
 
 def _load_config(argv) -> tuple[dict, str]:
@@ -112,8 +113,10 @@ def make_heading_source(args):
                                    use_tilt=not args.no_tilt,
                                    offset_x=args.mag_offset_x,
                                    offset_y=args.mag_offset_y,
+                                   offset_z=args.mag_offset_z,
                                    span_x=args.mag_span_x,
-                                   span_y=args.mag_span_y)
+                                   span_y=args.mag_span_y,
+                                   span_z=args.mag_span_z)
     if args.heading is not None:
         return FixedHeadingSource(args.heading + args.heading_offset + args.declination)
     return None
@@ -152,6 +155,8 @@ def main() -> None:
     ap.add_argument("--mag-offset-y", type=float, default=None, help="ハードアイアン中心 y")
     ap.add_argument("--mag-span-x", type=float, default=1.0, help="360deg x 半スパン(soft-iron)")
     ap.add_argument("--mag-span-y", type=float, default=1.0, help="360deg y 半スパン(soft-iron)")
+    ap.add_argument("--mag-offset-z", type=float, default=0.0, help="ハードアイアン中心 z（傾き補正用・3D較正）")
+    ap.add_argument("--mag-span-z", type=float, default=None, help="3D z 半スパン（未指定は x/y 平均）")
     ap.add_argument("--config", default=_DEFAULT_CFG,
                     help=f"個体設定 JSON（既定 {_DEFAULT_CFG}）。CLI 引数がこれを上書き")
     # 設定ファイルの値を argparse の既定に流し込む（＝CLI 未指定なら設定値、指定あれば CLI 優先）。
