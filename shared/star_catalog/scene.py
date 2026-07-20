@@ -41,11 +41,15 @@ def _star_side(mag: float) -> int:
 
 def build_scene(dt_local, tz: float, lat: float, lon: float, *,
                 cat, lines=None, dsos=None, bodies=None,
-                mag_view: float = 4.5, mirror_ew: bool = False) -> dict:
+                mag_view: float = 4.5, mirror_ew: bool = False,
+                heading: float = 0.0) -> dict:
     """Scene 辞書を返す。座標は 320×170 の整数デバイス画素。
 
     引数の cat/lines/dsos/bodies は呼び出し側でロード済みのものを渡す
     （catalog.load_* / ephem.sky_bodies）。地平線下の要素は除外して詰める。
+
+    heading[deg]（自機の向く方位角・北=0・東回り）を与えると全天図・方位ラベルを
+    回転し、その方位を画面上（12 時方向）に固定する（App16 方式A）。既定 0 は北=上。
     """
     from datetime import timedelta
     dt_utc = dt_local - timedelta(hours=tz)
@@ -55,11 +59,11 @@ def build_scene(dt_local, tz: float, lat: float, lon: float, *,
 
     def proj(ra, dec):
         alt, az = radec_to_altaz(ra, dec, lat, lst)
-        x, y = altaz_to_plot_xy(alt, az, CX, CY, R, mirror_ew)
+        x, y = altaz_to_plot_xy(alt, az, CX, CY, R, mirror_ew, heading)
         return alt, round(x), round(y)
 
     def proj_altaz(alt, az):
-        x, y = altaz_to_plot_xy(alt, az, CX, CY, R, mirror_ew)
+        x, y = altaz_to_plot_xy(alt, az, CX, CY, R, mirror_ew, heading)
         return round(x), round(y)
 
     out_lines = []
@@ -115,11 +119,12 @@ def build_scene(dt_local, tz: float, lat: float, lon: float, *,
                 points.append([x, y, 3, *COL_MOON])
                 labels.append([x + 3, y - 4, "Moon", *COL_MOON])
 
-    dirs = {"N": (0, -1), "S": (0, 1),
-            "E": (1, 0) if not mirror_ew else (-1, 0),
-            "W": (-1, 0) if not mirror_ew else (1, 0)}
-    chrome_dirs = [[CX + dx * (R + 3) - 3, CY + dy * (R + 3) - 5, t]
-                   for t, (dx, dy) in dirs.items()]
+    # 方位ラベルは地平線 (alt=0) 上の各基本方位を投影して置く。こうすると
+    # heading 回転・mirror_ew を投影側と同一ロジックで自動追従できる。
+    chrome_dirs = []
+    for t, az in (("N", 0.0), ("E", 90.0), ("S", 180.0), ("W", 270.0)):
+        x, y = altaz_to_plot_xy(0.0, az, CX, CY, R + 3, mirror_ew, heading)
+        chrome_dirs.append([round(x) - 3, round(y) - 5, t])
 
     return {
         "w": W, "h": H,
@@ -131,7 +136,8 @@ def build_scene(dt_local, tz: float, lat: float, lon: float, *,
         "meta": {
             "time_local": dt_local.strftime("%Y-%m-%d %H:%M"),
             "tz": tz, "lat": lat, "lon": lon, "mag_view": mag_view,
-            "mirror_ew": mirror_ew, "moon": moon_meta,
+            "mirror_ew": mirror_ew, "heading": round(heading % 360.0, 1),
+            "moon": moon_meta,
             "counts": {"stars": star_n, "lines": len(out_lines),
                        "dso": dso_n, "planets": planets_n},
         },

@@ -5,13 +5,20 @@
 （Scene）を JSON 1 行で stdout に出す。Rust/LVGL UI はこれを読んで四角・線・文字を
 描くだけ（薄い実装）。
 
-CardputerZero 実機では: 時刻=RTC(RX8130CE)/NTP/GNSS、位置=AT6668 GNSS、方位=CoreS3 の
-BMM150（USB CDC）を入力にして本サイドカーが Scene を吐き、Rust UI が描画する構成。
+CardputerZero 実機では: 時刻=RTC(RX8130CE)/NTP/GNSS、位置=AT6668 GNSS、方位=内蔵
+BMM150 を入力にして本サイドカーが Scene を吐き、Rust UI が描画する構成。実機到着前は
+方位を CoreS3 の BMM150（USB CDC）で先行検証する（--mag-port）。
+
+方式A（自機の向きを画面上=12 時方向に固定して全天図を回転）:
+  --heading D   固定方位 D[deg] で回転（回転の見え方を PC 確認）
+  --mag-port P  CoreS3 の BMM150 をライブ読取して回転（未指定なら OS 既定ポート）
 
 使い方:
   python stellar_sidecar.py                      # 現在時刻・札幌の Scene を 1 行 JSON 出力
   python stellar_sidecar.py --dt 2026-07-08T03:30 --lat 35.68 --lon 139.77
   python stellar_sidecar.py --interval 30        # 30 秒ごとに 1 行ずつ出力（JSON Lines）
+  python stellar_sidecar.py --heading 120        # 方位 120° を上に固定して静止描画
+  python stellar_sidecar.py --interval 1 --mag-port COM5 --declination -9  # CoreS3 実方位で回転
   python stellar_sidecar.py --no-planets --mag-view 4.0
 
 出力は JSON Lines（1 フレーム=1 行）。UI 側は行単位で読み最新フレームを描く。
@@ -41,7 +48,7 @@ def _now_local():
     return datetime.now().replace(microsecond=0)
 
 
-def build_once(args, cat, lines, dsos) -> dict:
+def build_once(args, cat, lines, dsos, hsrc=None) -> dict:
     dt_local = datetime.fromisoformat(args.dt) if args.dt else _now_local()
     bodies = None
     if not args.no_planets:
@@ -51,9 +58,32 @@ def build_once(args, cat, lines, dsos) -> dict:
             bodies = sky_bodies(dt_utc, args.lat, args.lon, args.data)
         except Exception as ex:  # noqa: BLE001
             print(f"# planets/moon disabled (skyfield?): {ex}", file=sys.stderr)
+    # 方位: ライブソース優先 → 無ければ None（未ロック時は 0=北上にフォールバック）。
+    heading = hsrc.heading() if hsrc is not None else None
+    if heading is None:
+        heading = 0.0
     return build_scene(dt_local, args.tz, args.lat, args.lon, cat=cat,
                        lines=lines, dsos=dsos, bodies=bodies,
-                       mag_view=args.mag_view, mirror_ew=args.mirror_ew)
+                       mag_view=args.mag_view, mirror_ew=args.mirror_ew,
+                       heading=heading)
+
+
+def make_heading_source(args):
+    """--mag-port / --heading から方位ソースを組む（無ければ None）。"""
+    from heading_source import CoreS3HeadingSource, FixedHeadingSource
+    if args.mag_port is not None:
+        port = args.mag_port or None      # 空文字なら OS 既定ポート
+        return CoreS3HeadingSource(port, alpha=args.heading_alpha,
+                                   declination=args.declination,
+                                   zero_offset=args.heading_offset,
+                                   invert=args.heading_invert,
+                                   offset_x=args.mag_offset_x,
+                                   offset_y=args.mag_offset_y,
+                                   span_x=args.mag_span_x,
+                                   span_y=args.mag_span_y)
+    if args.heading is not None:
+        return FixedHeadingSource(args.heading + args.heading_offset + args.declination)
+    return None
 
 
 def main() -> None:
@@ -69,6 +99,24 @@ def main() -> None:
     ap.add_argument("--no-planets", action="store_true")
     ap.add_argument("--interval", type=float, default=0.0,
                     help="秒。>0 でこの間隔でフレームを繰り返し出力（JSON Lines）")
+    # 方式A: 自機の向きを画面上に固定する方位入力。
+    ap.add_argument("--heading", type=float, default=None,
+                    help="固定方位[deg]で回転（北=0・東回り）。--mag-port 未指定時に有効")
+    ap.add_argument("--mag-port", nargs="?", const="", default=None,
+                    help="CoreS3 BMM150 をライブ読取して回転。値省略で OS 既定ポート")
+    ap.add_argument("--declination", type=float, default=0.0,
+                    help="磁気偏角[deg]（磁北→真北。西偏はマイナス。例 札幌 -9）")
+    ap.add_argument("--heading-offset", type=float, default=0.0,
+                    help="センサ取付角オフセット[deg]")
+    ap.add_argument("--heading-alpha", type=float, default=0.2,
+                    help="方位 EMA 係数（大きいほど追従速・雑音増）")
+    ap.add_argument("--heading-invert", action="store_true",
+                    help="方位の回転向きを反転")
+    # ハード/ソフトアイアン較正（calib_probe.py の推定値。両 offset 指定で x/y 補正が有効）。
+    ap.add_argument("--mag-offset-x", type=float, default=None, help="ハードアイアン中心 x")
+    ap.add_argument("--mag-offset-y", type=float, default=None, help="ハードアイアン中心 y")
+    ap.add_argument("--mag-span-x", type=float, default=1.0, help="360deg x 半スパン(soft-iron)")
+    ap.add_argument("--mag-span-y", type=float, default=1.0, help="360deg y 半スパン(soft-iron)")
     args = ap.parse_args()
 
     # カタログ類は一度だけロード（惑星・月は毎フレーム再計算）。
@@ -76,15 +124,20 @@ def main() -> None:
     lines = load_constellation_lines(args.data)
     dsos, _n, _m = load_dso(args.data)
 
-    if args.interval and args.interval > 0:
-        while True:
-            sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos),
+    hsrc = make_heading_source(args)
+    try:
+        if args.interval and args.interval > 0:
+            while True:
+                sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos, hsrc),
+                                            separators=(",", ":")) + "\n")
+                sys.stdout.flush()
+                time.sleep(args.interval)
+        else:
+            sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos, hsrc),
                                         separators=(",", ":")) + "\n")
-            sys.stdout.flush()
-            time.sleep(args.interval)
-    else:
-        sys.stdout.write(json.dumps(build_once(args, cat, lines, dsos),
-                                    separators=(",", ":")) + "\n")
+    finally:
+        if hsrc is not None:
+            hsrc.close()
 
 
 if __name__ == "__main__":

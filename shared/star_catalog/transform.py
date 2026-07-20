@@ -56,14 +56,20 @@ def radec_to_altaz(ra_deg: float, dec_deg: float, lat_deg: float,
 
 
 def altaz_to_plot_xy(alt: float, az: float, cx: float, cy: float, radius: float,
-                     mirror_ew: bool = False) -> tuple[float, float]:
-    """地平座標 → 円形全天図ピクセル (中心=天頂/外周=地平線/北=上)。
+                     mirror_ew: bool = False, heading: float = 0.0) -> tuple[float, float]:
+    """地平座標 → 円形全天図ピクセル (中心=天頂/外周=地平線)。
 
     既定は東=右 (App01 Sky Plot 準拠)。mirror_ew=True で見上げる向き (planisphere)。
+
+    heading[deg] は「自機が向いている方位角」(北=0・東回り)。既定 0 なら北=上の
+    従来挙動。値を与えると全天図を回転し、その方位が 12 時方向 (画面上) に来る
+    (App16 方式A: 地磁気で自機の向きを上に固定)。方位ソースは実機では CardputerZero
+    内蔵 BMM150、先行検証では CoreS3 の BMM150 (USB CDC)。
     """
     r = radius * (1.0 - alt / 90.0)
-    a = (360.0 - az) if mirror_ew else az
-    theta = math.radians(a - 90.0)   # 北を 12 時方向へ
+    az_rel = (az - heading) % 360.0        # 自機の向き基準へ回転
+    a = (360.0 - az_rel) if mirror_ew else az_rel
+    theta = math.radians(a - 90.0)   # 向いている方位を 12 時方向へ
     return cx + r * math.cos(theta), cy + r * math.sin(theta)
 
 

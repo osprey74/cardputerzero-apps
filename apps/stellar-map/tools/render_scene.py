@@ -75,6 +75,7 @@ def render_scene(scene: dict) -> Image.Image:
     d.text((px, 24), meta.get("time_local", ""), fill=COL_TEXT, font=font)
     d.text((px, 40), f"lat {meta.get('lat', 0):+.2f}", fill=COL_TEXT, font=font)
     d.text((px, 54), f"lon {meta.get('lon', 0):+.2f}", fill=COL_TEXT, font=font)
+    d.text((px, 138), f"heading {meta.get('heading', 0):.0f}", fill=COL_ACCENT, font=font_sm)
     c = meta.get("counts", {})
     d.text((px, 72), f"stars: {c.get('stars', 0)}", fill=(0, 200, 80), font=font_sm)
     d.text((px, 84), f"lines: {c.get('lines', 0)}  dso: {c.get('dso', 0)}",

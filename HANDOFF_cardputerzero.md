@@ -1,6 +1,6 @@
 # HANDOFF: CardputerZero 開発ガイド
 
-> **作成日**: 2026-05-24 / **最終更新**: 2026-07-19（本体内蔵 BMM150 磁力計を公式スペックで確定・§1.1/App16 方位を訂正）  
+> **作成日**: 2026-05-24 / **最終更新**: 2026-07-20（App16 方式A＝地磁気で自機の向きを画面上に固定して回転、を実装・uConsole＋CoreS3 実機実証・ハードアイアン較正確定）  
 > **対象デバイス**: M5Stack CardputerZero (Raspberry Pi CM0 搭載)  
 > **開発者**: 総司 (osprey74)  
 > **開発方針**: Spec-Driven / Claude Code + czdev ワークフロー  
@@ -68,6 +68,7 @@
 | 2026-07-08 | **配布・言語方針を確定し §2.7.6 を「設計方針層【確定】」に更新**（総司様決定）。**配布=非公開ローカルのみ**（公式 AppStore 公開 PR せず／`czdev deploy` SSH と自前の非公開 apt リポジトリを併用）。**言語/ランタイム=`legacy-deb-only` スタンドアロン・ネイティブ実行バイナリ**（実機は全てネイティブ実行・SDL2 エミュレータには非依存／UI は framebuffer 直描画 or SDL2 直叩き／`lvgl-dlopen` の dlopen 方式は不採用）。コンパイル言語は **Rust 第一・C フォールバック**、本質 Python なサイドカー（App16 Skyfield/App14 picamera2 等）は Python 継続。APPLaunch 統合は `meta.env` の `APP_NAME`/`APP_ICON` で維持。開発反復は実機（到着まで uConsole/QEMU 代替）へ SSH デプロイ。 |
 | 2026-07-08 | **公式 AppBuilder / 配布リポジトリ 2 件を精査し §2.7 に「暫定（公式観測）層」として記録**。[CardputerZero-AppBuilder](https://github.com/m5stack/CardputerZero-AppBuilder)（czdev **v0.1.0**・MIT）と [CardputerZeroRepository](https://github.com/m5stack/CardputerZeroRepository)（apt・`ci/bootstrap` 段階）を実体調査。判明: (1) アプリは **2 系統** = `lvgl-dlopen`（C 共有ライブラリ・`app_main`/`app_event` ABI・LVGL 9.5・エミュレータ/APPLaunch 統合）と `legacy-deb-only`（独立実行ファイル＝Framebuffer C / **Python** / SDL / Qt / **Rust も可**）、(2) マニフェストは CLAUDE.md 記載の `app.yaml` **ではなく** `app-builder.json`（lvgl 系）または `packaging/meta.env`＋`build.sh`＋`stage.sh`（framebuffer/python 系）、(3) 配布は `.deb` 生成 →`czdev publish`→ apt リポジトリへ PR（publish 系は Python 3 のみで可・Rust 不要）、(4) **公式は 2026-06-01 に Rust フロントエンド/エミュレータを削除**し C/SDL2 へ舵、(5) **Windows 開発ループは未完成**（QUICKSTART 明記: mac/Linux のみ e2e サポート）、(6) `docs/architecture.md`（Tauri 2 + QEMU 構想）と実体（czdev + SDL2 + dlopen）に不整合＝流動的。**設計方針（Rust 維持 vs C 移行）は実機到着後に確定**（本記録は観測層・変更前提）。 |
 | 2026-07-19 | **【重大訂正】CardputerZero は BMM150 磁力計を本体内蔵（公式 Kickstarter スペックで確定）**。従来 HANDOFF は「内蔵 IMU=BMI270 6軸・地磁気非搭載」と誤記し、App16 の絶対方位は CoreS3 の BMM150 流用を前提としていたが、公式スペック画像に **BMI270 + BMM150 IMU (gyroscope + accelerometer + magnetometer)** と明記。§1.1 IMU 行・App16「必要ハードウェア」/制約ブロック/タスク（§方位・§要較正）を「CardputerZero 単体で BMM150 heading 取得可・外付けコンパス不要・CoreS3 流用は冗長/検証用」に訂正。CoreS3 mag JSON 経路（`cores3-frontend`/`cores3_bridge`）は相互検証・較正用として保持。**併せて §1.1 を公式スペックへ完全準拠化**: ディスプレイ ST7789V2→**v3**、カメラに **3280×2464 / CSI 4-Lane**、バッテリに **BQ27220 燃料計**、新規行 **音声（ES8389 codec・MEMS mic・1W SP・3.5mm TRS）／ビデオコーデック（H.264・MPEG-4 @1080p30）／赤外線（IR TX&RX）** を追加。§App10 の「スピーカー/イヤフォンジャック要確認」注記（L1507 付近）を確定情報へ更新。⚠️ スペックは preliminary（出荷時変更あり得る）につき実機到着後 `i2cdetect`／実測で最終確認 |
+| 2026-07-20 | **App16 方式A（自機の向きを画面上に固定して全天図を回転）を実装し uConsole＋CoreS3 で実機実証**。回転は投影段階で完結（`shared/star_catalog/transform.py`・`scene.py` に `heading` 追加、方位ラベルも投影で回転追従）。地磁気処理を機種非依存コア **`shared/compass/`**（`HeadingFilter`＝円周 EMA＋偏角＋取付オフセット、`heading_from_xy`＝ハード/ソフトアイアン補正・単体テスト 11/11）に切出し、方位ソースを抽象化（`sidecar/heading_source.py`＝Fixed/CoreS3・**CZ 内蔵 BMM150 は実装追加のみで流用**）。**実機で 2 件解決**: ①ハードアイアン較正必須（生 mag は 360°で raw heading が 16°しか動かない＝offset x≈−1212/y≈468 が地磁気の~30倍。`tools/calib_probe.py` の 360°スイープで推定→除去で全方位追従）②UI 画面固着（SDL イベント未ポンプ→`ui/src/main.rs` に `EventPump` 追加・再ビルド）。物理 90°回転→画面 90°回転を before/after 確認。残: 絶対方位アライン（真北=上）・傾き補正。詳細は §3 App16「方位アライン（方式A）と実機較正」節。 |
 
 ---
 
@@ -3507,6 +3508,41 @@ x = cx + r * math.cos(theta)
 y = cy + r * math.sin(theta)
 ```
 
+#### 方位アライン（方式A）と実機較正【2026-07-20 uConsole 実証】
+
+「自機の向いている方角を画面上（12 時方向）に固定して全天図を回転させる」方式を **方式A** と呼ぶ。
+**回転は投影段階で完結**する（UI は回転済み座標を描くだけ・UI 側に回転処理は無い）。
+`altaz_to_plot_xy(...)` に `heading` を渡し、方位角を `az_rel = (az - heading) % 360` で回すだけ。
+方位ラベル N/S/E/W も地平線 (alt=0) を投影して置くため回転に自動追従する。
+
+```python
+# shared/star_catalog/transform.py（方式A の核・既定 heading=0 なら従来の北=上）
+az_rel = (az - heading) % 360.0          # 自機の向き基準へ回転
+a = (360.0 - az_rel) if mirror_ew else az_rel
+theta = math.radians(a - 90.0)           # 向いている方位を 12 時方向へ
+```
+
+**地磁気処理は機種非依存コア `shared/compass/` に集約**（`HeadingFilter`＝円周 EMA〔sin/cos 平滑化で
+359°↔0° 巻戻り回避〕＋磁気偏角＋取付オフセット＋反転、`heading_from_xy`＝ハード/ソフトアイアン簡易補正）。
+方位ソースは抽象化（`apps/stellar-map/sidecar/heading_source.py`）: `FixedHeadingSource`（PC 検証）/
+`CoreS3HeadingSource`（先行検証・`shared/cores3_bridge` を背景スレッド読取）。**CZ 実機到着後は内蔵
+BMM150 を読む `HeadingSource` を足すだけで投影・compass は無改修流用**（設計どおり）。
+
+> ⚠️ **実機で判明した最重要事実＝ハードアイアン較正が必須**。生 mag は地磁気（地表 30〜50µT）の
+> **約30倍のオフセット**（実測 offset x≈−1212 / y≈468 µT）を持ち、**360°回しても raw heading が
+> 16° しか動かない**。360° スイープで x/y の min/max からオフセットを推定（`apps/stellar-map/tools/
+> calib_probe.py`）→ `heading_from_xy(offset, scale=1/半スパン)` で除去すると **12/12 セクタ被覆＝
+> 全方位追従**になる。x/y スパンがほぼ等円だったため**自機由来のハードアイアン＝較正は安定**。
+> 起動例: `--mag-port <by-id> --mag-offset-x -1212 --mag-offset-y 468 --mag-span-x 192 --mag-span-y 180`。
+> ⚠️ 較正値はこの CoreS3 個体・設置向きの実測。個体/構成が変われば再較正（CZ 内蔵 BMM150 は別途取得）。
+>
+> ⚠️ **SDL イベントポンプ必須**: UI が SDL イベントを汲まないと X11/WM 上で初回フレーム以降**画面が
+> 固着**する（実機で発生）。`ui/src/main.rs` の描画ループで毎フレーム `EventPump.poll_iter()`＋Quit 処理を回す。
+
+**実証結果（2026-07-20・uConsole＋CoreS3）**: 物理 90°回転 → 画面 90°回転を before/after で確認
+（S上→E上 とラベル1個分ぶん・天の川帯も一体回転）。残: **絶対方位アライン（真北=上）**は未（`zero_offset`＋
+偏角＋回転符号 `--heading-invert` の調整）、**傾き補正**（加速度併用チルト補償・現状は水平前提）。
+
 #### 機能一覧
 
 **基本表示モード**
@@ -3523,7 +3559,10 @@ y = cy + r * math.sin(theta)
 - [ ] キーボードによるパン（方位・高度の移動）／ズーム（画角の拡大縮小）
 - [ ] 時刻の早送り／巻き戻し（天体の日周運動アニメーション）
 - [ ] 「今」ボタン（RTC 現在時刻へ復帰）
-- [ ] IMU（BMI270）による傾き連動パン（相対）＋北方向の手動アライン
+- [x] **方式A: 地磁気で自機の向きを画面上に固定して全天図を回転**（相対追従・2026-07-20 uConsole＋CoreS3 実証。較正必須・詳細は「方位アライン（方式A）と実機較正」節）
+- [ ] 方式A の絶対方位アライン（真北=上・偏角＋取付オフセット＋回転符号の確定）
+- [ ] 傾き補正（加速度併用チルト補償・現状は水平前提）
+- [ ] IMU（BMI270）による傾き連動パン（相対）
 
 **時刻・位置の取得**
 
@@ -4026,6 +4065,11 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [x] **[App 16]** OpenNGC(DSO)＋Stellarium 星座線の取込完了（2026-07-07）。`build_constellations.py`＝Stellarium `western/index.json`(MIT・Xalioth 再許諾) から **88星座/674線分(HIP ペア)** を `constellation_lines.json` に抽出。`build_dso.py`＝OpenNGC `NGC.csv`(CC BY-SA 4.0) から Messier または 等級≤8 の **330 DSO** を `dso.bin`(16B `<fffi`=ra,dec,mag,type) に。`shared/star_catalog` に `Dso`/`load_dso`/`load_constellation_lines` 追加、`render_catalog.py` が星座線(暗シアン)＋DSO(マゼンタ 2px)を描画（`--no-lines`/`--no-dso` で切替）。実データ描画で星座線と天の川沿いの DSO 集中を可視検証。生データ・生成物とも非コミット
 - [x] **[App 16]** `shared/star_catalog/`（Python）完了: `transform.py`(ユリウス日→恒星時→地平座標→円形全天図ピクセル・PoC から昇格)＋`catalog.py`(`stars.bin`/メタ/固有名ローダ・`by_name`/`by_hip`)。App 01 Sky Plot の極座標投影を流用
 - [x] **[App 16]** サイドカー↔UI 描画プロトコル＋Python サイドカー＋Rust/LVGL 骨組み（2026-07-07・先行構築）。**アーキテクチャ**: Python 側で天体計算・投影・色/サイズを決め、320×170 のデバイス座標プリミティブ「Scene」を JSON Lines で吐き、UI は四角/線/文字を描くだけ。`shared/star_catalog/scene.py`(`build_scene`)＋`apps/stellar-map/sidecar/stellar_sidecar.py`(Scene JSON 出力)＋`tools/render_scene.py`(Scene から PNG＝プロトコル PC 実証)。Rust UI 骨組み `apps/stellar-map/ui/`(serde で Scene パース・`cargo check` 通過)＋`app.yaml`＋`apps/stellar-map/README.md`(プロトコル契約明記)。**描画方針**: 四角ドット＋AA 無し＋等倍（1等=3×3/2等=2×2/3等以下=1・文字は 1bpp）。⚠️ **czdev(AppBuilder) 未導入・実機未到着のため `ui/` の LVGL 描画呼び出しは TODO スタブ**（`draw_scene` を czdev API で確定→`czdev run`→実機の順で検証）
+- [x] **[App 16・方式A]** 「自機の向きを画面上に固定して全天図を回転」を実装し uConsole＋CoreS3 で実機実証（2026-07-20）。回転は投影段階で完結＝`transform.altaz_to_plot_xy(...,heading)`／`scene.build_scene(...,heading=)`（方位ラベルも投影で回転追従・UI 無改修）。地磁気処理を機種非依存コア **`shared/compass/`**（`HeadingFilter` 円周 EMA＋偏角＋取付オフセット＋反転、`heading_from_xy`／単体テスト 11/11）に集約。方位ソース抽象化 `sidecar/heading_source.py`（`FixedHeadingSource`／`CoreS3HeadingSource`・**CZ 内蔵 BMM150 は `HeadingSource` 追加のみで流用**）。物理 90°回転→画面 90°回転を before/after 確認
+- [x] **[App 16・較正]** ハードアイアン較正が必須と実機確定（2026-07-20）。生 mag は 360°回しても raw heading が **16°しか動かない**（offset x≈−1212/y≈468 µT が地磁気の~30倍）。`tools/calib_probe.py`（360°スイープで x/y min/max→オフセット/半スパン推定）→ `heading_from_xy(offset, scale=1/半スパン)` で除去し **12/12 セクタ被覆＝全方位追従**。サイドカー CLI に `--mag-offset-x/y --mag-span-x/y` 追加。⚠️ 較正値は個体・設置向き依存（CZ 内蔵 BMM150 は別途）
+- [x] **[App 16・修正]** UI 画面固着バグを解消（2026-07-20）。SDL イベント未ポンプで初回フレーム以降固着→`ui/src/main.rs` の描画ループに `EventPump.poll_iter()`＋Quit を追加し再ビルド（`~/.cargo/bin/cargo`・非対話 shell では PATH 外）で実時刻追従を確認
+- [ ] **[App 16・方式A]** 絶対方位アライン（真北=上）を確定＝磁気偏角＋取付オフセット `zero_offset`＋回転符号 `--heading-invert` の実機調整（現状は相対追従のみ）
+- [ ] **[App 16・方式A]** 傾き補正（BMI270/加速度併用のチルト補償）で手持ち時の振れを抑制（現状は水平前提）
 - [ ] **[App 16]** czdev 到着後: `ui/draw_scene()` の LVGL 描画実装（塗り矩形＋線＋1bpp フォント）＋ czdev エミュレータ／実機での描画・性能検証
 - [ ] **[App 16]** RX8130CE RTC（`/dev/rtc`）＋ NTP（`systemd-timesyncd`）＋ AT6668 GNSS UTC の時刻取得系を確立（`shared/gnss_at6668/` を App 01 と共有）
 - [ ] **[App 16]** HDMI 接続検出（`/sys/class/drm/*/status`）→ LCD ⇔ 1080p フルスクリーン・プラネタリウムの自動レイアウト切替

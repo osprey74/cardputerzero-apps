@@ -17,8 +17,10 @@ use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use sdl2::event::Event;
 use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::render::WindowCanvas;
+use sdl2::EventPump;
 use serde::Deserialize;
 
 const W: u32 = 320;
@@ -153,9 +155,18 @@ fn save_bmp(cv: &mut WindowCanvas, path: &str) {
 }
 
 /// reader から JSON Lines を読み、各 Scene を描く。screenshot 指定時は 1 フレームで終了。
-fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, screenshot: Option<&str>) {
+///
+/// フレームごとに SDL イベントを汲む。これを怠ると X11/WM 上で窓が応答なし扱いになり、
+/// 初回フレーム以降が更新されず固着する（実機 uConsole で発生）。Quit で終了。
+fn run<R: BufRead>(mut reader: R, cv: &mut WindowCanvas, ep: &mut EventPump,
+                   screenshot: Option<&str>) {
     let mut line = String::new();
     while !STOP.load(Ordering::Relaxed) {
+        for event in ep.poll_iter() {
+            if let Event::Quit { .. } = event {
+                STOP.store(true, Ordering::SeqCst);
+            }
+        }
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => break, // EOF
@@ -196,13 +207,14 @@ fn main() -> std::io::Result<()> {
         .build()
         .expect("window");
     let mut canvas = window.into_canvas().build().expect("canvas");
+    let mut event_pump = sdl.event_pump().expect("event pump");
 
     let screenshot = std::env::var("CZ_SCREENSHOT").ok();
 
     if std::env::var("STELLAR_FROM_STDIN").is_ok() {
         // sidecar.py | stellar-map
         let stdin = std::io::stdin();
-        run(stdin.lock(), &mut canvas, screenshot.as_deref());
+        run(stdin.lock(), &mut canvas, &mut event_pump, screenshot.as_deref());
         return Ok(());
     }
 
@@ -216,7 +228,7 @@ fn main() -> std::io::Result<()> {
     }
     let mut child = cmd.stdout(Stdio::piped()).spawn()?;
     let stdout = child.stdout.take().expect("sidecar stdout");
-    run(BufReader::new(stdout), &mut canvas, screenshot.as_deref());
+    run(BufReader::new(stdout), &mut canvas, &mut event_pump, screenshot.as_deref());
     let _ = child.kill();
     Ok(())
 }
