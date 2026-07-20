@@ -4,6 +4,11 @@ CardputerZero (Raspberry Pi CM0 / Linux) 向けの**オフライン星座盤**�
 恒星・星座線・深宇宙天体・惑星・月を 1.9" LCD (320×170) に描く。設計の一次資料は
 [`../../HANDOFF_cardputerzero.md`](../../HANDOFF_cardputerzero.md) §3 App 16。
 
+![スクリーンショット](docs/screenshot.png)
+
+> 実機（uConsole・2026-07-20）でのライブ表示。地磁気（BMM150）で自機の向きを画面上に固定して
+> 全天図を回転（方式A・N/S/E/W が現在の向きに追従）、惑星（Mercury/Jupiter/Venus）と月相を表示。
+
 ## アーキテクチャ（Python サイドカー ＋ Rust/LVGL UI）
 
 天体計算・投影・色/サイズ決定は**すべて Python 側**で行い、320×170 の**デバイス座標
