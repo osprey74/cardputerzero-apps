@@ -14,7 +14,8 @@ _REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
-from shared.compass import HeadingFilter, heading_from_xy, wrap180, wrap360  # noqa: E402
+from shared.compass import (HeadingFilter, heading_from_xy,  # noqa: E402
+                            tilt_compensated_heading, wrap180, wrap360)
 
 
 def test_wrap360():
@@ -91,6 +92,47 @@ def test_reset_reloc():
     f.reset()
     assert f.locked is False and f.heading is None
     assert abs(f.update(200.0) - 200.0) < 1e-9
+
+
+def test_tilt_level_matches_horizontal():
+    # 水平（az=1・ax=ay=0）では tilt 補正は heading_from_xy と一致すべき。
+    for mx, my, mz in [(1.0, 0.0, 0.5), (0.3, 0.7, -0.2), (-0.5, -0.5, 0.9)]:
+        h_flat = heading_from_xy(mx, my)
+        h_tilt = tilt_compensated_heading(mx, my, mz, 0.0, 0.0, 1.0)
+        assert abs(wrap180(h_tilt - h_flat)) < 1e-6
+
+
+def test_tilt_invariant_under_roll():
+    # ロール r をかけても真方位 H を回復すること（AN4248 の検証）。
+    H = 50.0
+    dip = 0.8          # 磁気の鉛直成分（伏角相当・大きめにして水平前提の誤差を明確化）
+    r = math.radians(45.0)
+    hr = math.radians(H)
+    # ロール r で機体が傾いたときの body 系での重力・磁気（earth→body = Rx(-r)）。
+    ax, ay, az = 0.0, math.sin(r), math.cos(r)
+    mx = math.cos(hr)
+    my = math.cos(r) * math.sin(hr) + math.sin(r) * dip
+    mz = -math.sin(r) * math.sin(hr) + math.cos(r) * dip
+    h_tilt = tilt_compensated_heading(mx, my, mz, ax, ay, az)
+    assert abs(wrap180(h_tilt - H)) < 1e-6
+    # 傾き補正なし（水平前提）だと H からズレる＝補正が効いている証拠。
+    h_flat = heading_from_xy(mx, my)
+    assert abs(wrap180(h_flat - H)) > 2.0
+
+
+def test_tilt_falls_back_when_accel_zero():
+    # 加速度がほぼゼロなら水平前提にフォールバック。
+    h = tilt_compensated_heading(0.3, 0.7, 0.1, 0.0, 0.0, 0.0)
+    assert abs(wrap180(h - heading_from_xy(0.3, 0.7))) < 1e-6
+
+
+def test_filter_update_tilt_falls_back_without_accel():
+    # accel が None のとき update_tilt は update_xy と同じ結果。
+    f1 = HeadingFilter(alpha=1.0)
+    f2 = HeadingFilter(alpha=1.0)
+    a = f1.update_tilt(0.3, 0.7, None, None, None, None)
+    b = f2.update_xy(0.3, 0.7)
+    assert abs(wrap180(a - b)) < 1e-6
 
 
 # -- pytest 無しでも走る簡易ランナー --------------------------------------

@@ -45,6 +45,39 @@ def heading_from_xy(x: float, y: float, *,
     return wrap360(math.degrees(math.atan2(my, mx)))
 
 
+def tilt_compensated_heading(mx: float, my: float, mz: float,
+                             ax: float, ay: float, az: float, *,
+                             offset_x: float = 0.0, offset_y: float = 0.0,
+                             offset_z: float = 0.0,
+                             scale_x: float = 1.0, scale_y: float = 1.0,
+                             scale_z: float = 1.0) -> float:
+    """加速度（重力）で磁気を水平面へ補正した方位角[deg]（tilt-compensated compass）。
+
+    Freescale AN4248 の定式。加速度 (ax,ay,az) から roll/pitch を求め、ハード/ソフト
+    アイアン補正済み磁気 (bx,by,bz) を水平面へ回して heading=atan2(by',bx') を返す。
+
+    ⚠️ **水平時（az が支配的・ax=ay≈0）は `heading_from_xy(mx,my)` と一致する**ように
+    符号を採ってある（既存の水平較正・zero_offset をそのまま流用できる）。加速度が
+    ほぼゼロ（自由落下等）なら水平前提にフォールバック。軸割当・符号は BMM150/BMI270 の
+    実装向きに依存するため実機で要確認（tilt の効き方が逆なら加速度側の符号で調整）。
+
+    offset_z/scale_z は縦方向のハード/ソフトアイアン。水平 360° スイープでは推定できない
+    ため既定 0/1（傾けたときの精度を上げるには 3 軸較正が要る）。
+    """
+    bx = (mx - offset_x) * scale_x
+    by = (my - offset_y) * scale_y
+    bz = (mz - offset_z) * scale_z
+    if math.sqrt(ax * ax + ay * ay + az * az) < 1e-6:
+        return wrap360(math.degrees(math.atan2(by, bx)))     # 水平前提フォールバック
+    phi = math.atan2(ay, az)                                  # roll
+    theta = math.atan2(-ax, ay * math.sin(phi) + az * math.cos(phi))  # pitch
+    sp, cp = math.sin(phi), math.cos(phi)
+    st, ct = math.sin(theta), math.cos(theta)
+    bfx = bx * ct + by * st * sp + bz * st * cp
+    bfy = by * cp - bz * sp
+    return wrap360(math.degrees(math.atan2(bfy, bfx)))
+
+
 class HeadingFilter:
     """生の方位角を円周上で平滑化し、真北基準方位を返すフィルタ。
 
@@ -95,6 +128,22 @@ class HeadingFilter:
         if x is None or y is None:
             return self.heading
         return self.update(heading_from_xy(x, y, **cal))
+
+    def update_tilt(self, mx: Optional[float], my: Optional[float], mz: Optional[float],
+                    ax: Optional[float], ay: Optional[float], az: Optional[float],
+                    **cal) -> Optional[float]:
+        """磁気＋加速度から傾き補正 heading を計算して取り込む。
+
+        加速度が欠けていれば水平前提（``update_xy``）にフォールバックする。
+        cal は ``tilt_compensated_heading`` の較正引数（offset_x/y/z・scale_x/y/z）。
+        """
+        if mx is None or my is None:
+            return self.heading
+        if None in (mz, ax, ay, az):
+            xy_cal = {k: v for k, v in cal.items() if k in
+                      ("offset_x", "offset_y", "scale_x", "scale_y")}
+            return self.update_xy(mx, my, **xy_cal)
+        return self.update(tilt_compensated_heading(mx, my, mz, ax, ay, az, **cal))
 
     @property
     def heading(self) -> Optional[float]:

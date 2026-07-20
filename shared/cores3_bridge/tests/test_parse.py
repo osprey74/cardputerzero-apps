@@ -15,7 +15,8 @@ _REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
-from shared.cores3_bridge import Frame, LogLine, Mag, parse_line, sanitize_json_line  # noqa: E402
+from shared.cores3_bridge import (Accel, Frame, LogLine, Mag,  # noqa: E402
+                                  parse_line, sanitize_json_line)
 
 _SAMPLES = os.path.join(os.path.dirname(__file__), "sample_frames.jsonl")
 
@@ -79,6 +80,29 @@ def test_mag_frame_parses():
     assert isinstance(f.mag, Mag)
     assert f.mag.ok is True
     assert abs(f.mag.x + 1520.38) < 1e-6 and abs(f.mag.heading - 157.7) < 1e-6
+
+
+def test_acc_frame_parses():
+    # FW 0.7.0 で追加された加速度 (App16 傾き補正用)。
+    f = parse_line('{"mag":{"ok":1,"x":-1500.0,"y":600.0,"z":-10.0,"heading":158.0},'
+                   '"acc":{"ok":1,"x":0.0123,"y":-0.0456,"z":0.9981},"enc":[]}')
+    assert isinstance(f, Frame)
+    assert isinstance(f.acc, Accel)
+    assert f.acc.ok is True
+    assert abs(f.acc.x - 0.0123) < 1e-6 and abs(f.acc.z - 0.9981) < 1e-6
+
+
+def test_acc_absent_is_none():
+    # acc の無い旧フォーマットでも frame.acc は None で安全。
+    f = parse_line('{"mag":{"ok":1,"x":1.0,"y":2.0,"z":3.0,"heading":45.0},"enc":[]}')
+    assert isinstance(f, Frame) and f.acc is None
+
+
+def test_acc_unavailable_null_values():
+    # getAccel 失敗時 (ok:0・値 null) も落ちない。
+    f = parse_line('{"acc":{"ok":0,"x":null,"y":null,"z":null},"enc":[]}')
+    assert isinstance(f, Frame) and f.acc is not None
+    assert f.acc.ok is False and f.acc.x is None
 
 
 def test_mag_absent_is_none():

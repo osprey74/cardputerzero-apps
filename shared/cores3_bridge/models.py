@@ -64,6 +64,21 @@ class Mag:
 
 
 @dataclass
+class Accel:
+    """BMI270 加速度（重力ベクトル）[g]。App 16 傾き補正（tilt compensation）用。
+
+    getMag と同じ M5Unified 共通フレームで raw のまま送られる（水準器ページ専用の
+    符号反転は掛かっていない）。静止時は重力方向を指すため、pitch/roll を求めて
+    磁気ベクトルを水平面へ回すのに使う。軸割当・符号は実機で要確認。
+    """
+
+    ok: bool                    # getAccel 成功かつ実データあり
+    x: Optional[float]          # [g]（未取得は None）
+    y: Optional[float]
+    z: Optional[float]
+
+
+@dataclass
 class Encoder:
     """Chain Encoder 1 ノード。
 
@@ -98,6 +113,7 @@ class Frame:
     ina: Optional[Power] = None
     ncir: Optional[Temp] = None
     mag: Optional[Mag] = None
+    acc: Optional[Accel] = None
     encoders: list[Encoder] = field(default_factory=list)
 
     def encoder(self, *, role: Optional[str] = None,

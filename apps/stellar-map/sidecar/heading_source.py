@@ -55,12 +55,13 @@ class CoreS3HeadingSource(HeadingSource):
 
     def __init__(self, port: Optional[str] = None, *, alpha: float = 0.2,
                  declination: float = 0.0, zero_offset: float = 0.0,
-                 invert: bool = False,
+                 invert: bool = False, use_tilt: bool = True,
                  offset_x: Optional[float] = None, offset_y: Optional[float] = None,
                  span_x: float = 1.0, span_y: float = 1.0):
         self._filter = HeadingFilter(alpha=alpha, declination=declination,
                                      zero_offset=zero_offset, invert=invert)
         self._port = port
+        self._use_tilt = use_tilt
         # ハード/ソフトアイアン較正: offset_x/y を両方与えたときのみ生 x/y から
         # heading を再計算する（未指定ならファーム算出の生 heading をそのまま使う）。
         # span は 360° スイープの x/y 半スパン (calib_probe の sx/sy)。scale=1/span で
@@ -92,8 +93,16 @@ class CoreS3HeadingSource(HeadingSource):
                     mag = frame.mag
                     if mag is None or not mag.ok:
                         continue
+                    acc = frame.acc
+                    have_acc = (self._use_tilt and acc is not None and acc.ok
+                                and mag.z is not None
+                                and None not in (acc.x, acc.y, acc.z))
                     if self._cal is not None and mag.x is not None and mag.y is not None:
-                        h = self._filter.update_xy(mag.x, mag.y, **self._cal)  # 較正 x/y
+                        if have_acc:
+                            h = self._filter.update_tilt(mag.x, mag.y, mag.z,   # 傾き補正
+                                                         acc.x, acc.y, acc.z, **self._cal)
+                        else:
+                            h = self._filter.update_xy(mag.x, mag.y, **self._cal)  # 水平前提
                     elif mag.heading is not None:
                         h = self._filter.update(mag.heading)                    # 生 heading
                     else:

@@ -16,5 +16,8 @@
   "heading_offset": 157.6,
   "declination": 0,
   "heading_invert": false,
-  "heading_alpha": 0.2
+  "heading_alpha": 0.2,
+
+  "_tilt_comment": "加速度(acc)があれば傾き補正を自動適用。無効化は no_tilt=true（水平前提）。要 FW 0.7.0 以降。",
+  "no_tilt": false
 }

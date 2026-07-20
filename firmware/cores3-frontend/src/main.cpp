@@ -181,7 +181,7 @@ static uint8_t g_enc_uid[ENC_MAX + 1][4] = {{0}};
 static bool    g_enc_uid_ok[ENC_MAX + 1] = {false};
 static int8_t  g_enc_ident[ENC_MAX + 1]  = {-1};  // ENC_IDENTITY index / -1=unknown
 
-#define FW_VERSION "0.6.4"   // TIMER 誤操作防止: 実行中メニュー/終了確認ダイアログを追加
+#define FW_VERSION "0.7.0"   // App16 傾き補正用に加速度 (acc:{ok,x,y,z}) を JSON 送出
 
 // ---- IMU 水準器・下げ振り (内蔵 BMI270) ------------------------------------
 // 単体アプリ firmware/cores3-level と同じ角度ロジック。協働中も CoreS3 画面の
@@ -1665,17 +1665,29 @@ void loop() {
     if (heading < 0) heading += 360.0f;
   }
 
+  // ---- 加速度 (BMI270) ---- App16 傾き補正用の重力ベクトル。
+  // getMag と同じ M5Unified 共通フレーム・g 単位で raw のまま送る（符号反転は
+  // 水準器ページ専用の ACC_SIGN を掛けない）。受信側で pitch/roll を求めて磁気を
+  // 水平面へ補正する。軸割当は実機で要確認。
+  float acx = NAN, acy = NAN, acz = NAN; int acc_ok = 0;
+  {
+    float ax, ay, az;
+    if (M5.Imu.getAccel(&ax, &ay, &az)) { acx = ax; acy = ay; acz = az; acc_ok = 1; }
+  }
+
   // ---- JSON 1 行送信 ----
-  char buf[680];
+  char buf[768];
   snprintf(buf, sizeof(buf),
            "{\"bat\":{\"pct\":%d,\"chg\":%d,\"v\":%.2f},"
            "\"ina\":{\"v\":%.3f,\"i\":%.4f,\"p\":%.4f},"
            "\"ncir\":{\"t_obj\":%.2f,\"t_amb\":%.2f},"
            "\"mag\":{\"ok\":%d,\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"heading\":%.1f},"
+           "\"acc\":{\"ok\":%d,\"x\":%.4f,\"y\":%.4f,\"z\":%.4f},"
            "\"enc\":%s}",
            g_r.bat_pct, g_r.bat_chg, g_r.bat_v,
            g_r.ina_v, g_r.ina_i, g_r.ina_p, g_r.t_obj, g_r.t_amb,
-           g_r.mag_ok, g_r.mx, g_r.my, g_r.mz, heading, encbuf);
+           g_r.mag_ok, g_r.mx, g_r.my, g_r.mz, heading,
+           acc_ok, acx, acy, acz, encbuf);
   Serial.println(buf);
 
   // ---- 液晶 (現在ページを描画) ----

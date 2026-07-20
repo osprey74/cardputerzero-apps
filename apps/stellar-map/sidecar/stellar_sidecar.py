@@ -59,7 +59,7 @@ _DEFAULT_CFG = os.path.expanduser("~/.config/cardputerzero/stellar_map.json")
 
 # 設定ファイルで指定できるキー（argparse の dest 名と一致させる）。
 _CFG_KEYS = {"lat", "lon", "tz", "mag_view", "mag_port", "declination",
-             "heading_offset", "heading_alpha", "heading_invert",
+             "heading_offset", "heading_alpha", "heading_invert", "no_tilt",
              "mag_offset_x", "mag_offset_y", "mag_span_x", "mag_span_y"}
 
 
@@ -109,6 +109,7 @@ def make_heading_source(args):
                                    declination=args.declination,
                                    zero_offset=args.heading_offset,
                                    invert=args.heading_invert,
+                                   use_tilt=not args.no_tilt,
                                    offset_x=args.mag_offset_x,
                                    offset_y=args.mag_offset_y,
                                    span_x=args.mag_span_x,
@@ -144,6 +145,8 @@ def main() -> None:
                     help="方位 EMA 係数（大きいほど追従速・雑音増）")
     ap.add_argument("--heading-invert", action="store_true",
                     help="方位の回転向きを反転")
+    ap.add_argument("--no-tilt", action="store_true",
+                    help="傾き補正を無効化（加速度があっても水平前提で heading を出す）")
     # ハード/ソフトアイアン較正（calib_probe.py の推定値。両 offset 指定で x/y 補正が有効）。
     ap.add_argument("--mag-offset-x", type=float, default=None, help="ハードアイアン中心 x")
     ap.add_argument("--mag-offset-y", type=float, default=None, help="ハードアイアン中心 y")
