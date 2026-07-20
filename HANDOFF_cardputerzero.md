@@ -3540,8 +3540,21 @@ BMM150 を読む `HeadingSource` を足すだけで投影・compass は無改修
 > 固着**する（実機で発生）。`ui/src/main.rs` の描画ループで毎フレーム `EventPump.poll_iter()`＋Quit 処理を回す。
 
 **実証結果（2026-07-20・uConsole＋CoreS3）**: 物理 90°回転 → 画面 90°回転を before/after で確認
-（S上→E上 とラベル1個分ぶん・天の川帯も一体回転）。残: **絶対方位アライン（真北=上）**は未（`zero_offset`＋
-偏角＋回転符号 `--heading-invert` の調整）、**傾き補正**（加速度併用チルト補償・現状は水平前提）。
+（S上→E上 とラベル1個分ぶん・天の川帯も一体回転）。
+
+**取付姿勢オフセット＋絶対方位アライン 確定（2026-07-20）**: Lego テクニックのフレームに CoreS3 を
+規定正面から左 90°回して固定した運用のため、正面と地磁気値に取付ズレがある。正面を**真西（270°）**に
+正確に向けて較正後 heading を実測（112.4°・stddev 1.2°）→ **`zero_offset = 270 − 112.4 = 157.6°`** を確定。
+この 1 つの `zero_offset` に **Lego 90°取付＋BMM150 軸ゼロ方向＋磁気偏角**をまとめて吸収（真方位基準で
+実測したので偏角込み＝`--declination 0` と併用）。適用後、正面=西で **W が画面上**・正面を右 90°回すと
+**N が上**（回転の向きも正常＝`--heading-invert` 不要）を実機確認。⇒ 表示は真方位アライン済み。
+
+**個体・取付依存の永続化**: 較正値・姿勢オフセット・ポート・観測地は JSON 設定
+`~/.config/cardputerzero/stellar_map.json`（例 `apps/stellar-map/config/stellar_map.json.example`）に保存し、
+サイドカーが起動時に読む（CLI 引数が上書き）。`mag_port` も設定に入るため UI が子プロセス起動する
+サイドカーでも設定だけで方位アラインが有効になる。⚠️ 個体/取付が変われば `calib_probe.py` で再較正。
+
+残: **傾き補正**（加速度併用チルト補償・現状は水平前提＝手持ちで傾けると振れる）。
 
 #### 機能一覧
 
@@ -4068,7 +4081,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [x] **[App 16・方式A]** 「自機の向きを画面上に固定して全天図を回転」を実装し uConsole＋CoreS3 で実機実証（2026-07-20）。回転は投影段階で完結＝`transform.altaz_to_plot_xy(...,heading)`／`scene.build_scene(...,heading=)`（方位ラベルも投影で回転追従・UI 無改修）。地磁気処理を機種非依存コア **`shared/compass/`**（`HeadingFilter` 円周 EMA＋偏角＋取付オフセット＋反転、`heading_from_xy`／単体テスト 11/11）に集約。方位ソース抽象化 `sidecar/heading_source.py`（`FixedHeadingSource`／`CoreS3HeadingSource`・**CZ 内蔵 BMM150 は `HeadingSource` 追加のみで流用**）。物理 90°回転→画面 90°回転を before/after 確認
 - [x] **[App 16・較正]** ハードアイアン較正が必須と実機確定（2026-07-20）。生 mag は 360°回しても raw heading が **16°しか動かない**（offset x≈−1212/y≈468 µT が地磁気の~30倍）。`tools/calib_probe.py`（360°スイープで x/y min/max→オフセット/半スパン推定）→ `heading_from_xy(offset, scale=1/半スパン)` で除去し **12/12 セクタ被覆＝全方位追従**。サイドカー CLI に `--mag-offset-x/y --mag-span-x/y` 追加。⚠️ 較正値は個体・設置向き依存（CZ 内蔵 BMM150 は別途）
 - [x] **[App 16・修正]** UI 画面固着バグを解消（2026-07-20）。SDL イベント未ポンプで初回フレーム以降固着→`ui/src/main.rs` の描画ループに `EventPump.poll_iter()`＋Quit を追加し再ビルド（`~/.cargo/bin/cargo`・非対話 shell では PATH 外）で実時刻追従を確認
-- [ ] **[App 16・方式A]** 絶対方位アライン（真北=上）を確定＝磁気偏角＋取付オフセット `zero_offset`＋回転符号 `--heading-invert` の実機調整（現状は相対追従のみ）
+- [x] **[App 16・方式A]** 絶対方位アライン＋取付姿勢オフセット確定（2026-07-20）。Lego フレームで CoreS3 を正規正面から左 90°取付。正面を真西(270°)に向け較正後 heading=112.4°(stddev1.2°)→ `zero_offset=157.6`（Lego 90°＋軸ゼロ＋偏角を一括吸収・`--declination 0`）。正面=西で W が上・右90°回転で N が上（`--heading-invert` 不要）を実機確認＝真方位アライン済み。個体/取付依存値は `~/.config/cardputerzero/stellar_map.json` に永続化（`config/stellar_map.json.example`）・サイドカーが起動時ロード（CLI 上書き）
 - [ ] **[App 16・方式A]** 傾き補正（BMI270/加速度併用のチルト補償）で手持ち時の振れを抑制（現状は水平前提）
 - [ ] **[App 16]** czdev 到着後: `ui/draw_scene()` の LVGL 描画実装（塗り矩形＋線＋1bpp フォント）＋ czdev エミュレータ／実機での描画・性能検証
 - [ ] **[App 16]** RX8130CE RTC（`/dev/rtc`）＋ NTP（`systemd-timesyncd`）＋ AT6668 GNSS UTC の時刻取得系を確立（`shared/gnss_at6668/` を App 01 と共有）

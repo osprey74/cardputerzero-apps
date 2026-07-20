@@ -1,0 +1,20 @@
+{
+  "_comment": "App16 星座盤 個体・取付依存設定の例。実行機の ~/.config/cardputerzero/stellar_map.json に置く（CLI 引数がこれを上書き）。値は CoreS3 個体・Lego フレーム取付での実測例（2026-07-20・uConsole）で、個体/取付が変われば calib_probe.py で再較正すること。",
+
+  "lat": 43.06,
+  "lon": 141.35,
+  "tz": 9.0,
+  "mag_view": 4.5,
+
+  "mag_port": "/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_44:1B:F6:E5:53:DC-if00",
+
+  "mag_offset_x": -1212,
+  "mag_offset_y": 468,
+  "mag_span_x": 192,
+  "mag_span_y": 180,
+
+  "heading_offset": 157.6,
+  "declination": 0,
+  "heading_invert": false,
+  "heading_alpha": 0.2
+}

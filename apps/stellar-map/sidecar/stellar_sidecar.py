@@ -19,7 +19,12 @@ BMM150 を入力にして本サイドカーが Scene を吐き、Rust UI が描�
   python stellar_sidecar.py --interval 30        # 30 秒ごとに 1 行ずつ出力（JSON Lines）
   python stellar_sidecar.py --heading 120        # 方位 120° を上に固定して静止描画
   python stellar_sidecar.py --interval 1 --mag-port COM5 --declination -9  # CoreS3 実方位で回転
+  python stellar_sidecar.py --interval 0.2       # 較正/取付は ~/.config/cardputerzero/stellar_map.json から
   python stellar_sidecar.py --no-planets --mag-view 4.0
+
+個体・取付依存の設定（ハードアイアン較正・姿勢オフセット・観測地・ポート）は
+JSON 設定ファイル（既定 ~/.config/cardputerzero/stellar_map.json）に置ける。
+CLI 引数が設定ファイルを上書きする。例は config/stellar_map.json.example。
 
 出力は JSON Lines（1 フレーム=1 行）。UI 側は行単位で読み最新フレームを描く。
 """
@@ -46,6 +51,33 @@ from shared.star_catalog import (build_scene, load_catalog,  # noqa: E402
 def _now_local():
     # サイドカーは実時間で動く（デバイスでは RTC 相当）。
     return datetime.now().replace(microsecond=0)
+
+
+# 個体・取付依存の永続設定（ハードアイアン較正・姿勢オフセット・観測地など）の既定パス。
+# HANDOFF §3 App16 の想定に合わせた per-device 設定。CLI 引数が設定ファイルを上書きする。
+_DEFAULT_CFG = os.path.expanduser("~/.config/cardputerzero/stellar_map.json")
+
+# 設定ファイルで指定できるキー（argparse の dest 名と一致させる）。
+_CFG_KEYS = {"lat", "lon", "tz", "mag_view", "mag_port", "declination",
+             "heading_offset", "heading_alpha", "heading_invert",
+             "mag_offset_x", "mag_offset_y", "mag_span_x", "mag_span_y"}
+
+
+def _load_config(argv) -> tuple[dict, str]:
+    """`--config <path>`（無ければ既定パス）から JSON 設定を読む。無ければ空 dict。"""
+    path = _DEFAULT_CFG
+    if "--config" in argv:
+        i = argv.index("--config")
+        if i + 1 < len(argv):
+            path = os.path.expanduser(argv[i + 1])
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            return {k: v for k, v in data.items() if k in _CFG_KEYS}, path
+        except Exception as ex:  # noqa: BLE001
+            print(f"# config load failed {path}: {ex}", file=sys.stderr)
+    return {}, path
 
 
 def build_once(args, cat, lines, dsos, hsrc=None) -> dict:
@@ -117,6 +149,13 @@ def main() -> None:
     ap.add_argument("--mag-offset-y", type=float, default=None, help="ハードアイアン中心 y")
     ap.add_argument("--mag-span-x", type=float, default=1.0, help="360deg x 半スパン(soft-iron)")
     ap.add_argument("--mag-span-y", type=float, default=1.0, help="360deg y 半スパン(soft-iron)")
+    ap.add_argument("--config", default=_DEFAULT_CFG,
+                    help=f"個体設定 JSON（既定 {_DEFAULT_CFG}）。CLI 引数がこれを上書き")
+    # 設定ファイルの値を argparse の既定に流し込む（＝CLI 未指定なら設定値、指定あれば CLI 優先）。
+    cfg, cfg_path = _load_config(sys.argv)
+    if cfg:
+        ap.set_defaults(**cfg)
+        print(f"# config loaded: {cfg_path} ({', '.join(sorted(cfg))})", file=sys.stderr)
     args = ap.parse_args()
 
     # カタログ類は一度だけロード（惑星・月は毎フレーム再計算）。
