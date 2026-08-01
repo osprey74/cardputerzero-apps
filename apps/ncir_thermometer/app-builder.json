@@ -1,0 +1,9 @@
+{
+  "package_name": "ncir-thermometer",
+  "version": "0.1.0",
+  "app_name": "NCIR Thermometer",
+  "bin_name": "thermometer_poc.py",
+  "description": "App15 MLX90614 non-contact thermometer PoC. Python sidecar (Rich TUI), threshold + min/max. NOT for medical use.",
+  "runtime": "legacy-deb-only",
+  "caps": ["keyboard", "filesystem"]
+}

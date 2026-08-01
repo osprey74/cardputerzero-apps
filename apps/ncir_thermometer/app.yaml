@@ -1,0 +1,10 @@
+name: "NCIR Thermometer"
+id: "com.osprey74.ncir-thermometer"
+version: "0.1.0"
+description: "MLX90614 非接触温度の閾値監視 + Min/Max（発熱部品デバッグ・非医療用途）"
+author: "osprey74"
+category: "utilities"
+icon: "assets/icon.png"   # 48x48 PNG（未作成）
+# 温度データは CoreS3 firmware が MLX90614(0x5A) を SMBus 読取して USB CDC で送信済み。
+# 本アプリは shared/cores3_bridge 経由で受信する Python サイドカー PoC。
+entry: "thermometer_poc.py"   # 純 Python サイドカー（Rust/LVGL バイナリなし）
