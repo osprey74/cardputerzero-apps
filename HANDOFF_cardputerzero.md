@@ -1,6 +1,6 @@
 # HANDOFF: CardputerZero 開発ガイド
 
-> **作成日**: 2026-05-24 / **最終更新**: 2026-08-13（KS Update #11 反映：**BMM150 は EOL＝KS 版のみ搭載・retail 版非搭載**／USB-C 1 ポート充電専用の疑い／Hub は beta／出荷 11 月。加えて公式サイト `cardputer.cc` 公開確認・§1.1 スペック確定〈1750mAh・native 170×320・I2C アドレスマップ〉・§2.7/§4.1 に `.deb`＋`app-builder.json`＋レジストリ先着順を反映）  
+> **作成日**: 2026-05-24 / **最終更新**: 2026-08-13（**§2.8 競合ランドスケープ新設**＝公式レジストリ全 38 アプリ精査／KS Update #11 反映：**BMM150 は EOL＝KS 版のみ搭載・retail 版非搭載**／USB-C 1 ポート充電専用の疑い／Hub は beta／出荷 11 月。加えて公式サイト `cardputer.cc` 公開確認・§1.1 スペック確定〈1750mAh・native 170×320・I2C アドレスマップ〉・§2.7/§4.1 に `.deb`＋`app-builder.json`＋レジストリ先着順を反映）  
 > **対象デバイス**: M5Stack CardputerZero (Raspberry Pi CM0 搭載)  
 > **開発者**: 総司 (osprey74)  
 > **開発方針**: Spec-Driven / Claude Code + czdev ワークフロー  
@@ -81,6 +81,7 @@
 | 2026-07-20 | **App16 傾き補正（tilt compensation）をソフト実装**。`cores3-frontend` FW **0.7.0** で加速度を `"acc":{ok,x,y,z}`（getMag と同じ M5Unified 共通フレーム・raw・g 単位）で JSON 送出（ビルド成功・**未フラッシュ**）。`shared/cores3_bridge` に `Accel`（parse・テスト 14/14）、`shared/compass` に `tilt_compensated_heading`（AN4248・**水平時は `heading_from_xy` と一致＝既存 zero_offset 流用**）＋`HeadingFilter.update_tilt`（テスト 15/15）。`heading_source` は加速度があれば tilt 補正・無ければ水平フォールバック、サイドカー `--no-tilt`/config `no_tilt` で切替。⚠️ CoreS3 に FW 0.7.0 フラッシュ（COM5）後に実機検証（tilt の符号・z 軸較正の要否は実測で確定）。詳細は §11 App16 タスク。 |
 | 2026-07-20 | **App16 方式A（自機の向きを画面上に固定して全天図を回転）を実装し uConsole＋CoreS3 で実機実証**。回転は投影段階で完結（`shared/star_catalog/transform.py`・`scene.py` に `heading` 追加、方位ラベルも投影で回転追従）。地磁気処理を機種非依存コア **`shared/compass/`**（`HeadingFilter`＝円周 EMA＋偏角＋取付オフセット、`heading_from_xy`＝ハード/ソフトアイアン補正・単体テスト 11/11）に切出し、方位ソースを抽象化（`sidecar/heading_source.py`＝Fixed/CoreS3・**CZ 内蔵 BMM150 は実装追加のみで流用**）。**実機で 2 件解決**: ①ハードアイアン較正必須（生 mag は 360°で raw heading が 16°しか動かない＝offset x≈−1212/y≈468 が地磁気の~30倍。`tools/calib_probe.py` の 360°スイープで推定→除去で全方位追従）②UI 画面固着（SDL イベント未ポンプ→`ui/src/main.rs` に `EventPump` 追加・再ビルド）。物理 90°回転→画面 90°回転を before/after 確認。残: 絶対方位アライン（真北=上）・傾き補正。詳細は §3 App16「方位アライン（方式A）と実機較正」節。 |
 | 2026-08-01 | **App15 非接触温度計 `ncir-thermometer` PoC 実装・実機検証・コミット**（`apps/ncir_thermometer/`）。CoreS3 の MLX90614 温度を `shared/cores3_bridge` 経由で受け、NORMAL/WARN/ALERT 色分け＋Min/Max＋Rich TUI。単体テスト 6/6・実機 COM5 で常温 NORMAL(max 40.7℃)／ハンダゴテ ALERT(max 106.2℃) 確認。ディレクトリはアンダースコア（`-m` import 整合）。冒頭フックの「372℃」は未到達＝実測 106.2℃ を正とする旨を app 内 HANDOFF §10 に明記。 |
+| 2026-08-13 | **§2.8 競合ランドスケープ 新設**。公式レジストリ [`CardputerZero/packages`](https://github.com/CardputerZero/packages) の `pool/main/*/meta.json`（**全 38 アプリ直接取得**）＋公式 org first-party アプリを精査し、ストア公開アプリ一覧・我々×競合マトリクス・戦略メモを記録。**直接競合**: App10=zerosdr／App07=pwnagotchi,czconsole／App11=packetscope,netsim,netterm／App03=rfid／App01=Cap-LoRa-1262-GPS,location-tracker／App06=xiaozhi(クラウド)／App14=fxcam,camstreamemu。**ホワイトスペース(競合不在)**: App05(防災)/App13(INA226)/App15(NCIR)/App16(観測星座盤※astro-box は重力シミュで別物)/App04(SubGHz 受信解析)。 |
 | 2026-08-13 | **KS Update #11「A Closer Look at the Real Device」反映**。🔴**BMM150（地磁気）は EOL＝KS 版のみ搭載・将来の retail 版は非搭載**（当 PJ の実機は KS 版＝搭載あり。§1.1 に注記。App16 は CoreS3 BMM150 経由のため実装影響なし・retail 配布時のみ要注意）。**USB-C の 1 ポートが "5V CHG ONLY"（充電専用の疑い・要実機確認）**を §1.1 に追記。**公式 Hub は beta**（§2.7 に明示）。内蔵アプリ=Compass/Camera/Voice Recorder/Music Player/IR Remote/Files。SD 32GB。Powered by Raspberry Pi 使用許可取得。**出荷 11 月・オンスケジュール**。 |
 | 2026-08-13 | **公式サイト公開を確認し §1.1/§2.7/§4.1/§8 を更新**。[cardputer.cc](https://cardputer.cc/)（Hub/AppStore & Registry・SPA・多言語）／[dev.cardputer.cc](https://dev.cardputer.cc/)（開発者ポータル）／[Web エミュレータ](https://cardputer.cc/emulator/) を §8 に追加。§1.1 を公式 docs で確定：**バッテリ 1750mAh**（NTC 内蔵・BQ27220YZFR・充電 5V/2A）・**ディスプレイ native 170×320**（本 PJ は 320×170 横運用）・**I2C アドレスマップ**（TCA8418=0x34/BMI270=0x68/BMM150=0x10/RX8130CE=0x32）。§2.7 に「配布=`.deb`／メタ=`app-builder.json`／レジストリ先着順（名前は `-_.` 無視）／スクショ 320×170 PNG 最大6・正方形アイコン」を追記。§4.1 の旧 `app.yaml` を「非公式・参考」と明示。SDK/Kernel docs は公式に "coming soon"。 |
 
@@ -868,6 +869,54 @@ APP_ICON=share/images/demo-sysdash.png
 **■ 実アプリ第1号【e2e 実働 2026-07-08】: App16 星座盤（`apps/stellar-map/`）**
 
 既存の「サイドカー↔UI Scene プロトコル」（`shared/star_catalog/scene.py` が 320×170 プリミティブを生成、`sidecar/stellar_sidecar.py` が JSON Lines 出力）の UI 側を、**LVGL スタブから SDL2 実描画へ置換**（`ui/src/main.rs`＋雛形の `draw.rs`/`font8x8.rs` 流用）。uConsole で **サイドカー(Python 天体計算)→UI(SDL2)→320×170 描画** を e2e 実証: 地平線円・十字・方位(N/S/E/W)・星座線・恒星(等級で色/サイズ)・DSO・情報パネル(時刻/座標/stars=389,lines=256,dso=169)。ハイブリッド packaging（`packaging/{meta.env,build.sh,stage.sh,launcher.sh,postinst}`）で `.deb` 化→`apt install`→**インストール先ランチャーから起動→描画**まで確認・アンインストールもクリーン。惑星/月は skyfield 未導入時は自動無効（`--no-planets` 相当・graceful）。Depends: `libsdl2-2.0-0, python3`。残: 実機 LCD 出力・RTC/GNSS/BMM150 入力連携・常駐時のイベント応答（現状は行読み取りブロッキング）。
+
+---
+
+### 2.8 競合ランドスケープ（公式ストア／内蔵アプリとの機能重複）
+
+> **出所**: 公式レジストリ [`CardputerZero/packages`](https://github.com/CardputerZero/packages) の `pool/main/<app>/meta.json`（**全 38 アプリを直接取得・確認 2026-08-13**）＋公式アプリ org [github.com/CardputerZero](https://github.com/CardputerZero/) の first-party リポジトリ＋KS Update #11 の内蔵アプリ。**確度: 高**（一次データ）。
+> **要旨**: 我々のロードマップと重複する既存アプリは **SDR・WiFi/ネットワーク解析・NFC/RFID・カメラ・GPS・AI** の各領域に既に存在する。一方 **防災(App05)・電力テスター(App13)・非接触温度(App15)・観測星座盤(App16)・SubGHz 受信解析(App04)** は**競合不在のホワイトスペース**。
+
+#### 2.8.1 公式ストア公開アプリ一覧（レジストリ 38 件・2026-08-13 スナップショット）
+
+| カテゴリ | 公開アプリ（package_name） |
+| --- | --- |
+| **RF / SDR / 無線** | **zerosdr**（RTL-SDR 受信・spectrum/waterfall・FM/NFM/AM 復調・fb 描画）／**location-tracker**（LoRa SX1262 + AT6668 GPS メッシュ受信・**Cap LoRa-1262 使用**）／cardputerzero-radio（インターネットラジオ） |
+| **ネットワーク / セキュリティ** | **cardputerzero-pwnagotchi**（WiFi セキュリティ）／**czconsole**（nmap/gobuster 等を叩くフィールドコンソール）／**packetscope**（pcap を Wireshark 風解析）／**netsim**（2 ポート LAN ラボ・遅延/損失測定）／netterm（SSH/telnet/serial 端末）／flint（Security・詳細不明）／nc2000（詳細不明） |
+| **NFC / RFID** | **rfid**（NFC Unit/PN532/UHF で read/dump/emulate・NTAG21x/MIFARE 等） |
+| **AI / 音声** | **cardputerzero-xiaozhi**（xiaozhi.me クラウド音声アシスタント・server-side VAD） |
+| **カメラ** | **fxcam**（106 エフェクトのクリエイティブカメラ）／**camstreamemu**（PacketScope profile からカメラ映像を再生成） |
+| **音楽 / メディア** | lofibox／mmusic／zeromp3／noirsonance-check（WAV 解析）／noirsonance-toolkit（音響ユーティリティ 6 種） |
+| **生産性 / メモ** | calendar／void-notes（Markdown）／void-room（集中執筆）／creative-pressure（執筆タイマー）／fontpreview／signal-vs-noise／noirsonance-control-center（デバイスヘルス） |
+| **ゲーム / 娯楽 / 教育** | 2048／battleship／quicktap／zeno-runner／waterfiresimulator（傾き流体/燃焼シム）／**cardputerzero-astro-box**（重力 N 体シミュ＝**観測星座盤ではない**）／yaoyiyao（六爻占い）／signal-vs-noise |
+| **開発 / インフラ / その他** | harrisontest（ビルド検証）／launcherespflasher／icon-takeover／chainled（Graphics）／spin3d／czconsole（※上記にも） |
+
+**first-party（公式 org）アプリ**：内蔵＝Compass / Camera / Voice Recorder / Music / Files / IR-Remote、Cap 系＝**Cap-LoRa-1262-GPS**（GPS）・**Cap-CC1101-NFC**（NFC）・**Cap-CC1101-SubG-Chat**（Sub-GHz チャット）、その他 Piano / Calculator / Retro-Zero 等。
+
+#### 2.8.2 我々のロードマップ × 競合マトリクス
+
+| 我々のアプリ | 主な競合 | 重複度 | 差別化 / 対応方針 |
+| --- | --- | --- | --- |
+| **App10 SDR 受信** | **zerosdr**（ほぼ同一機能） | 🔴直接 | ADS-B / 気象衛星 / BCL 統合モニタ等の**用途特化**で差別化。単なる汎用 SDR は zerosdr に譲る |
+| **App07 wifi-analyzer** | pwnagotchi・czconsole | 🔴大 | 「解析・可視化」に寄せ、攻撃系は非注力（法令 §7 とも整合） |
+| **App11 lan-scanner** | packetscope・netsim・netterm・czconsole | 🔴大 | ライブ探索/可視化に限定。pcap 解析は packetscope に譲る |
+| **App03 nfc-toolkit** | **rfid**（PN532/UHF で read/dump/emulate）＋ Cap-CC1101-NFC | 🔴大 | ST25R3916 前提の**学習/構造解析**に軸足。汎用読取は rfid が先行 |
+| **App14 qr-toolkit** | fxcam・camstreamemu・内蔵 Camera | 🟡中 | カメラ取得は重複。**QR 読取・解析・構造学習**が独自 |
+| **App01 gps-logger** | Cap-LoRa-1262-GPS・location-tracker（LoRa GPS メッシュ） | 🟡中 | **GPX 記録 → Rindo 連携**が独自。既存は表示/メッシュ受信で用途が別 |
+| **App06 edge-ai** | cardputerzero-xiaozhi（**クラウド**音声） | 🟡中 | 我々は**オフライン Q4 LLM**。ネット不要・プライバシーが差別化軸 |
+| **App02 lora-mesh-node** | location-tracker（同 Cap を GPS 用途で使用） | 🟢小 | **Meshtastic 互換メッセージング**は未実装領域 |
+| **App05 bsaf-client** | なし | ⚪️白地 | **BSAF エコシステム連携**（bsaf-protocol/jma-bot/kazahana）が独自資産 |
+| **App13 tester (INA226)** | なし | ⚪️白地 | 電力/電流テスターは競合不在 |
+| **App15 ncir-thermometer** | なし | ⚪️白地 | 非接触温度は競合不在 |
+| **App16 stellar-map** | 内蔵 Compass（方位のみ）／astro-box（重力シミュ＝別物） | ⚪️白地 | **観測プラネタリウム**（HYG/惑星/月/星座線）は競合不在 |
+| **App04 subghz-sniffer** | Cap-CC1101-SubG-Chat（チャット・TX） | ⚪️白地 | **受信解析（sniffer）**の角度は未占有 |
+
+#### 2.8.3 戦略メモ
+
+- **注力（ホワイトスペース）**: App05・App13・App15・App16・App04。差別化が明確で先行者利益を取りやすい。
+- **用途特化で差別化**: App01（Rindo 連携）・App06（オフライン）・App10（BCL/ADS-B 統合）・App14（QR 解析）。
+- **要再定義 or 優先度見直し**: App07・App11・App03。既存アプリ（pwnagotchi/czconsole/packetscope/rfid）が成熟しつつあり、真正面からの汎用実装は差別化困難。
+- **留意**: 公式ストアは beta・レジストリは急拡大中（38 件・2026-08-13 時点）。**再評価は定期的に**（`CardputerZero/packages` の `pool/main/` を再取得）。多くはコミュニティ個人開発段階で、成熟度は未知数。
 
 ---
 
