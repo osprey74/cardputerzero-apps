@@ -1,6 +1,6 @@
 # HANDOFF: CardputerZero 開発ガイド
 
-> **作成日**: 2026-05-24 / **最終更新**: 2026-08-13（公式サイト `cardputer.cc`／開発者ポータル／Web エミュレータ公開を確認・§1.1 スペック確定〈1750mAh・native 170×320・I2C アドレスマップ〉・§2.7/§4.1 に `.deb`＋`app-builder.json`＋レジストリ先着順を反映）  
+> **作成日**: 2026-05-24 / **最終更新**: 2026-08-13（KS Update #11 反映：**BMM150 は EOL＝KS 版のみ搭載・retail 版非搭載**／USB-C 1 ポート充電専用の疑い／Hub は beta／出荷 11 月。加えて公式サイト `cardputer.cc` 公開確認・§1.1 スペック確定〈1750mAh・native 170×320・I2C アドレスマップ〉・§2.7/§4.1 に `.deb`＋`app-builder.json`＋レジストリ先着順を反映）  
 > **対象デバイス**: M5Stack CardputerZero (Raspberry Pi CM0 搭載)  
 > **開発者**: 総司 (osprey74)  
 > **開発方針**: Spec-Driven / Claude Code + czdev ワークフロー  
@@ -81,6 +81,7 @@
 | 2026-07-20 | **App16 傾き補正（tilt compensation）をソフト実装**。`cores3-frontend` FW **0.7.0** で加速度を `"acc":{ok,x,y,z}`（getMag と同じ M5Unified 共通フレーム・raw・g 単位）で JSON 送出（ビルド成功・**未フラッシュ**）。`shared/cores3_bridge` に `Accel`（parse・テスト 14/14）、`shared/compass` に `tilt_compensated_heading`（AN4248・**水平時は `heading_from_xy` と一致＝既存 zero_offset 流用**）＋`HeadingFilter.update_tilt`（テスト 15/15）。`heading_source` は加速度があれば tilt 補正・無ければ水平フォールバック、サイドカー `--no-tilt`/config `no_tilt` で切替。⚠️ CoreS3 に FW 0.7.0 フラッシュ（COM5）後に実機検証（tilt の符号・z 軸較正の要否は実測で確定）。詳細は §11 App16 タスク。 |
 | 2026-07-20 | **App16 方式A（自機の向きを画面上に固定して全天図を回転）を実装し uConsole＋CoreS3 で実機実証**。回転は投影段階で完結（`shared/star_catalog/transform.py`・`scene.py` に `heading` 追加、方位ラベルも投影で回転追従）。地磁気処理を機種非依存コア **`shared/compass/`**（`HeadingFilter`＝円周 EMA＋偏角＋取付オフセット、`heading_from_xy`＝ハード/ソフトアイアン補正・単体テスト 11/11）に切出し、方位ソースを抽象化（`sidecar/heading_source.py`＝Fixed/CoreS3・**CZ 内蔵 BMM150 は実装追加のみで流用**）。**実機で 2 件解決**: ①ハードアイアン較正必須（生 mag は 360°で raw heading が 16°しか動かない＝offset x≈−1212/y≈468 が地磁気の~30倍。`tools/calib_probe.py` の 360°スイープで推定→除去で全方位追従）②UI 画面固着（SDL イベント未ポンプ→`ui/src/main.rs` に `EventPump` 追加・再ビルド）。物理 90°回転→画面 90°回転を before/after 確認。残: 絶対方位アライン（真北=上）・傾き補正。詳細は §3 App16「方位アライン（方式A）と実機較正」節。 |
 | 2026-08-01 | **App15 非接触温度計 `ncir-thermometer` PoC 実装・実機検証・コミット**（`apps/ncir_thermometer/`）。CoreS3 の MLX90614 温度を `shared/cores3_bridge` 経由で受け、NORMAL/WARN/ALERT 色分け＋Min/Max＋Rich TUI。単体テスト 6/6・実機 COM5 で常温 NORMAL(max 40.7℃)／ハンダゴテ ALERT(max 106.2℃) 確認。ディレクトリはアンダースコア（`-m` import 整合）。冒頭フックの「372℃」は未到達＝実測 106.2℃ を正とする旨を app 内 HANDOFF §10 に明記。 |
+| 2026-08-13 | **KS Update #11「A Closer Look at the Real Device」反映**。🔴**BMM150（地磁気）は EOL＝KS 版のみ搭載・将来の retail 版は非搭載**（当 PJ の実機は KS 版＝搭載あり。§1.1 に注記。App16 は CoreS3 BMM150 経由のため実装影響なし・retail 配布時のみ要注意）。**USB-C の 1 ポートが "5V CHG ONLY"（充電専用の疑い・要実機確認）**を §1.1 に追記。**公式 Hub は beta**（§2.7 に明示）。内蔵アプリ=Compass/Camera/Voice Recorder/Music Player/IR Remote/Files。SD 32GB。Powered by Raspberry Pi 使用許可取得。**出荷 11 月・オンスケジュール**。 |
 | 2026-08-13 | **公式サイト公開を確認し §1.1/§2.7/§4.1/§8 を更新**。[cardputer.cc](https://cardputer.cc/)（Hub/AppStore & Registry・SPA・多言語）／[dev.cardputer.cc](https://dev.cardputer.cc/)（開発者ポータル）／[Web エミュレータ](https://cardputer.cc/emulator/) を §8 に追加。§1.1 を公式 docs で確定：**バッテリ 1750mAh**（NTC 内蔵・BQ27220YZFR・充電 5V/2A）・**ディスプレイ native 170×320**（本 PJ は 320×170 横運用）・**I2C アドレスマップ**（TCA8418=0x34/BMI270=0x68/BMM150=0x10/RX8130CE=0x32）。§2.7 に「配布=`.deb`／メタ=`app-builder.json`／レジストリ先着順（名前は `-_.` 無視）／スクショ 320×170 PNG 最大6・正方形アイコン」を追記。§4.1 の旧 `app.yaml` を「非公式・参考」と明示。SDK/Kernel docs は公式に "coming soon"。 |
 
 ---
@@ -102,9 +103,9 @@
 | Wi-Fi | 2.4GHz 802.11 b/g/n |
 | Bluetooth | 4.2 / BLE |
 | 有線LAN | 10/100M Ethernet |
-| USB | USB-C × 2 (Host/Slave 切替) + USB-A × 1 |
+| USB | USB-C × 2 (Host/Slave 切替) + USB-A × 1 ※**1 ポートは "5V CHG ONLY"（充電専用・データ非対応の可能性）**＝KS Update #11 ステッカー表記より・要実機確認 |
 | カメラ (標準版) | Sony IMX219 8MP (3280×2464) / CSI 4-Lane |
-| IMU (標準版) | Bosch BMI270（6軸: ジャイロ＋加速度）＋ BMM150（3軸地磁気）＝9軸相当 |
+| IMU (標準版) | Bosch BMI270（6軸: ジャイロ＋加速度）＋ BMM150（3軸地磁気）＝9軸相当 ※**BMM150 は KS 版のみ搭載**（下記注記） |
 | RTC | Epson RX8130CE |
 | HDMI | 最大 1080p30 出力 |
 | ビデオコーデック | デコード H.264/MPEG-4 @1080p30・エンコード H.264 @1080p30 |
@@ -114,6 +115,11 @@
 
 > **I2C アドレスマップ（公式 docs 確定・2026-08-13）**: キーボード TCA8418=`0x34` / IMU BMI270=`0x68` / 地磁気 BMM150=`0x10` / RTC RX8130CE=`0x32`。
 > 本体 I2C1（G2=SDA/G3=SCL）上の既知アドレスとして、Grove/PaHUB に増設するセンサ（例: INA226=`0x40`・NCIR MLX90614=`0x5A`・PaHUB=`0x70`）と衝突しないことを設計時に確認する。
+
+> 🔴 **BMM150（地磁気）は Kickstarter 版限定（KS Update #11・2026-08-13）**：BMM150 は**生産終了（EOL）**。
+> M5Stack は残余在庫を KS バッカー分に確保し、**KS 版 CardputerZero は約束どおり BMM150 を搭載**（当プロジェクトの実機は KS 版＝搭載あり）。
+> ただし**将来の retail 版は BMM150 非搭載**（`CardputerZero-Lite` は元々 IMU 無し）。
+> → **「CZ 単体で方位取得可」は KS 版限定の前提**。App16 星座盤は方位を **CoreS3 の BMM150（getMag）経由**で取る設計のため実装は EOL の影響を受けないが、**retail 版へ配布する場合は CoreS3 フロントエンド or 手動アライン**が必須になる。M5Stack 内蔵アプリ "Compass" も KS 版でのみ動作する点に注意。
 
 ### 1.2 拡張インターフェース
 
@@ -706,8 +712,8 @@ Mac Mini への Tailscale SSH セッションを使うことを推奨。
 > **出所スタンプ**: 観測 2026-07-08 JST / `CardputerZero-AppBuilder@main`（リリース `czdev-v0.1.0`）/ `CardputerZeroRepository@ci/bootstrap`（リリース `apt-pool`）
 > **扱いの格**: 本節は **「暫定（公式観測）層」** = 公式リポジトリ由来の事実だが**確定仕様ではなく変更前提**。実機・自前検証で確定した項目は別途「確定」として上書きすること。設計上の意思決定（Rust 維持 vs C 移行等）は末尾の「設計方針層」に分離し、本節の観測が変わっても方針が巻き込まれないようにする。
 
-> 🆕 **公式ハブ／開発者ポータル公開（確認 2026-08-13）**：M5Stack が開発者・利用者向け情報サイトを公開。
-> - **[CardputerZero Hub / AppStore & Registry](https://cardputer.cc/)**（多言語: 簡体中文/英語/日本語。SPA）— `#/apps`・`#/documents`・`#/registry` と **Web エミュレータ（`/emulator/`・ブラウザで 320×170 を再現）** を提供。
+> 🆕 **公式ハブ／開発者ポータル公開（確認 2026-08-13）**：M5Stack が開発者・利用者向け情報サイトを公開。**Hub は beta 段階**（KS Update #11 で "The hub is still a work in progress" と明言）。
+> - **[CardputerZero Hub / AppStore & Registry](https://cardputer.cc/)**（**beta**・多言語: 簡体中文/英語/日本語。SPA）— `#/apps`・`#/documents`・`#/registry` と **Web エミュレータ（`/emulator/`・ブラウザで 320×170 を再現）** を提供。
 > - **[開発者ポータル `dev.cardputer.cc`](https://dev.cardputer.cc/)**。
 > - **確定・裏付けされた事実**：配布は **`.deb`**／ショップ情報は **`app-builder.json`** に格納（＝本プロジェクトの `legacy-deb-only`＋`app-builder.json` 方針が公式に整合）。**レジストリはパッケージ名「先着順（包名先到先得）」**で、名前照合は **ハイフン/アンダースコア/ピリオドを無視**（`ncir-thermometer` と `ncir_thermometer` は同一名扱い）。**共有ディレクトリのファイル/ディレクトリ名はパッケージ名で名前空間化**が必須。
 > - **ショップ掲載メタ**：カテゴリはカンマ区切り最大 6・アイコンは**正方形 PNG**（無ければ `.deb` 埋め込みを流用）・**スクリーンショットは 320×170 PNG 最大 6 枚**（自動クロップ）。

@@ -11,7 +11,9 @@ M5Stack CardputerZero 向けに開発するアプリ群のモノレポ。Rust (c
 - **SoC**: Broadcom BCM2837 (Raspberry Pi CM0 / RP3A0) / Quad-core Cortex-A53 @ 1GHz (aarch64)
 - **RAM**: 512MB LPDDR2
 - **LCD**: 1.9" ST7789v3 / native 170×320（縦）※本プロジェクトは 320×170 横向き運用
-- **センサー**: BMI270（6軸 IMU・I2C `0x68`）＋ BMM150（3軸地磁気・`0x10`）／RX8130CE RTC（`0x32`）／キーボード TCA8418（`0x34`）※磁力計内蔵＝単体で方位取得可（App16 星座盤の方位アライン用）
+- **センサー**: BMI270（6軸 IMU・I2C `0x68`）＋ BMM150（3軸地磁気・`0x10`）／RX8130CE RTC（`0x32`）／キーボード TCA8418（`0x34`）
+  - ⚠️ **BMM150 は Kickstarter 版のみ搭載**（EOL・retail 版は非搭載／Lite は元々 IMU 無し・KS Update #11 2026-08-13）。「磁力計内蔵＝単体で方位取得可」は **KS 版限定**。App16 星座盤は方位を CoreS3 の BMM150 経由で取得する設計のため実装影響なし（retail 配布時のみ CoreS3 or 手動アライン必須）
+- **AppStore サイト状態**: `cardputer.cc` は **beta**（Hub は work in progress・KS Update #11）
 - **バッテリ**: 3.7V 1750mAh（NTC 内蔵・BQ27220YZFR 燃料計・充電 5V/2A）
 - **OS**: Raspberry Pi OS (Debian Linux ベース)
 - **Launcher**: LVGL ベース GUI Launcher
@@ -178,7 +180,7 @@ cardputerzero-apps/
 
 ## 制約事項
 
-- **未着手段階**: CardputerZero は Kickstarter 出資品で実機未到着（2026-05-24 時点）。仕様の最終確定は実機検証後
+- **未着手段階**: CardputerZero は Kickstarter 出資品で実機未到着（2026-08-13 時点・**出荷は 11 月予定/オンスケジュール**＝KS Update #11）。仕様の最終確定は実機検証後。※周辺検証は CoreS3 フロントエンドで先行中
 - **HANDOFF_cardputerzero.md §9** に列挙された未確認事項（Grove ピンアサイン、SX1262 技適番号、AT6668 と gpsd の互換性等）は実機到着後に検証する
 - 仕様の不整合が発生した場合は `HANDOFF_cardputerzero.md` を一次資料として更新する
 
