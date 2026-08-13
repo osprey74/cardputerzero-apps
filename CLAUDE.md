@@ -8,13 +8,15 @@ M5Stack CardputerZero 向けに開発するアプリ群のモノレポ。Rust (c
 
 ## ターゲットデバイス
 
-- **SoC**: Broadcom BCM2837 / Quad-core Cortex-A53 @ 1GHz
+- **SoC**: Broadcom BCM2837 (Raspberry Pi CM0 / RP3A0) / Quad-core Cortex-A53 @ 1GHz (aarch64)
 - **RAM**: 512MB LPDDR2
-- **LCD**: 1.9" ST7789v3 / 320×170 px
-- **センサー**: BMI270（6軸 IMU）＋ BMM150（3軸地磁気）／RX8130CE RTC ※磁力計内蔵＝単体で方位取得可（App16 星座盤の方位アライン用）
+- **LCD**: 1.9" ST7789v3 / native 170×320（縦）※本プロジェクトは 320×170 横向き運用
+- **センサー**: BMI270（6軸 IMU・I2C `0x68`）＋ BMM150（3軸地磁気・`0x10`）／RX8130CE RTC（`0x32`）／キーボード TCA8418（`0x34`）※磁力計内蔵＝単体で方位取得可（App16 星座盤の方位アライン用）
+- **バッテリ**: 3.7V 1750mAh（NTC 内蔵・BQ27220YZFR 燃料計・充電 5V/2A）
 - **OS**: Raspberry Pi OS (Debian Linux ベース)
 - **Launcher**: LVGL ベース GUI Launcher
-- **AppStore**: https://github.com/m5stack/CardputerZeroRepository （公式 Debian apt リポジトリ・`.deb` 配布）
+- **AppStore**: 公式サイト https://cardputer.cc/ （Hub / AppStore & Registry・Web エミュレータ `/emulator/`）／開発者ポータル https://dev.cardputer.cc/ ／apt リポジトリ https://github.com/m5stack/CardputerZeroRepository
+  - 配布は `.deb`・メタは `app-builder.json`（`app.yaml` は非公式・旧）。レジストリはパッケージ名**先着順**（名前照合は `-` `_` `.` を無視）。ショップ掲載はスクショ 320×170 PNG 最大6・正方形 PNG アイコン。SDK/Kernel docs は公式に "coming soon"（2026-08-13 時点）
 
 ## アプリ一覧（予定）
 
@@ -106,22 +108,27 @@ cardputerzero-apps/
 - LoRa 送信は日本国内 920MHz 帯のみ、技適取得済みモジュールに限定
 - NFC / Sub-GHz / Wi-Fi 解析機能は **自己所有デバイス・教育目的のみ**（HANDOFF §7 参照）
 
-## アプリメタデータ (app.yaml)
+## アプリメタデータ (app-builder.json)
 
-各アプリのルートに `app.yaml` を配置。Launcher / AppStore 登録に必要。
+公式マニフェストは各アプリルートの `app-builder.json`（Launcher / AppStore 登録に必要）。
+`caps` 予約語は `keyboard` / `audio` / `network` / `filesystem` / `pty` / `process`。
+実例は `apps/stellar-map/`・`apps/ncir_thermometer/`。
 
-```yaml
-name: "GPS Logger"
-id: "com.osprey74.gps-logger"
-version: "1.0.0"
-description: "AT6668 GNSS による GPX ロガー"
-author: "osprey74"
-category: "navigation"
-icon: "assets/icon.png"   # 48x48 PNG
-requires:
-  - cap_lora_1262
-entry: "src/main"
+```json
+{
+  "package_name": "ncir-thermometer",
+  "version": "0.1.0",
+  "app_name": "NCIR Thermometer",
+  "bin_name": "thermometer_poc.py",
+  "description": "App15 MLX90614 non-contact thermometer PoC ...",
+  "runtime": "legacy-deb-only",
+  "caps": ["keyboard", "filesystem"]
+}
 ```
+
+> ⚠️ 旧来の `app.yaml`（`com.osprey74.*` 形式）は**非公式**。HANDOFF §2.7.3 参照。ショップ掲載メタ
+> （カテゴリ最大6・正方形 PNG アイコン・320×170 PNG スクショ最大6）も `app-builder.json` 側に持つ。
+> `runtime`: `legacy-deb-only`（独立実行＝C/Python/Rust 等自由）／`lvgl-dlopen`（C 共有ライブラリ・LVGL 9.5）。
 
 ## エコシステム連携
 
@@ -155,7 +162,7 @@ entry: "src/main"
 
 ## Versioning
 
-- **version_files**: 各アプリの `app.yaml` 内 `version` フィールド（アプリ単位で独立バージョニング）
+- **version_files**: 各アプリの `app-builder.json`（および併存する `app.yaml`）内 `version` フィールド（アプリ単位で独立バージョニング）
 - **mono_version**: false（モノレポだがアプリごとに独立バージョン）
 - **cargo_lockfile**: true（Rust アプリごとに `Cargo.lock` を保持）
 

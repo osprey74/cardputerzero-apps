@@ -1,6 +1,6 @@
 # HANDOFF: CardputerZero 開発ガイド
 
-> **作成日**: 2026-05-24 / **最終更新**: 2026-07-20（App16 方式A＝地磁気で自機の向きを画面上に固定して回転、を実装・uConsole＋CoreS3 実機実証・ハードアイアン較正確定）  
+> **作成日**: 2026-05-24 / **最終更新**: 2026-08-13（公式サイト `cardputer.cc`／開発者ポータル／Web エミュレータ公開を確認・§1.1 スペック確定〈1750mAh・native 170×320・I2C アドレスマップ〉・§2.7/§4.1 に `.deb`＋`app-builder.json`＋レジストリ先着順を反映）  
 > **対象デバイス**: M5Stack CardputerZero (Raspberry Pi CM0 搭載)  
 > **開発者**: 総司 (osprey74)  
 > **開発方針**: Spec-Driven / Claude Code + czdev ワークフロー  
@@ -80,6 +80,8 @@
 | 2026-07-20 | **App16 傾き補正を実機検証成功＋3D 較正確定**（uConsole＋CoreS3・FW 0.7.0 フラッシュ済）。当初 x/y のみの較正で tilt が暴れた（水平でも 69°ズレ）＝**z 軸未較正で mz が桁違いに支配**が原因と特定。`tools/calib3d.py`（全方位に転がして x/y/z min/max）で 3D ハードアイアン **offset −1215/438/144・span 348/336/309**（span は全磁場≈340・水平成分 186 とは別）を採取、z も同一スケール正規化。結果、傾け時 heading 振れを ~100°→~37°（中心安定）に圧縮・水平一致回復。較正変更に伴い `zero_offset` を **190.5**（正面=西で再測定）に再確定。config に 3D 較正（mag_offset/span_z 追加）＋no_tilt 保存。heading_source を z 対応（tilt は 3 軸・水平前提は x/y）に。残: 極端姿勢の残差±15°は楕円体フィットで改善余地。 |
 | 2026-07-20 | **App16 傾き補正（tilt compensation）をソフト実装**。`cores3-frontend` FW **0.7.0** で加速度を `"acc":{ok,x,y,z}`（getMag と同じ M5Unified 共通フレーム・raw・g 単位）で JSON 送出（ビルド成功・**未フラッシュ**）。`shared/cores3_bridge` に `Accel`（parse・テスト 14/14）、`shared/compass` に `tilt_compensated_heading`（AN4248・**水平時は `heading_from_xy` と一致＝既存 zero_offset 流用**）＋`HeadingFilter.update_tilt`（テスト 15/15）。`heading_source` は加速度があれば tilt 補正・無ければ水平フォールバック、サイドカー `--no-tilt`/config `no_tilt` で切替。⚠️ CoreS3 に FW 0.7.0 フラッシュ（COM5）後に実機検証（tilt の符号・z 軸較正の要否は実測で確定）。詳細は §11 App16 タスク。 |
 | 2026-07-20 | **App16 方式A（自機の向きを画面上に固定して全天図を回転）を実装し uConsole＋CoreS3 で実機実証**。回転は投影段階で完結（`shared/star_catalog/transform.py`・`scene.py` に `heading` 追加、方位ラベルも投影で回転追従）。地磁気処理を機種非依存コア **`shared/compass/`**（`HeadingFilter`＝円周 EMA＋偏角＋取付オフセット、`heading_from_xy`＝ハード/ソフトアイアン補正・単体テスト 11/11）に切出し、方位ソースを抽象化（`sidecar/heading_source.py`＝Fixed/CoreS3・**CZ 内蔵 BMM150 は実装追加のみで流用**）。**実機で 2 件解決**: ①ハードアイアン較正必須（生 mag は 360°で raw heading が 16°しか動かない＝offset x≈−1212/y≈468 が地磁気の~30倍。`tools/calib_probe.py` の 360°スイープで推定→除去で全方位追従）②UI 画面固着（SDL イベント未ポンプ→`ui/src/main.rs` に `EventPump` 追加・再ビルド）。物理 90°回転→画面 90°回転を before/after 確認。残: 絶対方位アライン（真北=上）・傾き補正。詳細は §3 App16「方位アライン（方式A）と実機較正」節。 |
+| 2026-08-01 | **App15 非接触温度計 `ncir-thermometer` PoC 実装・実機検証・コミット**（`apps/ncir_thermometer/`）。CoreS3 の MLX90614 温度を `shared/cores3_bridge` 経由で受け、NORMAL/WARN/ALERT 色分け＋Min/Max＋Rich TUI。単体テスト 6/6・実機 COM5 で常温 NORMAL(max 40.7℃)／ハンダゴテ ALERT(max 106.2℃) 確認。ディレクトリはアンダースコア（`-m` import 整合）。冒頭フックの「372℃」は未到達＝実測 106.2℃ を正とする旨を app 内 HANDOFF §10 に明記。 |
+| 2026-08-13 | **公式サイト公開を確認し §1.1/§2.7/§4.1/§8 を更新**。[cardputer.cc](https://cardputer.cc/)（Hub/AppStore & Registry・SPA・多言語）／[dev.cardputer.cc](https://dev.cardputer.cc/)（開発者ポータル）／[Web エミュレータ](https://cardputer.cc/emulator/) を §8 に追加。§1.1 を公式 docs で確定：**バッテリ 1750mAh**（NTC 内蔵・BQ27220YZFR・充電 5V/2A）・**ディスプレイ native 170×320**（本 PJ は 320×170 横運用）・**I2C アドレスマップ**（TCA8418=0x34/BMI270=0x68/BMM150=0x10/RX8130CE=0x32）。§2.7 に「配布=`.deb`／メタ=`app-builder.json`／レジストリ先着順（名前は `-_.` 無視）／スクショ 320×170 PNG 最大6・正方形アイコン」を追記。§4.1 の旧 `app.yaml` を「非公式・参考」と明示。SDK/Kernel docs は公式に "coming soon"。 |
 
 ---
 
@@ -94,9 +96,9 @@
 | GPU | VideoCore-IV @ 400MHz |
 | RAM | 512MB LPDDR2 |
 | ストレージ | microSD (標準版: 32GB 付属) |
-| ディスプレイ | 1.9" LCD ST7789v3 (320×170) |
-| キーボード | 46キー マトリクス |
-| バッテリー | 3.7V 1500mAh Li-Po（BQ27220 燃料計） |
+| ディスプレイ | 1.9" LCD ST7789v3（**native 170×320 縦**・本プロジェクトは 320×170 横向き運用） |
+| キーボード | 46キー マトリクス（コントローラ TCA8418RTWR・I2C `0x34`） |
+| バッテリー | 3.7V **1750mAh** Li-Po（NTC 内蔵・BQ27220YZFR 燃料計・推奨充電 5V/2A・アイドル 2.5W） |
 | Wi-Fi | 2.4GHz 802.11 b/g/n |
 | Bluetooth | 4.2 / BLE |
 | 有線LAN | 10/100M Ethernet |
@@ -108,7 +110,10 @@
 | ビデオコーデック | デコード H.264/MPEG-4 @1080p30・エンコード H.264 @1080p30 |
 | 音声 | ES8389 コーデック・MEMS マイク・1W スピーカー・3.5mm TRS 出力 |
 | 赤外線 | IR トランシーバ（送信 TX + 受信 RX） |
-| サイズ | 85 × 54mm (クレジットカードサイズ) |
+| サイズ | 84.0 × 54.0 × 23.1mm (クレジットカードサイズ) |
+
+> **I2C アドレスマップ（公式 docs 確定・2026-08-13）**: キーボード TCA8418=`0x34` / IMU BMI270=`0x68` / 地磁気 BMM150=`0x10` / RTC RX8130CE=`0x32`。
+> 本体 I2C1（G2=SDA/G3=SCL）上の既知アドレスとして、Grove/PaHUB に増設するセンサ（例: INA226=`0x40`・NCIR MLX90614=`0x5A`・PaHUB=`0x70`）と衝突しないことを設計時に確認する。
 
 ### 1.2 拡張インターフェース
 
@@ -700,6 +705,14 @@ Mac Mini への Tailscale SSH セッションを使うことを推奨。
 
 > **出所スタンプ**: 観測 2026-07-08 JST / `CardputerZero-AppBuilder@main`（リリース `czdev-v0.1.0`）/ `CardputerZeroRepository@ci/bootstrap`（リリース `apt-pool`）
 > **扱いの格**: 本節は **「暫定（公式観測）層」** = 公式リポジトリ由来の事実だが**確定仕様ではなく変更前提**。実機・自前検証で確定した項目は別途「確定」として上書きすること。設計上の意思決定（Rust 維持 vs C 移行等）は末尾の「設計方針層」に分離し、本節の観測が変わっても方針が巻き込まれないようにする。
+
+> 🆕 **公式ハブ／開発者ポータル公開（確認 2026-08-13）**：M5Stack が開発者・利用者向け情報サイトを公開。
+> - **[CardputerZero Hub / AppStore & Registry](https://cardputer.cc/)**（多言語: 簡体中文/英語/日本語。SPA）— `#/apps`・`#/documents`・`#/registry` と **Web エミュレータ（`/emulator/`・ブラウザで 320×170 を再現）** を提供。
+> - **[開発者ポータル `dev.cardputer.cc`](https://dev.cardputer.cc/)**。
+> - **確定・裏付けされた事実**：配布は **`.deb`**／ショップ情報は **`app-builder.json`** に格納（＝本プロジェクトの `legacy-deb-only`＋`app-builder.json` 方針が公式に整合）。**レジストリはパッケージ名「先着順（包名先到先得）」**で、名前照合は **ハイフン/アンダースコア/ピリオドを無視**（`ncir-thermometer` と `ncir_thermometer` は同一名扱い）。**共有ディレクトリのファイル/ディレクトリ名はパッケージ名で名前空間化**が必須。
+> - **ショップ掲載メタ**：カテゴリはカンマ区切り最大 6・アイコンは**正方形 PNG**（無ければ `.deb` 埋め込みを流用）・**スクリーンショットは 320×170 PNG 最大 6 枚**（自動クロップ）。
+> - **未確定**：SDK / Kernel ドキュメントは公式に "coming soon"。登録フローの最終形（PR か `czdev publish` か）は §2.7.0 の観測どおり流動的。
+> - **本プロジェクトの立場**：配布は非公開ローカルのみ（§2.7 末尾「設計方針層」）のため公開登録は当面不要。ただし「先着順パッケージ名」は将来公開時の名前先取りリスクとして記録。
 
 #### 2.7.0 両リポジトリの成熟度（＝観測の揺れ幅）
 
@@ -3672,8 +3685,13 @@ BMM150 を読む `HeadingSource` を足すだけで投影・compass は無改修
 
 ### 4.1 アプリメタデータ形式 (AppStore)
 
+> ⚠️ **実体は `app-builder.json`（下記 `app.yaml` は旧・非公式）**。§2.7.3 で判明したとおり公式マニフェストは
+> `app-builder.json`（`package_name`/`version`/`runtime`/`caps` 等）で、ショップ掲載情報（カテゴリ最大6・正方形 PNG
+> アイコン・**320×170 PNG スクリーンショット最大6枚**）もここに格納する（2026-08-13 公式サイトで確認）。本プロジェクトの各アプリ
+> は既に `app-builder.json` を採用済み（例: `apps/stellar-map/`・`apps/ncir_thermometer/`）。以下の `app.yaml` は**歴史的経緯の参考**として残す。
+
 ```yaml
-# app.yaml (各アプリルートに配置)
+# app.yaml （★旧・非公式。実体は app-builder.json。参考掲載）
 name: "GPS Logger"
 id: "com.osprey74.gps-logger"
 version: "1.0.0"
@@ -3928,6 +3946,9 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | Kickstarter | https://www.kickstarter.com/projects/m5stack/cardputerzero |
 | M5Stack 公式ストア | https://shop.m5stack.com/pages/m5-cardputerzero |
 | **CardputerZero 公式ドキュメント (ja) — EXT 2.54-14P ピン配出典** | [docs.m5stack.com/ja/CardputerZero](https://docs.m5stack.com/ja/CardputerZero) |
+| **CardputerZero Hub / AppStore & Registry（公式サイト・2026-08-13 確認）** | https://cardputer.cc/ |
+| **CardputerZero 開発者ポータル** | https://dev.cardputer.cc/ |
+| **CardputerZero Web エミュレータ（ブラウザで 320×170 再現）** | https://cardputer.cc/emulator/ |
 | AppBuilder GitHub | https://github.com/m5stack/CardputerZero-AppBuilder |
 | AppStore (公式 apt リポジトリ) | https://github.com/m5stack/CardputerZeroRepository |
 | Cap LoRa 1262 公式ドキュメント (Cap A) | https://docs.m5stack.com/ja/cap/Cap_LoRa-1262 |
