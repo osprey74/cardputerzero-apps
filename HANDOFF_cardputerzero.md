@@ -84,6 +84,7 @@
 | 2026-08-13 | **§2.8 競合ランドスケープ 新設**。公式レジストリ [`CardputerZero/packages`](https://github.com/CardputerZero/packages) の `pool/main/*/meta.json`（**全 38 アプリ直接取得**）＋公式 org first-party アプリを精査し、ストア公開アプリ一覧・我々×競合マトリクス・戦略メモを記録。**直接競合**: App10=zerosdr／App07=pwnagotchi,czconsole／App11=packetscope,netsim,netterm／App03=rfid／App01=Cap-LoRa-1262-GPS,location-tracker／App06=xiaozhi(クラウド)／App14=fxcam,camstreamemu。**ホワイトスペース(競合不在)**: App05(防災)/App13(INA226)/App15(NCIR)/App16(観測星座盤※astro-box は重力シミュで別物)/App04(SubGHz 受信解析)。 |
 | 2026-08-13 | **KS Update #11「A Closer Look at the Real Device」反映**。🔴**BMM150（地磁気）は EOL＝KS 版のみ搭載・将来の retail 版は非搭載**（当 PJ の実機は KS 版＝搭載あり。§1.1 に注記。App16 は CoreS3 BMM150 経由のため実装影響なし・retail 配布時のみ要注意）。**USB-C の 1 ポートが "5V CHG ONLY"（充電専用の疑い・要実機確認）**を §1.1 に追記。**公式 Hub は beta**（§2.7 に明示）。内蔵アプリ=Compass/Camera/Voice Recorder/Music Player/IR Remote/Files。SD 32GB。Powered by Raspberry Pi 使用許可取得。**出荷 11 月・オンスケジュール**。 |
 | 2026-08-13 | **公式サイト公開を確認し §1.1/§2.7/§4.1/§8 を更新**。[cardputer.cc](https://cardputer.cc/)（Hub/AppStore & Registry・SPA・多言語）／[dev.cardputer.cc](https://dev.cardputer.cc/)（開発者ポータル）／[Web エミュレータ](https://cardputer.cc/emulator/) を §8 に追加。§1.1 を公式 docs で確定：**バッテリ 1750mAh**（NTC 内蔵・BQ27220YZFR・充電 5V/2A）・**ディスプレイ native 170×320**（本 PJ は 320×170 横運用）・**I2C アドレスマップ**（TCA8418=0x34/BMI270=0x68/BMM150=0x10/RX8130CE=0x32）。§2.7 に「配布=`.deb`／メタ=`app-builder.json`／レジストリ先着順（名前は `-_.` 無視）／スクショ 320×170 PNG 最大6・正方形アイコン」を追記。§4.1 の旧 `app.yaml` を「非公式・参考」と明示。SDK/Kernel docs は公式に "coming soon"。 |
+| 2026-09-01 | **PaperMono 購入（LoRa/Meshtastic ピア）＋ App02 に到達距離フィールド計測ツールを新設**。PaperMono（ESP32-S3R8 / SX1262 内蔵 868〜923MHz）は Meshtastic 公式ファーム対応で、追加購入予定の **C6L Meshtastic Unit**（技適 **211-250603** 確認済）と設定一致で相互通信可。実機前に「C6L=固定送信 / PaperMono=移動受信 / Garmin GPSMAP 67i=GPX トラック源」で到達距離を先行検証できる解析ツール [`apps/lora-mesh-node/tools/rangetest_analyze.py`](apps/lora-mesh-node/tools/rangetest_analyze.py) を新規作成（rangetest.csv × GPX を時刻突合し 距離 vs RSSI/SNR・到達率・受信マップを出力。numpy/matplotlib・合成データで動作確認済み）。§3 App02 に「到達距離フィールド計測ツール」サブセクション追加。 |
 
 ---
 
@@ -1109,6 +1110,62 @@ App02 を実用化するには、インターネット ↔ LoRa の橋渡しを�
 
 メッシュ拡張により 3〜5 ホップで実効カバレッジ拡大可能。Rindo サイクリング想定スコープ
 （道央圏 札幌〜近郊）であれば自宅ゲートウェイ 1 + 中継 1〜2 ノードで実用範囲を確保できる。
+
+#### 到達距離フィールド計測ツール（`tools/rangetest_analyze.py`）
+
+上表は理論見積り。**実測で裏取り**するための解析ツールを `apps/lora-mesh-node/tools/` に整備済み
+（実機前に PaperMono＋C6L で先行検証可能）。
+
+##### 計測構成
+
+```
+[C6L (自宅・固定・USB-C 給電)]                 [PaperMono (移動・バッテリ)]
+   Meshtastic Range Test = sender      →920MHz→    Range Test = receiver
+   連番を数分おきに自動送信                          受信ごとに rangetest.csv へ記録
+                                                    （time / rx_rssi / rx_snr / num / payload）
+        ┌─────────────────────────────────────────────────────┐
+        │ 位置は GPX 側から与える（両機 GPS 非搭載）             │
+        │ Garmin GPSMAP 67i でトラック記録（時間ベース 1 秒推奨）│
+        └─────────────────────────────────────────────────────┘
+```
+
+- **PaperMono**（ESP32-S3R8 / SX1262 内蔵 / 868〜923MHz）を移動受信機、**C6L**を固定送信機として使用。
+  両機とも ESP32 系で Meshtastic 公式ファーム対応のため、`Region=JP`・同一 Channel/PSK・同一 Modem
+  preset を合わせれば疎通する（詳細は §1.3 関連デバイス表・購入メモ）。
+- **技適**: C6L は技適マーク＋工事設計認証番号 **211-250603**（FCC ID 2AN3WM5UNITC6L / CE 併載）を実ラベルで確認。
+  PaperMono 内蔵 SX1262 の技適は本体ラベルで要確認。送信する全機が技適済みであること。
+
+##### ツールの処理内容
+
+受信ログ `rangetest.csv` と GPX トラックを**時刻をキーに突合**し、位置と距離を復元して可視化する。
+
+- 受信点ごとに GPX 最近傍時刻の位置を引き当て → 固定局座標から haversine 距離を算出
+- **距離 vs RSSI / SNR** 散布図（`dist_vs_rssi_snr.png`）
+- **距離 vs パケット到達率**（`delivery_vs_distance.png`）… 「最遠で1発届いた」ではなく実運用指標の
+  到達率。欠落連番は前後受信の時刻を線形補間して発信時刻を推定し、位置化してビン集計（`--interval`
+  指定で区間外欠落も外挿）
+- 受信点を RSSI で色分けした**受信マップ**（`track_rssi_map.png`）＋固定局・欠落点
+- `enriched.csv`（連番/received/距離/RSSI/SNR/GPX時刻差）＋標準出力サマリ（最遠受信距離・到達率50%維持距離・RSSI レンジ）
+
+##### 実装上の勘所
+
+- ⚠️ **時計合わせが命** — receiver（PaperMono）の RTC が UTC 同期していないと突合がズレる。出発前に
+  Meshtastic アプリ等で時刻同期。ツールは突合時刻差の中央値を診断表示し、`--max-dt` 超で警告。
+  ズレが既知なら `--rx-clock-offset <秒>` で補正、位置不正確な点は信号グラフから自動除外（到達率には保持）。
+- 連番は Meshtastic の `num`（パケット ID）ではなく `payload` 末尾の整数を抽出（Range Test sender の送信本文）。
+- Windows cp932 コンソール文字化け対策で stdout/stderr を UTF-8 強制（既存 App15 ncir と同方式）。
+- 依存は numpy / matplotlib のみ（`tools/requirements.txt`）。合成データで end-to-end 動作確認済み。
+- 67i の inReach（Iridium 衛星）は本計測と無関係。67i は純粋に GPS トラック源として使用。
+
+```bash
+# 例: 固定局(C6L)座標を与えて解析
+python apps/lora-mesh-node/tools/rangetest_analyze.py \
+    --gpx track.gpx --csv rangetest.csv \
+    --fixed 43.06282,141.35357 --out-dir ./rangetest_out --interval 30
+```
+
+> このフィールド計測は **App01（gps-logger）× App02（lora-mesh-node）の合わせ技**の予行演習にもなる
+> （GPX 突合ロジックは App01 の実データ活用へ転用可能）。
 
 #### 周波数・電波法注意事項
 
