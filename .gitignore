@@ -77,6 +77,10 @@ $RECYCLE.BIN/
 secrets.toml
 credentials.json
 
+# Device config backups (contain home coordinates / node keys — local only)
+apps/*/C6L_settings_*.yaml
+apps/*/*_device_config_*.yaml
+
 # Device-side test data
 gps_logs/
 captures/

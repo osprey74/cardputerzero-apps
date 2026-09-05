@@ -85,6 +85,7 @@
 | 2026-08-13 | **KS Update #11「A Closer Look at the Real Device」反映**。🔴**BMM150（地磁気）は EOL＝KS 版のみ搭載・将来の retail 版は非搭載**（当 PJ の実機は KS 版＝搭載あり。§1.1 に注記。App16 は CoreS3 BMM150 経由のため実装影響なし・retail 配布時のみ要注意）。**USB-C の 1 ポートが "5V CHG ONLY"（充電専用の疑い・要実機確認）**を §1.1 に追記。**公式 Hub は beta**（§2.7 に明示）。内蔵アプリ=Compass/Camera/Voice Recorder/Music Player/IR Remote/Files。SD 32GB。Powered by Raspberry Pi 使用許可取得。**出荷 11 月・オンスケジュール**。 |
 | 2026-08-13 | **公式サイト公開を確認し §1.1/§2.7/§4.1/§8 を更新**。[cardputer.cc](https://cardputer.cc/)（Hub/AppStore & Registry・SPA・多言語）／[dev.cardputer.cc](https://dev.cardputer.cc/)（開発者ポータル）／[Web エミュレータ](https://cardputer.cc/emulator/) を §8 に追加。§1.1 を公式 docs で確定：**バッテリ 1750mAh**（NTC 内蔵・BQ27220YZFR・充電 5V/2A）・**ディスプレイ native 170×320**（本 PJ は 320×170 横運用）・**I2C アドレスマップ**（TCA8418=0x34/BMI270=0x68/BMM150=0x10/RX8130CE=0x32）。§2.7 に「配布=`.deb`／メタ=`app-builder.json`／レジストリ先着順（名前は `-_.` 無視）／スクショ 320×170 PNG 最大6・正方形アイコン」を追記。§4.1 の旧 `app.yaml` を「非公式・参考」と明示。SDK/Kernel docs は公式に "coming soon"。 |
 | 2026-09-01 | **PaperMono 購入（LoRa/Meshtastic ピア）＋ App02 に到達距離フィールド計測ツールを新設**。PaperMono（ESP32-S3R8 / SX1262 内蔵 868〜923MHz）は Meshtastic 公式ファーム対応で、追加購入予定の **C6L Meshtastic Unit**（技適 **211-250603** 確認済）と設定一致で相互通信可。実機前に「C6L=固定送信 / PaperMono=移動受信 / Garmin GPSMAP 67i=GPX トラック源」で到達距離を先行検証できる解析ツール [`apps/lora-mesh-node/tools/rangetest_analyze.py`](apps/lora-mesh-node/tools/rangetest_analyze.py) を新規作成（rangetest.csv × GPX を時刻突合し 距離 vs RSSI/SNR・到達率・受信マップを出力。numpy/matplotlib・合成データで動作確認済み）。§3 App02 に「到達距離フィールド計測ツール」サブセクション追加。 |
+| 2026-09-05 | **C6L 実機セットアップ＋GPS 統合を実機検証し §3 App02 に反映**。C6L 到着→`meshtastic` CLI(USB)で工場既定 EU_868/27dBm を **JP/13dBm/LongFast/固定局** に是正、FW を **2.7.26** へ更新（OTA不可→USB Web Flasher・設定初期化→バックアップ復元）。**Unit GPS v1.1(AT6668)を Port.X 接続で移動ノード化を実証**：Meshtastic GPS UART は **`rx_gpio=4`/`tx_gpio=5`**（推測の逆）、**「NO SAT」は GPS 出力中の電源再投入で解消**（起動時検出仕様）、`LOC_INTERNAL` で 22 衛星・座標が Garmin 実測と **~7m 一致**。スマホ位置混入は **iOS 位置権限「しない」**で遮断（デバイス側拒否設定なし）。**PC からの BLE 遠隔制御**（`--ble`・FIXED_PIN 123456）も確認。§3 App02 に「C6L に GPS を接続して移動ノード化」サブセクション追加。C6L 設定バックアップ [`apps/lora-mesh-node/C6L_settings_2026-09-03.yaml`](apps/lora-mesh-node/) は .gitignore（自宅座標・秘密鍵のため非コミット）。 |
 
 ---
 
@@ -1166,6 +1167,29 @@ python apps/lora-mesh-node/tools/rangetest_analyze.py \
 
 > このフィールド計測は **App01（gps-logger）× App02（lora-mesh-node）の合わせ技**の予行演習にもなる
 > （GPX 突合ロジックは App01 の実データ活用へ転用可能）。
+
+#### C6L に GPS を接続して移動ノード化（Unit GPS v1.1・実機検証済 2026-09-05）
+
+C6L（Meshtastic ノード）の Port.X に **M5Stack Unit GPS v1.1（AT6668 / UART 115200 / NMEA0183）**を
+Grove 接続し、C6L 自身に測位させる構成を実機で確認。移動側ノードが自前で測位できるため、
+**レンジテストで移動側の位置が LoRa Position パケットに載り、Garmin GPX 突合が不要**になる。
+
+- **配線（確定）**: Port.X 信号 = G4 / G5。Meshtastic の GPS UART は
+  **`position.rx_gpio=4`（C6L RX=G4 ← GPS TX）/ `position.tx_gpio=5`（C6L TX=G5 → GPS RX）**。
+  ⚠️ 当初 M5 配色規約から推測した rx=5/tx=4 は**逆で不通**。実機で rx=4/tx=5 が正と判明。
+- **有効化**: `position.gps_mode=ENABLED`＋`position.fixed_position=false`。
+- ⚠️ **「NO SAT」時は電源再投入**: Meshtastic は**起動時に GPS を検出**する。GPS が未出力の
+  タイミングで再起動すると見失い「NO SAT」固定になる。**GPS 出力中（ユニット LED 点滅＝fix）に
+  電源再投入 or RESET**すれば再検出される。
+- **実証結果**: `locationSource=LOC_INTERNAL`・22 衛星・座標 43.084647/141.2856925 を取得＝
+  Garmin GPSMAP 67i 実測（43.084645/141.285780）と **~7m 一致**。
+- **スマホ位置の混入注意**: Meshtastic アプリの Provide Location が ON だとノード位置が
+  `LOC_EXTERNAL`（スマホ由来）で上書きされる。デバイス側に外部位置拒否設定は無い（position 全項目確認）。
+  **iOS の位置情報アクセスを「しない」**にすれば恒久遮断（アプリが端末位置を取得不可）。
+- **PC からの BLE 遠隔制御**: `meshtastic --ble Cfix_bbe0` で USB なし読み取り可。要 Windows
+  ペアリングのため `bluetooth.mode=FIXED_PIN`/PIN=123456 に設定。窓際の距離では BLE がやや不安定。
+- 固定局へ戻す時は `apps/lora-mesh-node/C6L_settings_2026-09-03.yaml`（.gitignore／秘密鍵除外）を
+  `--configure`＋`gps_mode DISABLED`。
 
 #### 周波数・電波法注意事項
 
