@@ -1191,6 +1191,17 @@ Grove 接続し、C6L 自身に測位させる構成を実機で確認。移動�
 - 固定局へ戻す時は `apps/lora-mesh-node/C6L_settings_2026-09-03.yaml`（.gitignore／秘密鍵除外）を
   `--configure`＋`gps_mode DISABLED`。
 
+#### エコシステム連携：帰路ナビ「Nostos」（姉妹リポジトリ）
+
+App02 の LoRa／Meshtastic 位置受信を土台に、**オフライン「出発点（車）まで戻る」簡易ナビ**を最終形とする構想。
+
+- **最終形（本リポジトリ側）**: 登山・ハイキングで **CardputerZero を携行**（自機 GPS＝App01 gps-logger）、
+  **車内に C6L を設置**（車の位置を Meshtastic 送信）。CZ が **App02 の LoRa で C6L の位置を受信**し、
+  **移動履歴ルート＋車への帰路方向（方位・距離）**を表示。App01 × App02 の融合アプリ。
+- **PaperMono プロトタイプ**: 受信＋ブレッドクラム描画のロジックを先行実装するのは
+  **別リポジトリ [`Nostos`](../Nostos/)（`g:\dev\Nostos`）**。ツールチェーン／ライセンス（Meshtastic=GPL）分離のため独立。
+- 距離・方位算出（haversine / bearing）は言語非依存で CZ 版と共通化する。
+
 #### 周波数・電波法注意事項
 
 ```
