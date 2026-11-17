@@ -98,6 +98,7 @@
 | 2026-11-17 | **メモリ節約策を実測にもとづき検討し、`gpu_mem` を 128→64 に変更**。OS から見えるメモリが 352MB→415MB（+62MB）に増え、カメラ（プレビュー・撮影）の正常動作を確認。スワップが zram（メモリ内圧縮）であること、標準ランチャーの実使用が約 10MB にとどまることも判明し、独自ランチャーへの置き換えは見送り。§9.1 の初回調査結果に内訳を追記。 |
 | 2026-11-17 | **Cap LoRa-1262 の GPS を実機確認**。標準 GPS アプリで測位成功。GPS 出力は `/dev/serial0`・**115200bps**（従来記載の 9600 は誤り）、Cap の電源は EXT 5V 出力（`/sys/class/leds/ext_5v_out/brightness`）に依存し自作アプリ側で ON にする必要があること、IO エキスパンダ 0x43 は給電中のみ現れることを確認。§9.1 と §3 App01 のデバイスパスを更新。 |
 | 2026-11-17 | **Cap LoRa-1262 の SX1262 を実機で確認（送信なし）**。EXT 5V を ON にして GPIO26 でリセットし、`/dev/spidev0.1` で状態・識別文字列・同期語レジスタを読み取り。**RST=G26・BUSY=G22・NSS=G7・SPI0 の推定が確定**（IRQ=G23 は未検証）。リセット直後のエラー値から TCXO（DIO3 給電）構成の可能性を把握。§1.3 ピン対応表の確度と §9.1 を更新。 |
+| 2026-11-17 | **Cap CC1101 の両チップを実機で確認し、CS の取り違えを訂正**。CC1101＝`/dev/spidev0.1`（CS=G7・VERSION 0x14）、ST25R3916＝CS=G22（手動 CS・IC Identity 0x2A）で応答。ラベル写真の読取で CC_CS と NFC_CS を逆に記載していたため、§1.3 ピン対応表・§3 App03／App04・§9.1 を訂正。取り違えた状態での最初の読み取りで CC1101 に意図しないレジスタ書き込みが 2 件発生したが、送信ストローブは発行しておらず電波は出していない。EXT 5V を切っても CC1101 の状態が残る挙動を確認し、初期化時の SRES を必須と記載。 |
 
 ---
 
@@ -235,18 +236,18 @@ Cap CC1101 の実機ラベルに機種別のピン表があり、Cap-Bus のヘ�
 |---|---|---|---|---|
 | 上段 1 | G3 | **G26** | RST | RST |
 | 上段 2 | G4 | **G23** | NFC_IRQ | IRQ（DIO1） |
-| 上段 3 | G6 | **G22** | CC_CS | BUSY |
+| 上段 3 | G6 | **G22** | **NFC_CS**（ST25R3916・GPIO 手動 CS） | BUSY |
 | 上段 4 | G40 | **G11**（SPI0 SCLK） | SCK | SCK |
 | 上段 5 | G14 | **G10**（SPI0 MOSI） | MOSI | MOSI |
 | 上段 6 | G39 | **G9**（SPI0 MISO） | MISO | MISO |
-| 上段 7 | G5 | **G7**（SPI0 CE1） | NFC_CS | NSS |
+| 上段 7 | G5 | **G7**（SPI0 CE1） | **CC_CS**（CC1101・ハードウェア CS） | NSS |
 | 下段 4 | G8 | **G2**（I2C1 SDA） | SDA | SDA（PI4IOE5V6408＝0x43） |
 | 下段 5 | G9 | **G3**（I2C1 SCL） | SCL | SCL |
 | 下段 6 | G13 | **G14**（UART TXD） | RF_SW0 | GPS RX |
 | 下段 7 | G15 | **G15**（UART RXD） | GDO0 | GPS TX |
 
-- **確度**: Cap CC1101 の Zero 列は実機ラベルの明記（写真読取・実機での応答確認は未実施）。Cap LoRa-1262 はラベルに ADV 用しか無く同じ位置対応を当てはめたものだが、**2026-11-17 に実機で RST／BUSY／NSS／SPI／GPS UART を確認済み**（IRQ=G23 のみ未検証・§9.1）
-- Zero 側は Raspberry Pi 標準の **SPI0（`/dev/spidev0.x`）＋ I2C1 ＋ UART** に載る。CC1101 の CS（G22）は SPI0 のハードウェア CE ではないため GPIO 手動 CS で扱う
+- **確度**: Cap CC1101 は **2026-11-17 に実機で両チップの応答を確認済み**。当初ラベル写真の読取で CC_CS と NFC_CS を逆に記載していたが、実機で **CC1101＝G7（CE1）／ST25R3916＝G22** と確定（公式回路図 V0.3 の ADV 用 CS=G5・NFC_CS=G6 と位置対応で一致）。Cap LoRa-1262 はラベルに ADV 用しか無く同じ位置対応を当てはめたものだが、**2026-11-17 に実機で RST／BUSY／NSS／SPI／GPS UART を確認済み**（IRQ=G23 のみ未検証・§9.1）
+- Zero 側は Raspberry Pi 標準の **SPI0（`/dev/spidev0.1`）＋ I2C1 ＋ UART** に載る。CC1101 は CE1（G7）でそのまま扱える。**ST25R3916 の CS（G22）は SPI0 のハードウェア CE ではない**ため、spidev の `no_cs` を有効にして GPIO 手動 CS で扱い、その間 CC1101 側（CE1）が選択されないようにする。SPI モードは CC1101＝モード 0・ST25R3916＝モード 1
 - G14/G15 を Cap が使う点は変わらず、**Chain Encoder との排他は従来どおり**
 
 #### 関連デバイス（自宅 LoRa ゲートウェイ用）
@@ -1373,12 +1374,14 @@ Cap CC1101 に内蔵の ST25R3916 (13.56 MHz NFC) を使い、カードの読み
 
 ```
 Cap CC1101 — ST25R3916 (NFC)
-  接続バス: SPI0 (Cap-Bus 共有) → /dev/spidev0.1
-  ピンアサイン（CardputerZero）:
-    NFC_IRQ: G23
-    NFC_CS:  G7   （SPI0 CE1）
-    RST:     G26
+  接続バス: SPI0 (Cap-Bus 共有) → /dev/spidev0.1・SPI モード 1
+  ピンアサイン（CardputerZero・2026-11-17 実機で応答確認）:
+    NFC_CS:  G22  （GPIO 手動 CS。spidev は no_cs を有効にし、CE1＝CC1101 が選択されないようにする）
+    NFC_IRQ: G23  （ラベル記載・未検証）
+    RST:     G26  （ラベル記載・未検証）
     SCLK: G11 / MOSI: G10 / MISO: G9 （CC1101 と共有）
+  識別: IC Identity レジスタ 0x3F = 0x2A（ST25R3916 rev 2）
+  電源: EXT 5V 出力（/sys/class/leds/ext_5v_out/brightness）を ON にしてから使う
   ※ 同じ Cap の RF_SW0=G14・GDO0=G15 が本体 EXT の UART と同一ピン → Chain Encoder と排他
   ※ 旧記載（NFC_IRQ=G4 / NFC_CS=G6 / G40・G14・G39）は Cardputer-ADV 用の番号（§1.3 ピン対応表）
 ```
@@ -1455,13 +1458,15 @@ Cap CC1101 に内蔵の CC1101 を使い、Sub-GHz 帯の無線信号を受信�
 
 ```python
 # CC1101 SPI 接続 (Cap CC1101 経由 / CardputerZero 用ピン)
-CC1101_CS    = "G22"   # GPIO 手動 CS（SPI0 のハードウェア CE ではない）
+CC1101_SPI   = "/dev/spidev0.1"  # CS=G7（SPI0 CE1・ハードウェア CS）・SPI モード 0／実機で応答確認 2026-11-17
+CC1101_CS    = "G7"
 CC1101_SCLK  = "G11"   # SPI0 SCLK
 CC1101_MOSI  = "G10"   # SPI0 MOSI
 CC1101_MISO  = "G9"    # SPI0 MISO
 CC1101_RF_SW0 = "G14"  # RF スイッチ制御 ※ 本体 EXT UART_TXD と同一ピン → Chain Encoder と排他
 CC1101_GDO0  = "G15"   # 割り込み出力   ※ 本体 EXT UART_RXD と同一ピン → Chain Encoder と排他
-CC1101_RST   = "G26"
+# 識別: PARTNUM=0x00 / VERSION=0x14。同じバスの ST25R3916 は CS=G22（手動）なので常に H に保つ
+# 電源は EXT 5V 出力を ON。5V を切っても内部状態が残ることがあるため、初期化時に必ず SRES を発行
 # 旧記載（CS=G5 / G40 / G14 / G39 / RF_SW0=G13）は Cardputer-ADV 用の番号（§1.3 ピン対応表）
 # ラベルには RF_SW1 / GDO2 の表記もあるが、Zero 側の割当は未確認
 ```
@@ -4407,7 +4412,12 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
     - **315MHz**: 1 波・FSK・片方向通信・**EIRP 0.04mW**（上限 250µW）・送信時間制限装置と識別符号の自動送受信機能が要件（ARIB STD-T93）
     - 試験の親機は STAMPS3A（Cardputer-ADV 系）＋ M5Stack 提供の制御ソフト
   - ⬜ 残: 自作ソフトで送信する場合は上記の周波数・出力・帯域幅・送信時間・キャリアセンスをすべて満たす必要があり、CC1101 の出力レジスタ値と実出力の対応も未検証。**受信のみ運用を継続**し、送信は必要が生じた時点で専門家確認のうえ検討
-- [x] **[Cap B]** 🔴 **CardputerZero 用ピンアサインを実機ラベルで確定（2026-11-17）— 上記の回路図 V0.3 由来のピン（G5/G13/G40/G14/G39/G4/G6）は Cardputer-ADV 用で、Zero では異なる**。ラベル「Zero」行: **RF_SW0=G14 / GDO0=G15 / CC_CS=G22 / NFC_IRQ=G23 / NFC_CS=G7 / RST=G26 / SCK=G11 / MOSI=G10 / MISO=G9 / SDA=G2 / SCL=G3**（＝Raspberry Pi の SPI0＋I2C1。NFC_CS は SPI0 CE1、CC_CS=G22 は GPIO 手動 CS）。RF_SW0/GDO0 が G14/G15 を使うため **EXT-UART（Chain Encoder）との排他は変わらず**。※小さい印字の写真読取のため、配線コードを書く際に実機で再確認すること
+- [x] **[Cap B]** 🔴 **CardputerZero 用ピンアサインを実機で確定（2026-11-17・送信なしの識別読み取り）** — 従来の回路図 V0.3 由来のピン番号（G5/G13/G40/G14/G39/G4/G6）は Cardputer-ADV 用で、Zero では下記のとおり
+  - **CC1101**: `/dev/spidev0.1`（**CS=G7＝SPI0 CE1**・モード 0）で応答。PARTNUM=0x00・**VERSION=0x14**・MARCSTATE=IDLE・FREQ レジスタはリセット既定値
+  - **ST25R3916**: **CS=G22（GPIO 手動 CS・spidev は `no_cs`）**・モード 1 で応答。IC Identity（0x3F）=**0x2A**（種別 00101＝ST25R3916・リビジョン 2）
+  - 共有: SCK=G11／MOSI=G10／MISO=G9。ラベル記載: RF_SW0=G14／GDO0=G15／NFC_IRQ=G23／RST=G26／SDA=G2／SCL=G3（これらは未検証）。Cap CC1101 は I2C デバイスを持たない（給電中の `i2cdetect` に新規アドレス無し）
+  - ⚠️ **ラベル写真の読取では CC_CS と NFC_CS を逆に取り違えていた**（当初 CC_CS=G22／NFC_CS=G7 と記載）。最初の読み取りを誤った前提で行ったため、CC1101 に対して意図しない書き込み（TX FIFO に 1 バイト・IOCFG2 に 0x00）が発生した。送信ストローブは発行しておらず状態は IDLE のまま＝電波は出していない。なお EXT 5V を切っても CC1101 の内部状態が保持されていた（TXBYTES=1 が残存）ため、**5V 出力の OFF では完全な電源断にならない可能性**がある。使用前に必ず SRES（リセット）を発行する設計とする
+  - RF_SW0/GDO0 が G14/G15 を使うため **EXT-UART（Chain Encoder）との排他は変わらず**
 - [ ] **[Cap B]** nfcpy の ST25R3916 対応確認 (未対応の場合は libst25r3916 C バインディングを検討)
 
 #### その他
