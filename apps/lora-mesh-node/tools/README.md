@@ -60,3 +60,22 @@ python rangetest_analyze.py \
 - GPSMAP 67i の inReach(Iridium 衛星)は本解析と無関係。67i は純粋に GPS トラック源。
 - 送信する全機は日本国内 920MHz 帯の技適が必要(C6L=技適 211-250603 / PaperMono=技適 211-260514、いずれも 2026-11-17 に認証条件まで照合済)。
 - 技適は番号だけでなく**認証条件(周波数・帯域幅・出力・送信時間)の範囲内**で使う必要がある。Cap LoRa-1262(211-251216)は 922.0〜923.4MHz・125kHz/5mW・1 回 0.4 秒未満で、Meshtastic 既定の LongFast では送信できない(HANDOFF §3 App02)。CardputerZero をレンジテストに使う場合は**受信側**とする。C6L(211-250603)の LoRa 認証条件も Cap と同一(5mW・125/500kHz・1 回 0.4 秒未満)で、**従来の JP/13dBm/LongFast 設定は認証条件の外**。C6L は現在 Nostos の `firmware/c6l-beacon`(923.0MHz・125kHz・+6dBm・LBT)で稼働しており認証条件内(2026-11-17 確認)。本ツールは Meshtastic の Range Test ログを前提にしているため、今後のレンジテストはビーコン受信ログを入力とする形に改める必要がある。PaperMono の LoRa 認証は 500kHz・7mW のみのため、受信側として使う。
+
+## sx1262_rx_probe — Cap LoRa-1262 受信専用プローブ(CardputerZero 実機用)
+
+[`sx1262_rx_probe.py`](sx1262_rx_probe.py) は、CardputerZero に Cap LoRa-1262 を装着した状態で
+SX1262 の配線・初期化を確認し、C6L の Nostos ビーコンを受信して RSSI・SNR・CRC を表示する。
+**送信コマンドは一切発行しない受信専用**のスクリプト。
+
+```bash
+# 実機へ転送して実行(工場出荷イメージの python3 / spidev / gpiod / i2c-tools だけで動く・sudo 不要)
+scp sx1262_rx_probe.py pi@cardputerzero.local:
+ssh pi@cardputerzero.local 'LISTEN=600 python3 sx1262_rx_probe.py'
+```
+
+- 標準の LoRa / GPS アプリを終了してから実行する(SPI・UART・5V 出力を取り合うため)。
+- 起動時に EXT 5V 出力を ON にし、終了時に元の状態へ戻す。
+- 受信設定は 923.000MHz・BW125kHz・SF9・CR4/5・同期語 0x3A(Nostos ビーコン)に固定。
+- 受信フレームの位置(緯度・経度)は表示しない。
+- 配線と初期化手順の根拠は HANDOFF §9.1「Cap A: Cap LoRa-1262」。2026-11-17 に 7 通を欠けなく受信して確認済み。
+- 上記の `requirements.txt` は `rangetest_analyze.py` 用で、本スクリプトには不要。

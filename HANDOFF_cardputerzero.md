@@ -99,6 +99,8 @@
 | 2026-11-17 | **Cap LoRa-1262 の GPS を実機確認**。標準 GPS アプリで測位成功。GPS 出力は `/dev/serial0`・**115200bps**（従来記載の 9600 は誤り）、Cap の電源は EXT 5V 出力（`/sys/class/leds/ext_5v_out/brightness`）に依存し自作アプリ側で ON にする必要があること、IO エキスパンダ 0x43 は給電中のみ現れることを確認。§9.1 と §3 App01 のデバイスパスを更新。 |
 | 2026-11-17 | **Cap LoRa-1262 の SX1262 を実機で確認（送信なし）**。EXT 5V を ON にして GPIO26 でリセットし、`/dev/spidev0.1` で状態・識別文字列・同期語レジスタを読み取り。**RST=G26・BUSY=G22・NSS=G7・SPI0 の推定が確定**（IRQ=G23 は未検証）。リセット直後のエラー値から TCXO（DIO3 給電）構成の可能性を把握。§1.3 ピン対応表の確度と §9.1 を更新。 |
 | 2026-11-17 | **Cap CC1101 の両チップを実機で確認し、CS の取り違えを訂正**。CC1101＝`/dev/spidev0.1`（CS=G7・VERSION 0x14）、ST25R3916＝CS=G22（手動 CS・IC Identity 0x2A）で応答。ラベル写真の読取で CC_CS と NFC_CS を逆に記載していたため、§1.3 ピン対応表・§3 App03／App04・§9.1 を訂正。取り違えた状態での最初の読み取りで CC1101 に意図しないレジスタ書き込みが 2 件発生したが、送信ストローブは発行しておらず電波は出していない。EXT 5V を切っても CC1101 の状態が残る挙動を確認し、初期化時の SRES を必須と記載。 |
+| 2026-11-17 | **Cap LoRa-1262 の公式回路図（Cap V1.1／Stamp LoRa-1262 Mini）を読解し §9.1 に追記**。TCXO は 3.0V・DIO3 給電、RF スイッチの電源は IO エキスパンダ 0x43 の P0（High 必須）で送受切替は DIO2、Cap の電源は Cap-Bus の 5VOUT、GPS 側は LNA 常時 ON でエキスパンダ制御不要（`ANTENNA OPEN` 通知は異常でないと推定）であることを確認。 |
+| 2026-11-17 | **Cap LoRa-1262 で C6L の Nostos ビーコンを実受信（受信のみ）**。IRQ（DIO1）=G23 を確定し全ピンが実機で確定。回路図どおりの初期化（EXT 5V・エキスパンダ P0 High・TCXO 3.0V・DIO2 RF スイッチ）で 923.0MHz／125kHz／SF9／同期語 0x3A を受信し、10 分間で 7 通を欠けなく受信（CRC すべて正常・遮蔽物なしで −73〜−79dBm）。CardputerZero で C6L ビーコンを受ける経路がハードウェアとして成立。§9.1 に初期化手順と結果を記録。 |
 
 ---
 
@@ -4383,7 +4385,21 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
   - ✅ **実機ラベル（表側）確認（2026-11-17・実機写真）**: ラベルのピン表記は **Cardputer-ADV 用の 1 系統のみ**（Zero 行なし）。上段 RST=G3 / IRQ=G4 / BUSY=G6 / SCK=G40 / MOSI=G14 / MISO=G39 / NSS=G5、下段 5V IN / GND / 5V OUT / G8 SDA / G9 SCL / G13 RX / G15 TX。**PI4IO ADDR: 0x43**、BYPASS: EP0（エキスパンダ P0 経由と読める・機能は要確認）、GNSS は ATGM336H・アンテナ内蔵、表記 868〜923MHz
   - 🟡 **CardputerZero でのピン（推定・要実機確認）**: Cap CC1101 ラベルの ADV 行と Zero 行はヘッダ位置で 1 対 1 対応しており（G3→G26 / G4→G23 / G6→G22 / G40→G11 / G14→G10 / G39→G9 / G5→G7 / G8→G2 / G9→G3 / G13→G14 / G15→G15）、同じ Cap-Bus に挿す本 Cap にも適用すると **RST=G26 / IRQ(DIO1)=G23 / BUSY=G22 / SCK=G11 / MOSI=G10 / MISO=G9 / NSS=G7（SPI0 CE1）/ SDA=G2 / SCL=G3 / GPS は UART G14(TXD)・G15(RXD)**。§1.2 の EXT ピンマップ（Pin 8/10=G2/G3・Pin 12/14=G15/G14）とも整合。**本書中の LoRa_NSS=G5 等は ADV 用の番号**
   - ✅ **実機で確定（2026-11-17・送信なしの状態読み取りのみ）**: EXT 5V を ON → GPIO26 でリセット → `/dev/spidev0.1`（モード 0・1MHz）で応答を確認。**RST=G26・BUSY=G22・NSS=G7（SPI0 CE1）・SCK/MOSI/MISO=G11/G10/G9 は確定**（リセット中に BUSY が H、解除後 L に戻る）。GetStatus＝STBY_RC、レジスタ 0x0320 の識別文字列「SX1261 V2D 2D02」（SX126x 系共通の文字列）、LoRa 同期語レジスタ 0x0740＝0x14 0x24（リセット既定値）。GPS NMEA も `/dev/serial0`・115200bps で確認済み
-  - ⬜ 残: **IRQ（DIO1）=G23 は未検証**（割り込みを発生させていないため）。リセット直後の GetDeviceErrors が 0x0020（XOSC 起動エラー）＝**TCXO を DIO3 で給電する構成の可能性**が高く、受信・送信の前に `SetDIO3AsTcxoCtrl` が必要と推定（電圧値は回路図で要確認）。RF スイッチ／BYPASS（エキスパンダ 0x43 の EP0）の制御も未調査
+  - ✅ **公式回路図で初期化に必要な構成を確認（2026-11-17）** — [Cap LoRa-1262 V1.1](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1208/U214-sche-Cap-LoRa1262_SCH_V1.1_20251029_2025_11_07_22_53_19.pdf)／[Stamp LoRa-1262 Mini](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1208/NEW-1262-SCH_A1-Lora_2025_08_27_10_58_52.pdf)
+    - **TCXO は 3.0V・DIO3 から給電**（X1G0041310042・回路図に「VDD: 3.0V」）。`SetDIO3AsTcxoCtrl(3.0V)` が必須。リセット直後の XOSC 起動エラー（0x0020）はこの未設定が原因
+    - **RF スイッチ（FM8625H）の電源は IO エキスパンダ P0（ネット名 BYPASS → モジュールの SW ピン → SX_ANT_SW）**、送受の切替は SX1262 の DIO2。→ 受信前に **エキスパンダ 0x43 の P0 を出力 High** にし、`SetDIO2AsRfSwitchCtrl(1)` を設定する。P0 を High にしないと RF スイッチが無給電で受信感度が出ない
+    - エキスパンダ P1（SHUT_DOWN）は回路図上で未接続。ADDR は GND＝0x43
+    - **電源**: Cap の 3.3V（JW5712）は Cap-Bus の **5VOUT ピン**から給電される（実機で確認した「EXT 5V を ON にしないと動かない」と一致）。Cap 上の Grove の 5V も同じ 5VOUT
+    - **GPS**: GP-02（ATGM336H）は ON/OFF ピンが 3.3V へプルアップ・LNA（MAX2659）の SHDN は VCC 直結＝**常時 ON でエキスパンダ制御は不要**。アンテナは内蔵チップアンテナ（ANT181804）→ LNA → モジュール。**`$GPTXT ... ANTENNA OPEN` は、アンテナ端子に直流負荷が無い構成のため出る通知と推定**（標準アプリで測位できており異常ではない）。バックアップ電池（BT1）あり
+    - Cap-Bus の割当（ADV 表記）: RST=G3／IRQ=G4／BUSY=G6／SCK=G40／MOSI=G14／MISO=G39／NSS=G5／GPS-RX=G13／GPS-TX=G15（実機ラベルと一致）
+  - ✅ **受信系を実機で一通り確認（2026-11-17・受信のみ／送信コマンドは不使用）**
+    - **IRQ（DIO1）=G23 を確定**: 受信待ち 0.5 秒のタイムアウト割り込みが 0.503 秒後に G23 へ届くことを確認。→ **Cap LoRa-1262 の全ピンが実機で確定**
+    - **初期化手順（動作確認済み）**: EXT 5V を ON → エキスパンダ 0x43 の P0 を出力 High（レジスタ 0x05 bit0=1・0x03 bit0=1・0x07 bit0=0。デバイス ID レジスタ 0x01＝0xA2）→ G26 でリセット → `SetStandby(RC)` → `SetDIO3AsTcxoCtrl(3.0V, 5ms)` → `Calibrate(0x7F)` → `SetDIO2AsRfSwitchCtrl(1)` → `SetRegulatorMode(DC-DC)` → LoRa・周波数・`CalibrateImage(902–928MHz)`・変調・パケット・同期語 → `SetRx`。設定後の `GetDeviceErrors`＝0x0000（TCXO 未設定時の XOSC エラーが解消）
+    - **C6L の Nostos ビーコンを実受信**: 923.000MHz・125kHz・SF9・CR4/5・プリアンブル 8・同期語 0x3A（SX126x レジスタ値 0x34 0xA4）。10 分間の受信待ちで **7 通を受信、通番 1〜7 が欠けなく、LoRa CRC とフレーム CRC-8 はすべて正常**（16 バイト・版 1）
+    - **受信強度（室内・近距離）**: 遮蔽物なし −73〜−79dBm／SNR +9〜+11dB、遮蔽物あり −86〜−87dBm／SNR −1〜+2dB。無信号時の瞬時 RSSI は約 −90dBm（RX ブーストゲイン有効・本体や周辺機器の雑音を含む可能性）。屋外の到達距離は別途レンジテストで評価する
+    - 試験スクリプト（Python・spidev＋gpiod・受信専用）は [`apps/lora-mesh-node/tools/sx1262_rx_probe.py`](apps/lora-mesh-node/tools/sx1262_rx_probe.py)（実機では `~/cz_probe/sx1262_rx.py` として実行）。`pi` ユーザーで sudo なしで動作
+    - 参考: C6L のダブルクリック 1 回に対し 3〜5 秒間隔で 5 通届いた回があった（原因未確認・Nostos 側の挙動として要確認）
+  - ⬜ 残: 屋外レンジテスト、長時間受信時の消費電力、標準 LoRa アプリの送信設定の確認
 - [x] **Cap LoRa-1262 の GPS を実機で確認（2026-11-17）**
   - 標準の GPS アプリ（`m5cardputerzero-cap-lora-1262-gps`）で測位できることを確認（総司確認）
   - **GPS の出力は `/dev/serial0`（`ttyS0`）・115200bps**。NMEA は GP／GL／GA／BD／GQ（QZSS）の各 GSV と GNGGA・GNRMC・GNGSA・GNVTG・GNZDA・GNGLL。9600bps では受からない（App01 の「デフォルト 9600」は誤り）
@@ -4391,7 +4407,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
   - IO エキスパンダ PI4IOE5V6408（I2C 0x43）は Cap 給電中のみ現れる（ラベル表記と一致）
   - GPS アプリ実行中は `/dev/serial0` が専有され、他プロセスからは「Device or resource busy」で開けない
   - `pi` は dialout／spi／i2c／gpio グループ所属。`python3` の `spidev`・`pyserial`・`gpiod` 2.2.0 は導入済み
-  - ⬜ 残: 給電直後の NMEA に `$GPTXT,...,ANTENNA OPEN` が出る。標準アプリがエキスパンダ（0x43）経由でアンテナ／LNA 等を制御している可能性があり、自作アプリで同じ設定が要るかを要調査
+  - ✅ 給電直後の NMEA に出る `$GPTXT,...,ANTENNA OPEN` は、回路図上 GPS 側にエキスパンダ制御が無く LNA も常時 ON のため、**自作アプリで追加の設定は不要**と判断（下記「公式回路図で初期化に必要な構成を確認」）
 - [ ] AT6668 (ATGM336H-6N) と Linux gpsd の互換性テスト（gpsd は未導入。pyserial で NMEA を直接読む構成なら不要）
 - [ ] SX1262 レジスタ設定で日本の技適範囲内に出力制限する手順の検証
 - [x] **[Cap A]** Chain Encoder との排他確認済み（2026-06-19）: GPS の UART(G14/G15) が EXT-UART と同一ピンのため**併用不可**を確定
