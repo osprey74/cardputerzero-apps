@@ -92,3 +92,6 @@ sub_dumps/
 .claude/sessions/
 .claude/settings.json
 .claude/settings.local.json
+
+# 技適の試験成績書 PDF（「複製禁止」透かし・全文以外の複製不可の注記あり＝公開リポジトリに含めない）
+docs/Cap技適資料/

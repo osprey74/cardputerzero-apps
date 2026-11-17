@@ -86,6 +86,7 @@
 | 2026-08-13 | **公式サイト公開を確認し §1.1/§2.7/§4.1/§8 を更新**。[cardputer.cc](https://cardputer.cc/)（Hub/AppStore & Registry・SPA・多言語）／[dev.cardputer.cc](https://dev.cardputer.cc/)（開発者ポータル）／[Web エミュレータ](https://cardputer.cc/emulator/) を §8 に追加。§1.1 を公式 docs で確定：**バッテリ 1750mAh**（NTC 内蔵・BQ27220YZFR・充電 5V/2A）・**ディスプレイ native 170×320**（本 PJ は 320×170 横運用）・**I2C アドレスマップ**（TCA8418=0x34/BMI270=0x68/BMM150=0x10/RX8130CE=0x32）。§2.7 に「配布=`.deb`／メタ=`app-builder.json`／レジストリ先着順（名前は `-_.` 無視）／スクショ 320×170 PNG 最大6・正方形アイコン」を追記。§4.1 の旧 `app.yaml` を「非公式・参考」と明示。SDK/Kernel docs は公式に "coming soon"。 |
 | 2026-09-01 | **PaperMono 購入（LoRa/Meshtastic ピア）＋ App02 に到達距離フィールド計測ツールを新設**。PaperMono（ESP32-S3R8 / SX1262 内蔵 868〜923MHz）は Meshtastic 公式ファーム対応で、追加購入予定の **C6L Meshtastic Unit**（技適 **211-250603** 確認済）と設定一致で相互通信可。実機前に「C6L=固定送信 / PaperMono=移動受信 / Garmin GPSMAP 67i=GPX トラック源」で到達距離を先行検証できる解析ツール [`apps/lora-mesh-node/tools/rangetest_analyze.py`](apps/lora-mesh-node/tools/rangetest_analyze.py) を新規作成（rangetest.csv × GPX を時刻突合し 距離 vs RSSI/SNR・到達率・受信マップを出力。numpy/matplotlib・合成データで動作確認済み）。§3 App02 に「到達距離フィールド計測ツール」サブセクション追加。 |
 | 2026-09-05 | **C6L 実機セットアップ＋GPS 統合を実機検証し §3 App02 に反映**。C6L 到着→`meshtastic` CLI(USB)で工場既定 EU_868/27dBm を **JP/13dBm/LongFast/固定局** に是正、FW を **2.7.26** へ更新（OTA不可→USB Web Flasher・設定初期化→バックアップ復元）。**Unit GPS v1.1(AT6668)を Port.X 接続で移動ノード化を実証**：Meshtastic GPS UART は **`rx_gpio=4`/`tx_gpio=5`**（推測の逆）、**「NO SAT」は GPS 出力中の電源再投入で解消**（起動時検出仕様）、`LOC_INTERNAL` で 22 衛星・座標が Garmin 実測と **~7m 一致**。スマホ位置混入は **iOS 位置権限「しない」**で遮断（デバイス側拒否設定なし）。**PC からの BLE 遠隔制御**（`--ble`・FIXED_PIN 123456）も確認。§3 App02 に「C6L に GPS を接続して移動ノード化」サブセクション追加。C6L 設定バックアップ [`apps/lora-mesh-node/C6L_settings_2026-09-03.yaml`](apps/lora-mesh-node/) は .gitignore（自宅座標・秘密鍵のため非コミット）。 |
+| 2026-11-17 | **CardputerZero 実機到着（本体＋Cap LoRa-1262＋Cap CC1101）＋KS Update #15（2026-11-10）を反映**。以後 §9 の「実機到着後」TODO は着手可能。**初回起動**: セットアップウィザードでユーザー名・ネットワーク・SSH を設定（既定ユーザーの記載なし＝本書の `pi@cardputerzero.local` は仮・実機の設定値に読み替え）。**⚠️ カメラ不具合（Update #15）**: ソフト更新や追加アプリ導入後にカメラが動かなくなる報告あり（ソフト起因・ハード故障ではない）。カメラ正常時は**現状構成を維持し不要なシステム更新を避ける**のが公式推奨。対処は ①公式 OTA 待ち（11/10 時点で「来週」予定）②Camera 1.0.3／FactoryTest 1.0.2 の `.deb` を手動導入 ③[工場イメージ再書込](https://docs.m5stack.com/en/compute/cardputerzero/image)（データ消去）。App14（IMX219）に直結するため、**開発用パッケージ導入前に microSD のイメージバックアップを取得**する。**公式 docs 確認事項**: Cap はホットプラグ不可（電源 OFF で着脱）／Grove・EXT の 5V 出力は既定 OFF（Settings > ExtPort）／ADB は Settings > Developer＋USB Switch=Slave＋USB-C2／再インストールは M5 Imager＋カードリーダ推奨（USB/rpiboot 非推奨）。出荷は 1 日約 1,000 件・11/9 時点で backer #4357 まで処理。**公式バッテリー試験（Update #15・新品/工場イメージ/追加アプリ無し・輝度 100%・5 分間隔サンプル・参考値）**: 充電は低残量→100% で平均約 2h05m（3 回・2h〜2h10m）。駆動時間は カメラ連続プレビュー（Wi-Fi/BT ON）**2h20m**／動画連続再生 online **4h15m**・offline **4h50m**／スタンバイ（画面消灯 30 秒）online **5h20m**・offline **5h25m**。残量表示は約 7% で横ばいになった後に停止する挙動。**設計上の含意（推定・公称 1750mAh×3.7V≒6.5Wh から逆算）**: 待機でも約 1.2W を消費し、画面消灯や無線 OFF の節電効果は小さい（online/offline 差 5 分）。カメラは約 2.8W。→ App01 GPX ロガー等の長時間運用は**内蔵電池のみで 5 時間強が上限**（Cap 装着時はさらに短い見込み・要実測）、それ以上はモバイルバッテリー給電が前提。 |
 
 ---
 
@@ -4179,8 +4180,22 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 #### Cap A: Cap LoRa-1262
 
 - [x] **[Cap A]** 公式ドキュメント・ピンマップ確認済み → [docs.m5stack.com/en/cap/Cap_LoRa-1262](https://docs.m5stack.com/en/cap/Cap_LoRa-1262)。**EXT 2.54-14P（Cap-Bus）接続**を確定。GPS は UART(G14/G15)、LoRa は SPI を使用
-- [ ] Cap LoRa-1262 の日本向け技適番号確認（実機ラベル → 総務省データベース照合、§1.3 参照）
+- [x] Cap LoRa-1262 の日本向け技適番号確認（実機ラベル → 総務省データベース照合、§1.3 参照）
+  - ✅ **実機ラベル確認済み（2026-11-17・実機写真）**: 技適マーク＋ **R 211-251216** / Model Name: Cap LoRa-1262 / FCC ID: 2AN3WM5CAPLORA1262
+  - ✅ **総務省 [技適検索](https://www.tele.soumu.go.jp/giteki/SearchServlet?pageID=js01) 照合済み（2026-11-17・総司確認）**: 相互承認(MRA)による工事設計認証 **211-251216**／認証日 令和8年2月12日／M5Stack Technology Co., Ltd／型式 Cap LoRa-1262／**第2条第8号**の特定無線設備／**F1D 922〜923.4MHz（200kHz 間隔 8 波）1.5〜5.0mW**／評価機関 Bay Area Compliance Laboratories Corp
+  - 🔴 **設計制約**: 送信は **922.0〜923.4MHz の 8 波・最大 5.0mW（≒7dBm）** の範囲に限る（920MHz 帯の制度上限 20mW ではなく、認証値が上限）。SX1262 の出力設定は 7dBm 以下に固定する。認証は付属アンテナ込みの設計に対するものなので、アンテナ交換時は認証範囲外になり得る
+  - ✅ **認証添付の試験成績書を確認（2026-11-17・ATC 報告書 2504A09666E-RF・PDF はローカル `docs/Cap技適資料/`＝非コミット）**:
+    - **アンテナ**: 外観写真の「ANT」は白ラベル末尾「…8MHz」の黒ホイップ＝**付属の 868MHz 表記アンテナと同型と判断**。申請利得 **2.14dBi**。→ 868 表記でも付属アンテナが認証構成。他アンテナへの交換は認証外
+    - **帯域幅と定格出力**: LoRa **125kHz＝5mW**（実測 4.5mW・EIRP 8.7dBm）／**500kHz＝1.5mW**。99% 占有帯域幅 127kHz（上限 200kHz）／505〜510kHz（上限 600kHz）。**250kHz は試験対象外**
+    - **チャネル**: 922.0〜923.4MHz の 200kHz 刻み 8 波（CH0〜7）
+    - **送信時間制限**: 1 回の送信 **0.4 秒未満**・休止 2ms 超・1 時間あたり合計 720 秒未満／1 チャネル 360 秒未満（試験時実測 39ms／12.8ms）
+    - **キャリアセンス**: −80dBm（アンテナ端）で送信停止する機能が必須
+    - 試験は Cardputer-ADV を親機に、M5Stack のエンジニアリングモード・パワーレベル 9 で実施
+  - 🔴 **App02 への設計影響**: Meshtastic の **LongFast（SF11・250kHz）は帯域幅が認証外、かつ 1 パケットが 0.4 秒を大きく超えるため使用不可**と判断（推定・要 airtime 計算）。認証内で使うには **125kHz＋低 SF＋短ペイロードで 0.4 秒未満**、または 500kHz（1.5mW）の高速プリセット、加えてキャリアセンス実装と送信時間管理が必要。自作ソフトで送信する場合、これらを満たす責任は当方にある
 - [ ] Cap LoRa-1262 の SPI CE (Chip Enable) ピン番号（公式: LoRa_NSS=G5）
+  - ✅ **実機ラベル（表側）確認（2026-11-17・実機写真）**: ラベルのピン表記は **Cardputer-ADV 用の 1 系統のみ**（Zero 行なし）。上段 RST=G3 / IRQ=G4 / BUSY=G6 / SCK=G40 / MOSI=G14 / MISO=G39 / NSS=G5、下段 5V IN / GND / 5V OUT / G8 SDA / G9 SCL / G13 RX / G15 TX。**PI4IO ADDR: 0x43**、BYPASS: EP0（エキスパンダ P0 経由と読める・機能は要確認）、GNSS は ATGM336H・アンテナ内蔵、表記 868〜923MHz
+  - 🟡 **CardputerZero でのピン（推定・要実機確認）**: Cap CC1101 ラベルの ADV 行と Zero 行はヘッダ位置で 1 対 1 対応しており（G3→G26 / G4→G23 / G6→G22 / G40→G11 / G14→G10 / G39→G9 / G5→G7 / G8→G2 / G9→G3 / G13→G14 / G15→G15）、同じ Cap-Bus に挿す本 Cap にも適用すると **RST=G26 / IRQ(DIO1)=G23 / BUSY=G22 / SCK=G11 / MOSI=G10 / MISO=G9 / NSS=G7（SPI0 CE1）/ SDA=G2 / SCL=G3 / GPS は UART G14(TXD)・G15(RXD)**。§1.2 の EXT ピンマップ（Pin 8/10=G2/G3・Pin 12/14=G15/G14）とも整合。**本書中の LoRa_NSS=G5 等は ADV 用の番号**
+  - ⬜ 残: 実機で `/dev/spidev0.1` と GPIO22/23/26 で SX1262 が応答するか、GPS NMEA が `/dev/serial0` に出るかを確認（パッケージ導入を伴うためカメラ不具合の OTA 適用後）
 - [ ] AT6668 (ATGM336H-6N) と Linux gpsd の互換性テスト
 - [ ] SX1262 レジスタ設定で日本の技適範囲内に出力制限する手順の検証
 - [x] **[Cap A]** Chain Encoder との排他確認済み（2026-06-19）: GPS の UART(G14/G15) が EXT-UART と同一ピンのため**併用不可**を確定
@@ -4191,7 +4206,17 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [x] **[Cap B]** CC1101 SPI ピンアサイン確認済み (回路図 V0.3 より: CS=G5, RF_SW0=G13, G0=G15, SCLK=G40, MOSI=G14, MISO=G39)
 - [x] **[Cap B]** ST25R3916 SPI 接続確認済み (NFC_IRQ=G4, NFC_CS=G6, 共有 SPI バス)
 - [x] **[Cap B]** Chain Encoder との排他確認済み（2026-06-19）: MOSI=G14 / G0=G15 が EXT-UART と同一ピンのため**併用不可**を確定
-- [ ] **[Cap B]** CC1101 の技適状況確認 (送信可否の判断に必要)
+- [x] **[Cap B]** CC1101 の技適状況確認 (送信可否の判断に必要)
+  - ✅ **実機ラベル確認済み（2026-11-17・実機写真）**: 技適マーク＋ **R 219-269336** / Model Name: M5Cap CC1101 / FCC ID: 2AN3WM5CAPCC1101 / 表記 Sub-1GHz 315〜915MHz（RF Matching: 315 / 433 / 868・915）
+  - ✅ **総務省 技適検索 照合済み（2026-11-17・総司確認）**: 相互承認(MRA)による工事設計認証 **219-269336**／認証日 令和8年8月21日／M5Stack Technology Co., Ltd／型式 Cap CC1101／**第2条第8号**の特定無線設備／**F1D 315〜315MHz 0.04mW**・**F1D 922〜923.4MHz 75mW**（検索結果の表示どおり）／評価機関 KL-Certification GmbH
+  - 🔴 **設計制約**: 認証対象は **315MHz（0.04mW）と 922〜923.4MHz のみ**。**433MHz・868MHz・915MHz は認証外＝国内送信不可**（受信のみ）。当面は従来どおり**受信のみ運用を継続**
+  - ✅ **認証添付の試験成績書を確認（2026-11-17・AiT 報告書 AiTDG-260609002W9／W10・PDF はローカル `docs/Cap技適資料/`＝非コミット）**:
+    - **アンテナ**: 構造写真に「920MHz Antenna」（ラベル「868…」の黒ホイップ・申請利得 2.14dBi）と「315MHz Antenna」（ラベル「315」・申請利得 −3.13dBi）の 2 本が明記。→ **付属の 868MHz 表記アンテナが 920MHz 帯の認証アンテナ**。**433MHz アンテナは認証構成に含まれない**（受信専用）
+    - **922〜923.4MHz**: 報告書上の区分は「UHF RFID」・FSK・3 波（922.0／922.8／923.4MHz）。**定格 75mW は誤記ではなく**、上限 0.25W の区分で試験（実測 18.7dBm≒75mW）。占有帯域幅 165〜184kHz（上限 200kHz・n=1）。送信 4 秒以下・休止 50ms 以上、キャリアセンス −74dBm・5ms 以上。出力は「最終製品のファームウェアで固定」との記載
+    - **315MHz**: 1 波・FSK・片方向通信・**EIRP 0.04mW**（上限 250µW）・送信時間制限装置と識別符号の自動送受信機能が要件（ARIB STD-T93）
+    - 試験の親機は STAMPS3A（Cardputer-ADV 系）＋ M5Stack 提供の制御ソフト
+  - ⬜ 残: 自作ソフトで送信する場合は上記の周波数・出力・帯域幅・送信時間・キャリアセンスをすべて満たす必要があり、CC1101 の出力レジスタ値と実出力の対応も未検証。**受信のみ運用を継続**し、送信は必要が生じた時点で専門家確認のうえ検討
+- [x] **[Cap B]** 🔴 **CardputerZero 用ピンアサインを実機ラベルで確定（2026-11-17）— 上記の回路図 V0.3 由来のピン（G5/G13/G40/G14/G39/G4/G6）は Cardputer-ADV 用で、Zero では異なる**。ラベル「Zero」行: **RF_SW0=G14 / GDO0=G15 / CC_CS=G22 / NFC_IRQ=G23 / NFC_CS=G7 / RST=G26 / SCK=G11 / MOSI=G10 / MISO=G9 / SDA=G2 / SCL=G3**（＝Raspberry Pi の SPI0＋I2C1。NFC_CS は SPI0 CE1、CC_CS=G22 は GPIO 手動 CS）。RF_SW0/GDO0 が G14/G15 を使うため **EXT-UART（Chain Encoder）との排他は変わらず**。※小さい印字の写真読取のため、配線コードを書く際に実機で再確認すること
 - [ ] **[Cap B]** nfcpy の ST25R3916 対応確認 (未対応の場合は libst25r3916 C バインディングを検討)
 
 #### その他
@@ -4290,7 +4315,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[Cap-Grove]** [Cap CC1101](https://docs.m5stack.com/en/cap/Cap_CC1101) の Grove インターフェースの I2C ピンアサインを M5Stack 公式へ問い合わせ（ドキュメント非公開）
 - [x] **[回路図確定 2026-06-19]** CardputerZero 回路図 P08 を読解し、**Grove(I2C/UART) と EXT(Cap-Bus) は同一の I2C1(G2/G3)・UART(G14/G15) を共有**することを確定。`GROVE_SW` は L=UART / H=I2C1 のモード切替。→ Cap 装着時は UART も I2C1 も Cap 経由の同一バスとなる
 - [x] **[回路図確定 2026-06-19]** Cap LoRa-1262 回路図を読解し、**装着時に I2C1 を Cap 内部の GP-02(GPS) と PI4IOE5V6408(IO エキスパンダ) が使用**することを確定。→ Grove(I2C) に挿す機器は「独立 I2C」ではなく「Cap 占有 I2C1 への相乗り」
-- [ ] **[I2C・相乗り検証]** GP-02 / PI4IOE5V6408 の I2C アドレスをデータシートで確定し、追加 I2C 機器（エンコーダ 0x40 / PaHUB 0x70 / CoreS3 スレーブ）との衝突有無を確認。実機 `i2cdetect` でバス上の全アドレスを把握
+- [ ] **[I2C・相乗り検証]** （**2026-11-17: PI4IOE5V6408 は実機ラベルで 0x43 と確認**＝エンコーダ 0x40 / INA226 0x41 / PaHUB 0x70 / MLX90614 0x5A / 本体 0x34・0x68・0x10・0x32 と非衝突。GP-02 側は未確認）GP-02 / PI4IOE5V6408 の I2C アドレスをデータシートで確定し、追加 I2C 機器（エンコーダ 0x40 / PaHUB 0x70 / CoreS3 スレーブ）との衝突有無を確認。実機 `i2cdetect` でバス上の全アドレスを把握
 - [ ] **[I2C・相乗り検証]** Cap 装着 + 追加 I2C 機器を相乗りさせた際の**バス安定性**（プルアップ合成値・容量・通信タイミング）を実機確認
 - [ ] **[Cap CC1101]** Cap CC1101 の I2C 使用状況を回路図で確認（LoRa-1262 と同様に I2C1 を内部使用するか）
 - [ ] **[CoreS3 連携・経路A]** CoreS3 → CardputerZero の Wi-Fi 連携（MQTT/HTTP）PoC。CardputerZero 側にブローカ/エンドポイントを立て、CoreS3 から値を送信
