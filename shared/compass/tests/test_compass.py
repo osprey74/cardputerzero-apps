@@ -14,7 +14,7 @@ _REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
-from shared.compass import (HeadingFilter, heading_from_xy,  # noqa: E402
+from shared.compass import (HeadingFilter, heading_from_vectors, heading_from_xy,  # noqa: E402
                             tilt_compensated_heading, wrap180, wrap360)
 
 
@@ -162,6 +162,53 @@ def test_filter_update_tilt_falls_back_without_accel():
     a = f1.update_tilt(0.3, 0.7, None, None, None, None)
     b = f2.update_xy(0.3, 0.7)
     assert abs(wrap180(a - b)) < 1e-6
+
+
+def _device_vectors(heading_deg, pitch_deg, roll_deg, field=(0.0, 26.0, -42.0)):
+    """右手系 z 上向きの機体座標で、磁気と「上向き」ベクトルを作る（ENU ワールド）。"""
+    def rot(axis, ang):
+        x, y, z = axis
+        c, s_, C = math.cos(ang), math.sin(ang), 1 - math.cos(ang)
+        return [[c + x * x * C, x * y * C - z * s_, x * z * C + y * s_],
+                [y * x * C + z * s_, c + y * y * C, y * z * C - x * s_],
+                [z * x * C - y * s_, z * y * C + x * s_, c + z * z * C]]
+
+    def mul(A, v):
+        return [sum(A[i][j] * v[j] for j in range(3)) for i in range(3)]
+
+    def dot(a, b):
+        return sum(p_ * q for p_, q in zip(a, b))
+
+    h = math.radians(heading_deg)
+    ex = [math.sin(h), math.cos(h), 0.0]
+    ez = [0.0, 0.0, 1.0]
+    ey = [ez[1] * ex[2] - ez[2] * ex[1], ez[2] * ex[0] - ez[0] * ex[2], ez[0] * ex[1] - ez[1] * ex[0]]
+    Rp = rot(ey, math.radians(pitch_deg))
+    x1, z1 = mul(Rp, ex), mul(Rp, ez)
+    Rr = rot(x1, math.radians(roll_deg))
+    y2, z2 = mul(Rr, ey), mul(Rr, z1)
+    up = [0.0, 0.0, 1.0]
+    return ([dot(field, x1), dot(field, y2), dot(field, z2)],
+            [dot(up, x1), dot(up, y2), dot(up, z2)])
+
+
+def test_vectors_level_matches_horizontal():
+    for hd in (0, 45, 90, 180, 270, 333):
+        m, a = _device_vectors(hd, 0, 0)
+        assert abs(wrap180(heading_from_vectors(*m, *a) - heading_from_xy(m[0], m[1]))) < 1e-9
+        assert abs(wrap180(heading_from_vectors(*m, *a) - hd)) < 1e-9
+
+
+def test_vectors_invariant_under_pitch_and_roll():
+    for hd in (0, 30, 120, 200, 310):
+        for pitch in (-60, -25, 0, 35, 55):
+            for roll in (-50, -15, 0, 20, 45):
+                m, a = _device_vectors(hd, pitch, roll)
+                assert abs(wrap180(heading_from_vectors(*m, *a) - hd)) < 1e-6
+
+
+def test_vectors_falls_back_when_accel_zero():
+    assert abs(wrap180(heading_from_vectors(1.0, 1.0, 5.0, 0.0, 0.0, 0.0) - 45.0)) < 1e-9
 
 
 # -- pytest 無しでも走る簡易ランナー --------------------------------------

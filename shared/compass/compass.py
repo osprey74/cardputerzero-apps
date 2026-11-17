@@ -91,6 +91,37 @@ def tilt_compensated_heading(mx: float, my: float, mz: float,
     return wrap360(math.degrees(math.atan2(bfy, bfx)))
 
 
+def heading_from_vectors(mx: float, my: float, mz: float,
+                         ax: float, ay: float, az: float) -> float:
+    """較正済み磁気ベクトルと加速度ベクトルから、傾きに依らない方位角[deg]を返す（ベクトル式）。
+
+    前提: 磁気 (mx,my,mz) と加速度 (ax,ay,az) が**同じ右手系のセンサ座標**で与えられ、
+    加速度は静止時に「上向き」（重力の反作用。水平に置くと +z）を指す。磁気はハード/ソフト
+    アイアン補正済み（原点中心・各軸同スケール）であること。
+
+    上向き単位ベクトル u で磁気とセンサ x 軸をそれぞれ水平面へ射影し、水平磁気 h から
+    x 軸の射影 xh までを上から見て時計回りに測った角を返す。オイラー角を経由しないため
+    姿勢の特異点が無く、**水平時は `heading_from_xy(mx,my)`＝atan2(my,mx) と一致**する。
+    絶対方位合わせ（どの機体軸を「前」とするか・偏角）は ``HeadingFilter`` の zero_offset で行う。
+    加速度がほぼゼロ、または磁気が鉛直に近く水平成分が取れない場合は水平前提にフォールバック。
+    """
+    an = math.sqrt(ax * ax + ay * ay + az * az)
+    if an < 1e-6:
+        return wrap360(math.degrees(math.atan2(my, mx)))
+    ux, uy, uz = ax / an, ay / an, az / an
+    md = mx * ux + my * uy + mz * uz
+    hx, hy, hz = mx - md * ux, my - md * uy, mz - md * uz          # 水平磁気
+    xx, xy, xz = 1.0 - ux * ux, -ux * uy, -ux * uz                 # x 軸の水平射影
+    if (hx * hx + hy * hy + hz * hz) < 1e-12 or (xx * xx + xy * xy + xz * xz) < 1e-12:
+        return wrap360(math.degrees(math.atan2(my, mx)))
+    cx = xy * hz - xz * hy                                          # xh × h
+    cy = xz * hx - xx * hz
+    cz = xx * hy - xy * hx
+    sin_t = cx * ux + cy * uy + cz * uz
+    cos_t = hx * xx + hy * xy + hz * xz
+    return wrap360(math.degrees(math.atan2(sin_t, cos_t)))
+
+
 class HeadingFilter:
     """生の方位角を円周上で平滑化し、真北基準方位を返すフィルタ。
 

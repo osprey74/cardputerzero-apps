@@ -6,10 +6,10 @@
 """
 from __future__ import annotations
 
-from .compass import (HeadingFilter, heading_from_xy,
+from .compass import (HeadingFilter, heading_from_vectors, heading_from_xy,
                       tilt_compensated_heading, wrap180, wrap360)
 
-__all__ = ["HeadingFilter", "heading_from_xy", "tilt_compensated_heading",
+__all__ = ["HeadingFilter", "heading_from_vectors", "heading_from_xy", "tilt_compensated_heading",
            "wrap180", "wrap360"]
 
 __version__ = "0.1.0"

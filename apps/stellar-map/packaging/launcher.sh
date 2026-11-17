@@ -5,4 +5,5 @@
 LIB=/usr/share/APPLaunch/lib/stellar-map
 export PYTHONPATH="$LIB:${PYTHONPATH:-}"
 export STELLAR_SIDECAR="$LIB/sidecar/stellar_sidecar.py"
-exec /usr/bin/python3 "$LIB/ui_fb/stellar_fb.py" "$@"
+# フレーム間隔[秒]: 方位追従を滑らかにするため既定 0.25（STELLAR_INTERVAL で変更可）
+exec /usr/bin/python3 "$LIB/ui_fb/stellar_fb.py" --interval "${STELLAR_INTERVAL:-0.25}" "$@"

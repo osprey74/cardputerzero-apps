@@ -102,6 +102,8 @@
 | 2026-11-17 | **Cap LoRa-1262 の公式回路図（Cap V1.1／Stamp LoRa-1262 Mini）を読解し §9.1 に追記**。TCXO は 3.0V・DIO3 給電、RF スイッチの電源は IO エキスパンダ 0x43 の P0（High 必須）で送受切替は DIO2、Cap の電源は Cap-Bus の 5VOUT、GPS 側は LNA 常時 ON でエキスパンダ制御不要（`ANTENNA OPEN` 通知は異常でないと推定）であることを確認。 |
 | 2026-11-17 | **Cap LoRa-1262 で C6L の Nostos ビーコンを実受信（受信のみ）**。IRQ（DIO1）=G23 を確定し全ピンが実機で確定。回路図どおりの初期化（EXT 5V・エキスパンダ P0 High・TCXO 3.0V・DIO2 RF スイッチ）で 923.0MHz／125kHz／SF9／同期語 0x3A を受信し、10 分間で 7 通を欠けなく受信（CRC すべて正常・遮蔽物なしで −73〜−79dBm）。CardputerZero で C6L ビーコンを受ける経路がハードウェアとして成立。§9.1 に初期化手順と結果を記録。 |
 | 2026-11-17 | **App16 星座盤を CardputerZero 実機へ組み込み、標準ランチャーから起動して動作確認**。LCD は `/dev/fb0` 直描画・キーボードは evdev 直読みで SDL2 が使えないと判明し、フレームバッファ UI `ui_fb/stellar_fb.py` を新設。`.deb` を実機上で生成して導入し、アイコン表示・描画・キー操作・ESC 長押し／Q での終了を確認（UI＋サイドカーで約 55MB）。§4.2.1 に標準ランチャーの実機仕様（登録パス・アイコン・起動と終了の挙動）を新設、`scripts/pack_deb.sh` の登録ファイル配置を修正。惑星・月と方位追従は未対応。 |
+| 2026-11-17 | **App16 星座盤に内蔵 BMM150 による方位追従を実装し実機で確認（水平）**。Linux IIO から読む `IioHeadingSource` と較正ツール `tools/calib_iio.py` を追加。実機で水平較正とアラインを実施し、本体の向きに合わせて全天図が回ることを確認。表示の左右は `mirror_ew: true`（見上げた向き）が正しいと判明し実機設定に反映（北向きで N が下・右が E）。パッケージ 0.1.1。傾き補正は未実施。 |
+| 2026-11-17 | **App16 星座盤の傾き補正を実装し実機で確認**。`shared/compass` にベクトル式の `heading_from_vectors` を追加（テスト 20/20）、`calib_iio.py --mode 3d` で z 軸までの較正と軸符号の自動判定を実施。実機で 3D 較正とアラインをやり直し、水平・傾斜・手持ちの角度とも方位のずれ 4〜5° 程度を確認（総司確認）。パッケージ 0.1.2。設定例 `config/stellar_map.cz.json.example` を 3D 較正後の内容に更新。 |
 
 ---
 
@@ -4556,7 +4558,20 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 16]** （旧 TODO・方針変更）czdev／LVGL による `ui/draw_scene()` 実装。上記のとおり実機は fb 直描画のため、LVGL を使うなら fbdev バックエンド前提で再検討
 - [ ] **[App 16]** RX8130CE RTC（`/dev/rtc`）＋ NTP（`systemd-timesyncd`）＋ AT6668 GNSS UTC の時刻取得系を確立（`shared/gnss_at6668/` を App 01 と共有）
 - [ ] **[App 16]** HDMI 接続検出（`/sys/class/drm/*/status`）→ LCD ⇔ 1080p フルスクリーン・プラネタリウムの自動レイアウト切替
-- [ ] **[App 16・要較正]** 本体内蔵 BMM150 の方位較正（ハード/ソフトアイアン＋加速度による傾き補正）で heading を実用精度に。**【2026-07-19 訂正】CardputerZero 単体で BMM150 を持つため CoreS3 流用・ジャイロ相対追従フォールバックは不要**
+- [x] **[App 16・方位]** **内蔵 BMM150 による方位追従を CardputerZero 実機で実現（水平・2026-11-17）**
+  - 内蔵センサは Linux IIO に `bmm150`（in_magn_{x,y,z}_raw・10Hz・scale 0.000625）と `bmi270`（加速度 100Hz・ジャイロ）として公開されており、`pi` で sysfs から読める。`sidecar/heading_source.py` に **`IioHeadingSource`** を追加し、サイドカーに `--mag-source iio|cores3|none`（設定キー `mag_source`）を追加。較正・平滑化は既存の `shared/compass` をそのまま使用
+  - 較正ツール **`tools/calib_iio.py`**（`flat`＝水平 1 周／`align`＝既知方位で静止／`3d`＝全方位）を新設。`flat` は x/y のずれと振れ幅に加え、**ジャイロ z の積分と磁気角の変化を比べて回転方向（`heading_invert`）を自動判定**する
+  - **実測（総司による較正）**: オフセット x/y＝107.5／408.0、半スパン 408.5／517.0（raw）、`heading_invert`＝true、`heading_offset`＝334.3°。静止時の読みのばらつきは約 0.1°。無較正では本体内部の磁気が支配的で方位が動かない
+  - **表示の向き**: `mirror_ew: true`（地上から見上げた向き）が実機の正解。既定の false では左右が鏡像になり、北向きで右が W になった。設定後は **北を向くと N が下・右が E**（総司確認）。`calib_iio.py` は初回書き込み時に `mirror_ew: true` も設定する
+  - フレーム間隔は 0.25 秒（`STELLAR_INTERVAL`）。パッケージは `stellar-map_0.1.1-osprey74-1`
+  - 設定例: `apps/stellar-map/config/stellar_map.cz.json.example`
+- [x] **[App 16・方位]** **傾き補正を実機で実現（2026-11-17）**
+  - `shared/compass` に **`heading_from_vectors`**（加速度で上向きを求め、磁気と機体 x 軸を水平面へ射影して方位を出すベクトル式。オイラー角を使わず特異点が無い・水平時は `heading_from_xy` と一致）を追加。数値検証で前後左右 60° まで誤差 0、単体テスト 20/20
+  - `IioHeadingSource` は 3D 較正済み（`mag_span_z` あり）のとき、各軸を (raw−offset)/span で正規化 → `iio_mag_signs` で加速度の座標系に揃える → `heading_from_vectors`、の順で処理。動作中は加速度ゲートで更新を止める
+  - `calib_iio.py --mode 3d` は x/y/z のずれ・半スパンに加え、**較正後の磁気と重力の内積（伏角で決まる定数）が最も一定になる軸符号**を自動判定する。3D 較正後は `heading_invert` を false・`heading_offset` を 0 に戻すため、`--mode align` の取り直しが必要
+  - **実測（総司による較正）**: オフセット 294.0／561.5／822.0、半スパン 703.0／928.5／740.0、**軸符号 (−1, +1, −1)**（地磁気センサが加速度センサに対して裏返しの向き＝水平較正で出た「回転向きが逆」と整合）、`heading_offset` 139.1°。静止時のばらつき ±0.5° 程度
+  - **結果（総司確認）**: 水平・傾けた状態・手持ちの角度（30〜45°）のいずれも**ずれ 4〜5° 程度で許容範囲**。パッケージは `stellar-map_0.1.2-osprey74-1`
+  - ⬜ 残: 半スパンが 3 軸で不ぞろい（比 約 1.3）＝ソフトアイアンまたは採取の偏りの可能性。精度を詰めるなら楕円体フィットを IIO 経路にも適用する。偏角（札幌 約 −9°）は現状 `heading_offset` に含めて吸収している**【2026-07-19 訂正】CardputerZero 単体で BMM150 を持つため CoreS3 流用・ジャイロ相対追従フォールバックは不要**
 - [x] **[App 16]** 惑星・月・月相の描画（2026-07-07・Skyfield 1.54＋DE421）。`tools/ephem.py`＝`sky_bodies(dt_utc,lat,lon)` が惑星(水金火木土)と月の地平座標(Skyfield `.altaz()`・地心視差込み)・惑星等級(`planetary_magnitude`)・月の輝面比/満ち欠けを返す。DE421 は `data/raw/` に自動DL(NASA/JPL・実質PD)。`render_catalog.py` が惑星(ゴールド+ラベル)・月(淡白+満ち欠け%)を描画(`--no-planets`)。2026-07-08 03:30 で Moon 50% wan＋Saturn 等の可視を確認。依存は `tools/requirements.txt`(Pillow+skyfield)。等級ベースのドットサイズ/明るさ調整は実機で最終調整
 - [ ] **[App 16]** 恒星の等級ベース明るさ/サイズの実機微調整（現状は 3 クラスの色＋サイズ）と、星座線/DSO/惑星の実機での密度・ラベル衝突の調整
 

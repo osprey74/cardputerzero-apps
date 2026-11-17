@@ -1,0 +1,32 @@
+{
+  "_comment": "App16 星座盤 CardputerZero 実機用の設定例。実機の ~/.config/cardputerzero/stellar_map.json に置く（CLI 引数がこれを上書き）。較正値は個体・使用環境で変わるため、tools/calib_iio.py で実測して書き込むこと（下の数値は 2026-11-17 の実測例）。",
+
+  "lat": 43.06,
+  "lon": 141.35,
+  "tz": 9.0,
+
+  "_mirror_comment": "true=地上から見上げた向き（星座が実際の形。北を向くと N が下・東が右）。false は天球を外から見た鏡像。実機では true を使う。",
+  "mirror_ew": true,
+
+  "_source_comment": "iio=内蔵 BMM150（地磁気）＋BMI270（加速度）を Linux IIO から読む。追加パッケージ不要。",
+  "mag_source": "iio",
+
+  "_cal_comment": "calib_iio.py --mode 3d（あらゆる向きに転がす）の結果。単位は BMM150 の raw カウント。z の半スパン（mag_span_z）があると傾き補正が有効になる。水平較正（--mode flat）だけの場合は x/y のみで、傾けると方位がずれる。",
+  "mag_offset_x": 294.0,
+  "mag_offset_y": 561.5,
+  "mag_offset_z": 822.0,
+  "mag_span_x": 703.0,
+  "mag_span_y": 928.5,
+  "mag_span_z": 740.0,
+
+  "_signs_comment": "磁気の軸符号。地磁気センサと加速度センサの座標の向きを揃える（3d 較正が自動判定）。この個体では x と z が反転。3D 較正後は heading_invert は false にする（軸符号で吸収される）。",
+  "iio_mag_signs": [-1, 1, -1],
+  "heading_invert": false,
+
+  "_align_comment": "calib_iio.py --mode align --true-heading <上辺が向いている方位>（水平に置いて静止）の結果。3d 較正をやり直したら必ず取り直す。",
+  "heading_offset": 139.1,
+
+  "_filter_comment": "heading_alpha=平滑化の強さ（大きいほど追従が速い）。accel_gate=動かしている最中（加速度が 1g からこの幅[g]を超えて外れる間）は方位を更新しない。",
+  "heading_alpha": 0.2,
+  "accel_gate": 0.12
+}

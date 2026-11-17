@@ -68,7 +68,8 @@ _CFG_KEYS = {"lat", "lon", "tz", "mag_view", "mag_port", "declination", "mirror_
              "enc_sensitivity",
              "mag_offset_x", "mag_offset_y", "mag_offset_z",
              "mag_span_x", "mag_span_y", "mag_span_z",
-             "mag_ellipsoid_offset", "mag_ellipsoid_matrix"}
+             "mag_ellipsoid_offset", "mag_ellipsoid_matrix",
+             "mag_source", "iio_mag_signs", "iio_acc_signs"}
 
 
 def _load_config(argv) -> tuple[dict, str]:
@@ -363,7 +364,27 @@ def build_frame(args, cat, lines, dsos, cnames, groups, bstars, hsrc, bcache, sc
 
 def make_heading_source(args):
     """--mag-port / --heading から方位ソースを組む（無ければ None）。"""
-    from heading_source import CoreS3HeadingSource, FixedHeadingSource
+    from heading_source import CoreS3HeadingSource, FixedHeadingSource, IioHeadingSource
+    src = getattr(args, "mag_source", None)
+    if src == "iio":                      # CardputerZero 内蔵 BMM150＋BMI270（Linux IIO）
+        return IioHeadingSource(alpha=args.heading_alpha,
+                                declination=args.declination,
+                                zero_offset=args.heading_offset,
+                                invert=args.heading_invert,
+                                use_tilt=not args.no_tilt,
+                                offset_x=args.mag_offset_x,
+                                offset_y=args.mag_offset_y,
+                                offset_z=args.mag_offset_z,
+                                span_x=args.mag_span_x,
+                                span_y=args.mag_span_y,
+                                span_z=args.mag_span_z,
+                                ell_offset=getattr(args, "mag_ellipsoid_offset", None),
+                                ell_matrix=getattr(args, "mag_ellipsoid_matrix", None),
+                                accel_gate=args.accel_gate,
+                                mag_signs=getattr(args, "iio_mag_signs", None),
+                                acc_signs=getattr(args, "iio_acc_signs", None))
+    if src == "none":
+        return FixedHeadingSource(args.heading) if args.heading is not None else None
     if args.mag_port is not None:
         port = args.mag_port or None      # 空文字なら OS 既定ポート
         return CoreS3HeadingSource(port, alpha=args.heading_alpha,
@@ -407,6 +428,11 @@ def main() -> None:
                     help="固定方位[deg]で回転（北=0・東回り）。--mag-port 未指定時に有効")
     ap.add_argument("--mag-port", nargs="?", const="", default=None,
                     help="CoreS3 BMM150 をライブ読取して回転。値省略で OS 既定ポート")
+    ap.add_argument("--mag-source", choices=["cores3", "iio", "none"], default=None,
+                    help="方位ソース: iio=CardputerZero 内蔵 BMM150(Linux IIO) / cores3=CoreS3(USB) / "
+                         "未指定は --mag-port があれば cores3")
+    ap.add_argument("--iio-mag-signs", default=None, help="IIO 磁気の軸符号 例 1,-1,1")
+    ap.add_argument("--iio-acc-signs", default=None, help="IIO 加速度の軸符号 例 1,1,-1")
     ap.add_argument("--declination", type=float, default=0.0,
                     help="磁気偏角[deg]（磁北→真北。西偏はマイナス。例 札幌 -9）")
     ap.add_argument("--heading-offset", type=float, default=0.0,

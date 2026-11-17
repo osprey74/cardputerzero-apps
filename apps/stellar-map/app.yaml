@@ -1,6 +1,6 @@
 name: "Stellar Map"
 id: "com.osprey74.stellar-map"
-version: "0.1.0"
+version: "0.1.2"
 description: "オフライン星座盤 (HYG/OpenNGC/Stellarium + 惑星/月/月相)"
 author: "osprey74"
 category: "education"

@@ -131,7 +131,30 @@ Chain Encoder が無くてもキーボードで同じ状態遷移ができる（
 レイヤトグル `L`/`D`/`P`/`C`・スクショ `S` はどちらの運用でも有効。
 
 方位は地磁気（BMM150）で自機の向きを画面上に固定（方式A）。個体・取付依存の較正／姿勢
-オフセットは `~/.config/cardputerzero/stellar_map.json`（例 `config/stellar_map.json.example`）。
+オフセットは `~/.config/cardputerzero/stellar_map.json`（例 `config/stellar_map.json.example`＝CoreS3 経由／
+`config/stellar_map.cz.json.example`＝CardputerZero 内蔵センサ）。
+
+## 方位の較正（CardputerZero 内蔵センサ）
+
+内蔵の BMM150（地磁気）と BMI270（加速度・ジャイロ）は Linux IIO から読める（追加パッケージ不要）。
+本体内部の磁気（スピーカーの磁石等）が地磁気より強く出るため、**較正しないと方位は動かない**。
+[`tools/calib_iio.py`](tools/calib_iio.py) を実機で実行する。金属・磁石・PC の近くは避ける。
+
+```bash
+# 1) 本体を水平に保ったまま、ゆっくり 1 周以上回す（x/y のずれ・振れ幅・回転方向を求める）
+python3 calib_iio.py --mode flat --seconds 30 --write
+# 2) 上辺（Cap 側）を真北へ向けて水平に置き、静止（方位のずれ補正を求める。北以外なら角度を指定）
+python3 calib_iio.py --mode align --true-heading 0 --seconds 10 --write
+# 3) （傾き補正を使う場合）あらゆる向きに転がす（z 軸まで較正し、磁気と加速度の軸の向きを合わせる）
+python3 calib_iio.py --mode 3d --seconds 45 --write
+```
+
+- `QUALITY: OK` のときだけ設定ファイルへ書き込む。初回の書き込みで `mirror_ew: true`（見上げた向き）も入る。
+- 表示は「向いている方位が画面の下に来る」。**北を向くと N が下・東が右・西が左**になれば正しい。
+- 手順 3 を行うと座標の扱いが変わる（軸符号で揃え、回転向きの反転は不要になる）ため、**手順 3 のあとは手順 2 をもう一度行う**。
+- 傾き補正は `shared/compass` の `heading_from_vectors`（加速度で「上」を求め、磁気を水平面へ射影するベクトル式）。
+  動かしている最中は方位の更新を止める（`accel_gate`）。
+- 2026-11-17 に実機で確認: 水平・傾けた状態・手持ちの角度（30〜45°）のいずれも、ずれは 4〜5° 程度。
 
 ## CardputerZero 実機への導入
 
@@ -160,5 +183,5 @@ sudo apt install   ./apps/stellar-map/dist-cz/stellar-map_*.deb
 | Scene プロトコル＋サイドカー | ✅ 完了（PC・uConsole・CardputerZero 実機） |
 | フレームバッファ UI（`ui_fb`） | ✅ **CardputerZero 実機で動作確認済み**（2026-11-17・標準ランチャーから起動） |
 | SDL2 UI（`ui`・Rust） | ✅ uConsole で動作確認済み（CardputerZero の LCD には出ない） |
-| 内蔵 BMM150 による方位追従 | ⬜ 未対応（実機では北向き固定。IIO から読める状態） |
+| 内蔵 BMM150 による方位追従 | ✅ 実機で確認（2026-11-17・`calib_iio.py` で 3D 較正・傾き補正あり・ずれ 4〜5° 程度） |
 | RTC/NTP/GNSS 時刻・位置入力、HDMI 切替 | ⬜ 未対応（観測地の既定は札幌） |
