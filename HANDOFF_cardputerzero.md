@@ -1278,8 +1278,8 @@ Grove 接続し、C6L 自身に測位させる構成を実機で確認。移動�
 - ⚠️ **「NO SAT」時は電源再投入**: Meshtastic は**起動時に GPS を検出**する。GPS が未出力の
   タイミングで再起動すると見失い「NO SAT」固定になる。**GPS 出力中（ユニット LED 点滅＝fix）に
   電源再投入 or RESET**すれば再検出される。
-- **実証結果**: `locationSource=LOC_INTERNAL`・22 衛星・座標 43.084647/141.2856925 を取得＝
-  Garmin GPSMAP 67i 実測（43.084645/141.285780）と **~7m 一致**。
+- **実証結果**: `locationSource=LOC_INTERNAL`・22 衛星で測位。取得した座標は
+  Garmin GPSMAP 67i の実測と **~7m 一致**（座標値は本書には載せない）。
 - **スマホ位置の混入注意**: Meshtastic アプリの Provide Location が ON だとノード位置が
   `LOC_EXTERNAL`（スマホ由来）で上書きされる。デバイス側に外部位置拒否設定は無い（position 全項目確認）。
   **iOS の位置情報アクセスを「しない」**にすれば恒久遮断（アプリが端末位置を取得不可）。
