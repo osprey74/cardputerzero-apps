@@ -69,7 +69,7 @@ _CFG_KEYS = {"lat", "lon", "tz", "mag_view", "mag_port", "declination", "mirror_
              "mag_offset_x", "mag_offset_y", "mag_offset_z",
              "mag_span_x", "mag_span_y", "mag_span_z",
              "mag_ellipsoid_offset", "mag_ellipsoid_matrix",
-             "mag_source", "iio_mag_signs", "iio_acc_signs"}
+             "mag_source", "iio_mag_signs", "iio_acc_signs", "ephem"}
 
 
 def _load_config(argv) -> tuple[dict, str]:
@@ -89,8 +89,38 @@ def _load_config(argv) -> tuple[dict, str]:
     return {}, path
 
 
+_EPHEM_FN = {}
+
+
+def _pick_ephem(args):
+    """惑星・月の計算関数を選ぶ（プロセス内で 1 回だけ決める）。
+
+    --ephem lite     : 標準ライブラリのみの軽量計算（`ephem_lite`・暦ファイル不要）
+    --ephem skyfield : Skyfield＋DE421（`ephem`・高精度。DE421 が無ければ自動ダウンロード）
+    --ephem auto     : Skyfield が導入済みで DE421 が data/raw/ に**既にある**ときだけ Skyfield、
+                       それ以外は軽量計算（実機で勝手にダウンロードを始めないため）
+    """
+    mode = getattr(args, "ephem", None) or "auto"
+    if mode in _EPHEM_FN:
+        return _EPHEM_FN[mode]
+    use_sky = mode == "skyfield"
+    if mode == "auto":
+        import importlib.util
+        use_sky = (importlib.util.find_spec("skyfield") is not None
+                   and os.path.exists(os.path.join(args.data, "raw", "de421.bsp")))
+    if use_sky:
+        from ephem import sky_bodies
+        name = "skyfield"
+    else:
+        from ephem_lite import sky_bodies
+        name = "lite"
+    print(f"# planets/moon: {name}", file=sys.stderr)
+    _EPHEM_FN[mode] = sky_bodies
+    return sky_bodies
+
+
 def _get_bodies(args, bcache, dt_local):
-    """惑星・月を返す（bodies-interval 秒キャッシュ）。skyfield 無/--no-planets は None。"""
+    """惑星・月を返す（bodies-interval 秒キャッシュ）。--no-planets や計算失敗時は None。"""
     if args.no_planets:
         return None
     now = time.monotonic()
@@ -99,7 +129,7 @@ def _get_bodies(args, bcache, dt_local):
             and now - bcache["t"] < args.bodies_interval):
         return bcache["bodies"]
     try:
-        from ephem import sky_bodies
+        sky_bodies = _pick_ephem(args)
         dt_utc = dt_local - timedelta(hours=args.tz)
         bodies = sky_bodies(dt_utc, args.lat, args.lon, args.data)
         if bcache is not None:
@@ -107,7 +137,7 @@ def _get_bodies(args, bcache, dt_local):
             bcache["t"] = now
         return bodies
     except Exception as ex:  # noqa: BLE001
-        print(f"# planets/moon disabled (skyfield?): {ex}", file=sys.stderr)
+        print(f"# planets/moon disabled: {ex}", file=sys.stderr)
         return None
 
 
@@ -417,6 +447,9 @@ def main() -> None:
     ap.add_argument("--mag-view", type=float, default=4.5)
     ap.add_argument("--mirror-ew", action="store_true")
     ap.add_argument("--no-planets", action="store_true")
+    ap.add_argument("--ephem", choices=["auto", "lite", "skyfield"], default="auto",
+                    help="惑星・月の計算: lite=軽量(依存なし) / skyfield=高精度 / "
+                         "auto=Skyfield と DE421 が揃っていれば skyfield、無ければ lite")
     ap.add_argument("--bodies-interval", type=float, default=10.0,
                     help="惑星・月の再計算間隔[秒]（Skyfield は重いので低頻度キャッシュ）")
     ap.add_argument("--sky-interval", type=float, default=10.0,

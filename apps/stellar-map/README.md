@@ -156,13 +156,40 @@ python3 calib_iio.py --mode 3d --seconds 45 --write
   動かしている最中は方位の更新を止める（`accel_gate`）。
 - 2026-11-17 に実機で確認: 水平・傾けた状態・手持ちの角度（30〜45°）のいずれも、ずれは 4〜5° 程度。
 
+## 惑星・月の計算（2 方式）
+
+| 方式 | モジュール | 依存 | 用途 |
+| --- | --- | --- | --- |
+| 軽量計算（既定） | [`tools/ephem_lite.py`](tools/ephem_lite.py) | なし（標準ライブラリのみ・暦ファイル不要） | CardputerZero 実機。1 回約 2ms |
+| 高精度 | [`tools/ephem.py`](tools/ephem.py) | Skyfield＋DE421（16MB） | PC 検証・比較の基準 |
+
+- サイドカーの `--ephem auto|lite|skyfield`（設定キー `ephem`）で選ぶ。`auto`（既定）は、Skyfield が導入済みで
+  `data/raw/de421.bsp` が既にあるときだけ Skyfield、それ以外は軽量計算を使う（実機で勝手にダウンロードを始めないため）。
+- 軽量計算は、軌道要素からケプラー方程式を解き、月の主要な摂動項と木星・土星の相互摂動、月の地心視差を加える
+  （Paul Schlyter の定式）。等級は位相角から、土星は環の傾きも含めて求める。
+- 実機に Skyfield を `apt` で入れると 80 個超のパッケージが追加されるため、実機では軽量計算を使う。
+- 精度は [`tools/compare_ephem.py`](tools/compare_ephem.py) で Skyfield と突き合わせる（要 Skyfield・DE421）。
+  2020〜2035 年の 600 サンプル（札幌）での差:
+
+| 天体 | 位置の差 平均 | 最大 | 等級の差 平均 |
+| --- | --- | --- | --- |
+| 水星 | 0.007° | 0.017° | 0.11 |
+| 金星 | 0.006° | 0.021° | 0.17 |
+| 火星 | 0.007° | 0.037° | 0.03 |
+| 木星 | 0.007° | 0.026° | 0.21 |
+| 土星 | 0.012° | 0.033° | 0.11 |
+| 月 | 0.032° | 0.109° | — |
+
+  月の輝面比の差は最大 0.009。全天図の 1 画素は 1° 強なので、表示上の差は 1 画素未満。新月・満月のごく近くでは
+  満ち欠けの向きや月相名が Skyfield と食い違うことがある（600 件中 3〜7 件）。
+
 ## CardputerZero 実機への導入
 
 `.deb` は実機上で生成できる（Python のみでコンパイル不要・`dpkg-deb` は実機に入っている）。
 
 ```bash
 # 1) 開発機: ソース一式（scripts/pack_deb.sh・shared/{star_catalog,compass}・apps/stellar-map の
-#    packaging/ assets/ sidecar/ ui_fb/ data/ と tools/{ephem,render_scene}.py）を実機へ送る
+#    packaging/ assets/ sidecar/ ui_fb/ data/ と tools/{ephem,ephem_lite,render_scene}.py）を実機へ送る
 # 2) 実機: パッケージ生成
 bash scripts/pack_deb.sh apps/stellar-map        # -> apps/stellar-map/dist-cz/stellar-map_<ver>_arm64.deb
 # 3) 実機: 試算で他パッケージに影響しないことを確認してから導入
@@ -179,7 +206,7 @@ sudo apt install   ./apps/stellar-map/dist-cz/stellar-map_*.deb
 | 部位 | 状態 |
 | --- | --- |
 | データ取込（HYG/OpenNGC/星座線） | ✅ 完了（PC 検証済み） |
-| 天体計算（Skyfield 惑星/月/月相） | ✅ 完了（PC・uConsole 検証済み）／CardputerZero 実機は skyfield 未導入のため非表示 |
+| 天体計算（惑星/月/月相） | ✅ 完了。Skyfield 版（PC・uConsole）と、**依存なしの軽量版 `ephem_lite`（CardputerZero 実機で確認・2026-11-17）** |
 | Scene プロトコル＋サイドカー | ✅ 完了（PC・uConsole・CardputerZero 実機） |
 | フレームバッファ UI（`ui_fb`） | ✅ **CardputerZero 実機で動作確認済み**（2026-11-17・標準ランチャーから起動） |
 | SDL2 UI（`ui`・Rust） | ✅ uConsole で動作確認済み（CardputerZero の LCD には出ない） |

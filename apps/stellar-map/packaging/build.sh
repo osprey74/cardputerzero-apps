@@ -9,7 +9,7 @@ set -euo pipefail
 BIN="${PKG_NAME:?PKG_NAME 未設定（pack_deb.sh 経由で実行すること）}"
 UI="${CZ_UI:-fb}"
 
-python3 -m py_compile sidecar/stellar_sidecar.py sidecar/heading_source.py                       ui_fb/stellar_fb.py tools/render_scene.py
+python3 -m py_compile sidecar/stellar_sidecar.py sidecar/heading_source.py                       ui_fb/stellar_fb.py tools/render_scene.py tools/ephem_lite.py
 echo "[build.sh] py_compile ok (CZ_UI=$UI)" >&2
 
 if [ "$UI" = sdl ] && [ "${CZ_SKIP_BUILD:-0}" != 1 ]; then

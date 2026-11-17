@@ -25,7 +25,6 @@ CardputerZero の LCD は `/dev/fb0`（panel-mipi-dbi・320×170・RGB565）で�
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import select
@@ -117,9 +116,8 @@ def main() -> None:
     fb = open(FB_DEV, "r+b", buffering=0)
     saved = fb.read(w * h * 2) if args.restore else None
 
+    # 惑星・月はサイドカー側で計算方法を選ぶ（Skyfield が無ければ軽量計算 ephem_lite）。
     cmd = [sys.executable, args.sidecar, "--interval", str(args.interval)] + extra
-    if importlib.util.find_spec("skyfield") is None and "--no-planets" not in extra:
-        cmd.append("--no-planets")          # 惑星・月は skyfield 導入後に有効化
     side = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     os.set_blocking(side.stdout.fileno(), False)
 
