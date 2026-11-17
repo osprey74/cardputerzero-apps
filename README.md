@@ -6,7 +6,7 @@
 
 This repository hosts 11 planned applications for the CardputerZero — from a GPS logger with sky-plot visualization to a Meshtastic LoRa node, an NFC/Sub-GHz security toolkit, an off-grid BSAF disaster-alert receiver, an SDR wideband receiver, and a LAN diagnostics tool.
 
-> **Status (2026-06-07): pre-hardware.** The CardputerZero is a Kickstarter project and the physical device has not yet shipped. This repository currently contains the design specification and skeleton structure. Implementation will begin once the hardware arrives and the open items in [HANDOFF §9](./HANDOFF_cardputerzero.md#9-既知の未確認事項todo) are verified on the device.
+> **Status (2026-11-17): hardware arrived, verification started.** The CardputerZero, Cap LoRa-1262 and Cap CC1101 have arrived, and their Japanese radio certifications have been checked against the official database. This repository contains the design specification and some early implementations. Implementation of each app will proceed once the open items in [HANDOFF §9](./HANDOFF_cardputerzero.md#9-既知の未確認事項todo) are verified on the device.
 
 ---
 
@@ -32,7 +32,7 @@ Full hardware spec is in [HANDOFF §1](./HANDOFF_cardputerzero.md#1-ハードウ
 
 | | Cap A: Cap LoRa-1262 | Cap B: Hacker Cap |
 |---|---|---|
-| Radio | SX1262 (LoRa, 868–923 MHz) | CC1101 (Sub-GHz, 315/433/868/920 MHz) |
+| Radio | SX1262 (LoRa, 868–923 MHz; transmission in Japan limited to 922.0–923.4 MHz) | CC1101 (Sub-GHz, 315/433/868/920 MHz; receive-only operation in Japan) |
 | GNSS | AT6668 (GPS / QZSS / GLO / GAL / BDS) | — |
 | NFC | — | ST25R3916 (ISO 14443A/B, FeliCa, ISO 15693) |
 | Primary apps | App 01 / 02 / 05 | App 03 / 04 |
@@ -75,7 +75,7 @@ Each app's full feature checklist is in [HANDOFF §3](./HANDOFF_cardputerzero.md
 - **UI Framework**: [LVGL](https://lvgl.io/) via [CardputerZero-AppBuilder](https://github.com/m5stack/CardputerZero-AppBuilder) (`czdev` CLI)
 - **Target Triple**: `aarch64-unknown-linux-gnu`
 - **Emulator**: `czdev run` (SDL2-based, reproduces the 320×170 LCD on a development machine)
-- **Deployment**: SSH + `scp` to `pi@cardputerzero.local`
+- **Deployment**: SSH + `scp` to the device (the username is chosen in the first-boot setup)
 - **App Distribution**: `czdev upload` to the official Debian apt repository at [m5stack/CardputerZeroRepository](https://github.com/m5stack/CardputerZeroRepository) — end users install via `apt install`
 - **Remote Development**: Tailscale VPN ↔ home Mac Mini for running full Claude models off-device (the 512MB RAM is too small for local LLM hosting)
 
@@ -153,8 +153,8 @@ Full setup including device-side initialization (gpsd, SPI, UART enablement) is 
 
 All radio-frequency features ship with deliberate constraints for Japanese law compliance:
 
-- **LoRa transmission**: 920MHz band only, output clamped to ≤ +13dBm (= 20mW) in firmware, on 技適-certified modules
-- **Sub-GHz**: CC1101 used for receive only; no transmission without proper certification
+- **LoRa transmission**: limited to the conditions of the Cap LoRa-1262 Japanese certification (211-251216): eight channels in 922.0–923.4 MHz, 125 kHz bandwidth at 5 mW or less, each transmission under 0.4 s, carrier sense required, bundled antenna only. The device is operated receive-only until an implementation meeting these conditions is confirmed
+- **Sub-GHz**: Cap CC1101 is operated receive-only. Its Japanese certification (219-269336) covers only 315 MHz and 922–923.4 MHz; 433 / 868 / 915 MHz must not be transmitted in Japan
 - **NFC**: card emulation and UID writing restricted to user-owned cards for educational use
 - **Wi-Fi analysis**: targets restricted to user-owned access points
 - **LAN scanning**: only on networks where the operator has administrative authorization (per ISMS protocols)

@@ -58,4 +58,5 @@ python rangetest_analyze.py \
 ## 備考
 
 - GPSMAP 67i の inReach(Iridium 衛星)は本解析と無関係。67i は純粋に GPS トラック源。
-- 送信する全機は日本国内 920MHz 帯の技適が必要(C6L=技適 211-250603 確認済 / PaperMono 側は要確認)。
+- 送信する全機は日本国内 920MHz 帯の技適が必要(C6L=技適 211-250603 / PaperMono=技適 211-260514、いずれも 2026-11-17 に認証条件まで照合済)。
+- 技適は番号だけでなく**認証条件(周波数・帯域幅・出力・送信時間)の範囲内**で使う必要がある。Cap LoRa-1262(211-251216)は 922.0〜923.4MHz・125kHz/5mW・1 回 0.4 秒未満で、Meshtastic 既定の LongFast では送信できない(HANDOFF §3 App02)。CardputerZero をレンジテストに使う場合は**受信側**とする。C6L(211-250603)の LoRa 認証条件も Cap と同一(5mW・125/500kHz・1 回 0.4 秒未満)で、**従来の JP/13dBm/LongFast 設定は認証条件の外**。C6L は現在 Nostos の `firmware/c6l-beacon`(923.0MHz・125kHz・+6dBm・LBT)で稼働しており認証条件内(2026-11-17 確認)。本ツールは Meshtastic の Range Test ログを前提にしているため、今後のレンジテストはビーコン受信ログを入力とする形に改める必要がある。PaperMono の LoRa 認証は 500kHz・7mW のみのため、受信側として使う。

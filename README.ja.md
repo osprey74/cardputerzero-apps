@@ -6,7 +6,7 @@
 
 本リポジトリは CardputerZero 向けに開発予定の 11 アプリ（GPS ロガー＋天球図表示、LoRa Meshtastic ノード、NFC / Sub-GHz セキュリティツール、BSAF 防災受信、SDR 広帯域受信、LAN 調査ツール 等）を管理するモノレポです。
 
-> **現在のステータス（2026-06-07）: 実機到着前。** CardputerZero は Kickstarter 出資プロジェクトであり、本体はまだ届いていません。このリポジトリは現時点で設計仕様書とディレクトリスケルトンのみを含みます。実装は実機到着後、[HANDOFF §9](./HANDOFF_cardputerzero.md#9-既知の未確認事項todo) に列挙された未確認事項の検証完了後に開始する予定です。
+> **現在のステータス（2026-11-17）: 実機到着・検証開始。** CardputerZero 本体と Cap LoRa-1262／Cap CC1101 が届き、技適の照合を完了しました。このリポジトリは設計仕様書と一部の先行実装を含みます。各アプリの実装は、[HANDOFF §9](./HANDOFF_cardputerzero.md#9-既知の未確認事項todo) に列挙された未確認事項の検証完了後に開始する予定です。
 
 ---
 
@@ -32,7 +32,7 @@
 
 | | Cap A: Cap LoRa-1262 | Cap B: Hacker Cap |
 |---|---|---|
-| 無線 | SX1262（LoRa、868–923 MHz） | CC1101（Sub-GHz、315/433/868/920 MHz） |
+| 無線 | SX1262（LoRa、868–923 MHz／国内送信は 922.0–923.4 MHz のみ） | CC1101（Sub-GHz、315/433/868/920 MHz／国内は受信のみ運用） |
 | GNSS | AT6668（GPS / QZSS / GLO / GAL / BDS） | — |
 | NFC | — | ST25R3916（ISO 14443A/B、FeliCa、ISO 15693） |
 | 主な使用アプリ | App 01 / 02 / 05 | App 03 / 04 |
@@ -75,7 +75,7 @@ Cap A と Cap B は同じ上部スロットを使うため同時装着不可。
 - **UI フレームワーク**: [LVGL](https://lvgl.io/) を [CardputerZero-AppBuilder](https://github.com/m5stack/CardputerZero-AppBuilder)（`czdev` CLI）経由で利用
 - **ターゲットトリプル**: `aarch64-unknown-linux-gnu`
 - **エミュレータ**: `czdev run`（SDL2 ベース、開発機上で 320×170 LCD を再現）
-- **デプロイ**: SSH + `scp` 経由で `pi@cardputerzero.local` へ転送
+- **デプロイ**: SSH + `scp` 経由で実機へ転送（ユーザー名は初回セットアップで設定）
 - **アプリ配布**: `czdev upload` で公式 Debian apt リポジトリ [m5stack/CardputerZeroRepository](https://github.com/m5stack/CardputerZeroRepository) に投稿、エンドユーザは `apt install` で取得
 - **リモート開発**: Tailscale VPN 経由で自宅 Mac Mini に接続しフル Claude モデルをリモート実行（CardputerZero の 512MB RAM ではローカル実行困難なため）
 
@@ -153,8 +153,8 @@ czdev run examples/hello_cz
 
 無線周波数を扱う機能は、日本の電波法等への準拠を前提に設計しています。主な制約：
 
-- **LoRa 送信**: 920MHz 帯のみ、ファームウェアで +13dBm（20mW）以下に出力制限、技適取得済みモジュールに限定
-- **Sub-GHz**: CC1101 は受信のみの運用（送信は技適取得機器でのみ可能）
+- **LoRa 送信**: Cap LoRa-1262 の工事設計認証（211-251216）の条件内に限定します。922.0〜923.4MHz の 8 波、125kHz 幅で 5mW 以下、1 回の送信は 0.4 秒未満、キャリアセンス必須、付属アンテナのみ。条件を満たす実装を確認するまでは受信のみで運用します
+- **Sub-GHz**: Cap CC1101 は受信のみで運用します。工事設計認証（219-269336）の対象は 315MHz と 922〜923.4MHz のみで、433／868／915MHz は国内で送信できません
 - **NFC**: カードエミュレーション・UID 書き込みは自己所有カードに限定（教育・研究目的）
 - **Wi-Fi 解析**: 対象を自己所有のアクセスポイントに限定
 - **LAN スキャン**: 管理権限のあるネットワークのみ（ISMS 規程に従う）
