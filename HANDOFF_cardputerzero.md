@@ -94,6 +94,7 @@
 | 2026-11-17 | **C6L の現行ファームを確認し記述を確定**。C6L は Nostos の自作ビーコン（923.0MHz・125kHz・+6dBm・キャリアセンス）で稼働中＝認証条件内で、旧 Meshtastic 設定（13dBm・LongFast）の是正は完了済みと判明（総司確認）。§1.3・§3 App02 の「要是正」を「解消済み」に改め、Meshtastic 前提のゲートウェイ構成は認証条件内の設定が確認できるまで保留と明記。本体の技適番号表示（020-260249）も確認済みに更新。 |
 | 2026-11-17 | **CoreS3 の技適を照合し §1.6 に追記**。工事設計認証 219-239073（令和5年3月13日・第2条第19号・2.4GHz BLE／Wi-Fi・内蔵メタルアンテナ 2.46dBi）。本プロジェクトは USB CDC が第一推奨経路のため無線は必須でない。これで本体・Cap 2 種・C6L・PaperMono・CoreS3 の 6 機種の照合が完了。 |
 | 2026-11-17 | **実機の初回セットアップ完了・初回調査結果を §9.1 に追加**。ユーザー `pi`・`ssh pi@cardputerzero.local` で接続確認（鍵認証登録）。工場状態の microSD をイメージバックアップ済み（PC ローカル保管）。SSH 経由の読み取り調査で、OS が **Debian 13 (trixie)・Python 3.13.5**（Bookworm 前提は誤り）、OS から見えるメモリが **352MB**、Cap 用 SPI が `/dev/spidev0.1`（CS1＝GPIO7・ピン対応表の推定と一致）、I2C に BMM150（0x10）ほか、picamera2／rpicam-apps が導入済み、Camera 1.0.2（修正版未適用）であることを確認。標準の LoRa／SubG Chat アプリは送信設定が未確認のため送信操作を保留。 |
+| 2026-11-17 | **カメラ不具合を実機で再現し、原因を特定して復旧**。KS Update #15 の手動手順（Camera 1.0.3）を適用したところ Camera アプリが起動不能に。原因は Camera アプリと libcamera の版の食い違い（1.0.2⇔rpt20260817／1.0.3⇔rpt20261009／1.0.4⇔0.8.0）で、配布元が 11 月上旬に libcamera 0.8 系へ移行したため告知の手順が成立しなくなっていた。Camera 1.0.2 へ戻して復旧し、工場出荷の組み合わせを維持する方針に。§9.1 に「カメラ不具合の原因と対処」を新設、§3 App14 の注意書きを原因に即して改訂。 |
 
 ---
 
@@ -3389,7 +3390,7 @@ LCD 320×170 にファインダー画面 + デコード結果を表示。
 
 > ⚠️ 本アプリは **CardputerZero 標準版限定** （Lite 版はカメラ非搭載）。
 >
-> ⚠️ **2026-11-17 追記（KS Update #15）**: システム更新や追加アプリの導入後に**カメラが動作しなくなる不具合**が報告されている（ソフト起因）。公式修正（OTA、または Camera 1.0.3／FactoryTest 1.0.2 の手動導入）の適用を確認するまで、`libcamera`／`picamera2`／`pyzbar` 等の導入は行わない。導入前に microSD をバックアップし、導入の前後で内蔵 Camera アプリの動作を確認する。
+> ⚠️ **2026-11-17 追記（KS Update #15・原因を実機で特定）**: カメラ不具合の正体は **Camera アプリと libcamera の版の食い違い**（§9.1「カメラ不具合の原因と対処」）。`apt` でカメラ関連パッケージ（`libcamera*`／`rpicam-apps*`／`python3-picamera2`／`python3-libcamera`）が更新されると、工場版の Camera 1.0.2 が起動しなくなる。**App14 で追加パッケージを入れる際は、これらが巻き込まれて更新されないことを `apt-get -s install`（試算）で必ず先に確認する**。`python3-picamera2` 0.3.37 は導入済みのため、まずは追加導入なしで使える範囲から着手する。libcamera 0.8 系へ移行する場合は Camera 1.0.4・FactoryTest 1.0.3・picamera2 を一式で更新し、動作確認とセットで行う。
 > **消費電力**: 公式試験でカメラ連続プレビューは約 2 時間 20 分と最短。ファインダーは読取操作時のみ起動し、無操作で自動停止する設計とする。
 
 #### 想定ユースケース
@@ -4348,7 +4349,7 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 | I2C | `/dev/i2c-1` に **0x10（BMM150）・0x32（RTC）・0x34（キーボード）・0x4f（不明）・0x55（BQ27220）・0x68（BMI270）**、いずれもカーネルドライバが使用中 | BMM150 搭載を実機で確認（KS 版）。0x4f の正体は未確認。BQ27220 のアドレスは 0x55 |
 | その他 GPIO | GPIO4＝`grove_fun`（Grove 切替と推定）・GPIO6＝irq・GPIO12＝IR 送信・GPIO13＝IR 受信・GPIO17＝ヘッドホン検出 | — |
 | カメラ | `dtoverlay=imx219`・`/dev/video0` あり。**`python3-picamera2` 0.3.37・`rpicam-apps` 1.13.0・libcamera 0.7.2 が導入済み** | App14 で追加が要るのは QR デコード（pyzbar 等）のみ |
-| カメラ関連アプリ | `camera` 1.0.2-m5stack1・`factorytest` 1.0.0-m5stack1 | **KS Update #15 の修正版（Camera 1.0.3／FactoryTest 1.0.2）は未適用**。現状カメラは正常動作（総司確認） |
+| カメラ関連アプリ | `camera` 1.0.2-m5stack1・`factorytest` 1.0.0-m5stack1（＋ libcamera 0.7.2+rpt20260817） | **この組み合わせ（工場出荷状態）を維持する**。KS Update #15 の手動手順は現在は成立しない（下記「カメラ不具合の原因と対処」） |
 | Wi-Fi 規制域 | `iw reg get` は **JP**（cmdline には `regdom=AE` の記載があるが実効値は JP） | 国内設定で動作 |
 | 標準アプリ | applaunch 0.6.105、Cap 用に `cap-lora-1262` 1.0.1・`cap-lora-1262-gps` 1.0.0・`cap-cc1101-nfc` 1.0.1・`cap-cc1101-subg-chat` 1.0.1 ほか | **LoRa アプリと SubG Chat は送信機能を持つ**。周波数・出力の設定値がバイナリから読み取れず認証条件内か未確認のため、**確認できるまで送信操作はしない** |
 | 開発ツール | gcc・`i2c-tools` あり／cargo・gpsd は無し | Rust は PC でクロスビルドして転送する前提を維持 |
@@ -4424,6 +4425,23 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] **[App 13]** ガイダンス UI（結線パターン切替案内）の LVGL 実装方針（ミニアイコン素材の作成 or テキスト表示）
 
 #### カメラ（App 14）
+
+##### カメラ不具合の原因と対処（2026-11-17・実機で再現し復旧）
+
+- **原因**: 内蔵 Camera アプリは特定の libcamera の版に合わせてビルドされており、版が食い違うと起動時に `symbol lookup error: undefined symbol: _ZN9libcamera...` で終了する（ランチャーからは「起動しない」ように見える）
+
+| Camera アプリ | 対応する libcamera | 備考 |
+|---|---|---|
+| 1.0.2（工場出荷） | 0.7.2+rpt20260817（工場出荷） | **現在の構成・動作確認済み** |
+| 1.0.3（2026-11-03） | 0.7.2+rpt20261009 | KS Update #15 の手動手順が指す版。パッケージの依存指定が `libcamera0.7 (>= 0.7.2)` と緩く、libcamera が更新されないまま入ってしまう |
+| 1.0.4（2026-11-13） | 0.8.0+rpt20261104（`libcamera0.8`） | FactoryTest 1.0.3 と対。Raspberry Pi の apt は 2026-11-04 に 0.8 系へ移行済み |
+
+- **経緯**: KS Update #15 の手順どおり Camera 1.0.3 を導入 → 起動不能。続く FactoryTest 1.0.2 は `libcamera0.7 (>= 0.7.2+rpt20261009)` を要求するが、対になる `libcamera-ipa` の同版が apt から消えており（0.8.0 のみ）、依存関係エラーで導入不可（試算で確認）。**告知の手順は 11 月上旬の配布元の移行で成立しなくなっている**
+- **復旧**: GitHub の v1.0.2 を `sudo apt install --allow-downgrades ./Camera_1.0.2_m5stack1_arm64.deb` で戻し、起動を確認（総司確認）。変更は `camera` パッケージ 1 つのみ
+- **教訓**: `.deb` を入れる前に `dpkg-deb -f <deb> Depends` で依存を読み、`apt-get -s install` の試算で実際に何が更新・削除されるかを確かめる。カメラ関連は「アプリと libcamera を一式で揃える」
+- **再発防止（任意・未実施）**: `sudo apt-mark hold camera factorytest libcamera0.7 libcamera-ipa libcamera-tools libcamera-v4l2 python3-libcamera python3-picamera2 rpicam-apps-core rpicam-apps-lite librpicam-app1` で関連パッケージを固定すると、他のパッケージ導入時に巻き込まれて更新されるのを防げる（カーネル関連は出荷時点で hold 済み）
+- 参考: libcamera 0.8 系へ進める場合の試算では、12 個更新・1 個追加・4 個削除（工場版 `factorytest`・`pipewire-libcamera`・`libspa-0.2-libcamera`・`libcamera0.7`）。`python3-picamera2` 0.3.37 が 0.8 系で動くかは未確認
+
 
 - [ ] **[App 14]** IMX219 が CardputerZero 標準版で `libcamera-hello` / `picamera2` から認識されるか実機確認
 - [ ] **[App 14]** `pyzbar` の aarch64 (RPi OS Bookworm) でのビルド・動作確認

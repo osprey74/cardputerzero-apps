@@ -181,7 +181,7 @@ cardputerzero-apps/
 ## 制約事項
 
 - **実機到着済み（2026-11-17・本体＋Cap LoRa-1262＋Cap CC1101）**: 仕様の最終確定は実機検証で行う。初回起動はセットアップウィザード（ユーザー名・ネットワーク・SSH）。Cap はホットプラグ不可、Grove/EXT の 5V 出力は既定 OFF（Settings > ExtPort）
-- **⚠️ カメラ不具合（KS Update #15・2026-11-10）**: システム更新や追加アプリ導入後にカメラが動かなくなる報告あり（ソフト起因）。公式修正 OTA の適用を確認するまで、不要な `apt upgrade` を避け、パッケージ導入前に microSD をバックアップする。詳細は HANDOFF 変更履歴 2026-11-17
+- **⚠️ カメラ不具合（KS Update #15）の原因は Camera アプリと libcamera の版の食い違い**（2026-11-17 実機で特定）。工場出荷の組み合わせ（Camera 1.0.2＋libcamera 0.7.2+rpt20260817）を維持する。`apt upgrade` は実行しない。パッケージを入れる前に `apt-get -s install` の試算で `libcamera*`／`rpicam-apps*`／`python3-picamera2` が巻き込まれないことを確認する。KS 告知の手動手順（Camera 1.0.3）は現在は成立しない。詳細は HANDOFF §9.1「カメラ不具合の原因と対処」
 - **HANDOFF_cardputerzero.md §9** に列挙された未確認事項（Grove ピンアサイン、SX1262 技適番号、AT6668 と gpsd の互換性等）は実機到着後に検証する
 - 仕様の不整合が発生した場合は `HANDOFF_cardputerzero.md` を一次資料として更新する
 
