@@ -53,8 +53,19 @@ from shared.star_catalog import (build_list_scene, build_plist_scene,  # noqa: E
                                  radec_to_altaz)
 
 
+# GNSS から時刻が取れているときの UTC 供給元と時差（make_gnss が設定する）。
+_CLOCK = {"utc_fn": None, "tz": 9.0}
+
+DEFAULT_LAT, DEFAULT_LON = 43.06, 141.35      # 観測地の既定（札幌）
+
+
 def _now_local():
-    # サイドカーは実時間で動く（デバイスでは RTC 相当）。
+    # サイドカーは実時間で動く。GNSS の UTC が取れていればそれを優先し（RTC／NTP が
+    # 合っていない屋外でも正しい星空になる）、無ければシステム時計を使う。
+    fn = _CLOCK["utc_fn"]
+    utc = fn() if fn is not None else None
+    if utc is not None:
+        return (utc + timedelta(hours=_CLOCK["tz"])).replace(microsecond=0)
     return datetime.now().replace(microsecond=0)
 
 
@@ -69,7 +80,7 @@ _CFG_KEYS = {"lat", "lon", "tz", "mag_view", "mag_port", "declination", "mirror_
              "mag_offset_x", "mag_offset_y", "mag_offset_z",
              "mag_span_x", "mag_span_y", "mag_span_z",
              "mag_ellipsoid_offset", "mag_ellipsoid_matrix",
-             "mag_source", "iio_mag_signs", "iio_acc_signs", "ephem"}
+             "mag_source", "iio_mag_signs", "iio_acc_signs", "ephem", "gnss"}
 
 
 def _load_config(argv) -> tuple[dict, str]:
@@ -117,6 +128,71 @@ def _pick_ephem(args):
     print(f"# planets/moon: {name}", file=sys.stderr)
     _EPHEM_FN[mode] = sky_bodies
     return sky_bodies
+
+
+def make_gnss(args):
+    """GNSS リーダを起動して返す（使わない・使えない場合は None）。
+
+    --gnss auto（既定）は、CardputerZero 固有の 5V 出力制御とシリアルがある機体でだけ試す。
+    Cap LoRa-1262 が付いていなければ数秒で自動停止し、5V 出力も元に戻る。
+    """
+    if getattr(args, "gnss", "auto") == "off" or args.dt:
+        return None
+    try:
+        from shared.gnss_at6668 import GnssReader, available
+    except Exception as ex:  # noqa: BLE001
+        print(f"# gnss disabled: {ex}", file=sys.stderr)
+        return None
+    if not available():
+        return None
+    g = GnssReader().start()
+    _CLOCK["utc_fn"] = g.utc_now
+    _CLOCK["tz"] = args.tz
+    return g
+
+
+def resolve_location(args) -> str:
+    """観測地を決める。優先順位: CLI／設定ファイル > 前回の GNSS 測位 > 既定（札幌）。
+
+    （GNSS が測位できれば、実行中に apply_gnss がさらに上書きする。）
+    返り値は由来を表す文字列（"config"／"last"／"default"）。
+    """
+    if args.lat is not None and args.lon is not None:
+        return "config"
+    try:
+        from shared.gnss_at6668 import load_last_fix
+        last = load_last_fix()
+    except Exception:  # noqa: BLE001
+        last = None
+    if last:
+        args.lat, args.lon = float(last["lat"]), float(last["lon"])
+        return "last"
+    args.lat, args.lon = DEFAULT_LAT, DEFAULT_LON
+    return "default"
+
+
+def apply_gnss(args, gsrc, loc, scache, bcache) -> dict:
+    """GNSS の測位結果を観測地へ反映し、Scene の meta に載せる状態を返す。
+
+    位置が変わったら恒星・惑星のキャッシュを捨てる（次フレームで再計算）。
+    """
+    if gsrc is None:
+        return {"state": "off", "source": loc["source"]}
+    snap = gsrc.snapshot()
+    if snap["state"] != loc.get("gnss_state"):          # 状態の変化だけログに残す（位置は出さない）
+        loc["gnss_state"] = snap["state"]
+        print(f"# gnss: {snap['state']}" + (f" ({snap['error']})" if snap.get("error") else ""),
+              file=sys.stderr)
+    if snap["state"] == "fix" and snap.get("lat") is not None:
+        if abs(snap["lat"] - args.lat) > 0.005 or abs(snap["lon"] - args.lon) > 0.005:
+            args.lat, args.lon = snap["lat"], snap["lon"]
+            if scache is not None:
+                scache["sky"] = scache["t"] = None
+            if bcache is not None:
+                bcache["bodies"] = bcache["t"] = None
+        loc["source"] = "gnss"
+    return {"state": snap["state"], "source": loc["source"], "sats": snap.get("sats"),
+            "time": gsrc.utc_now() is not None}
 
 
 def _get_bodies(args, bcache, dt_local):
@@ -440,8 +516,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="App16 星座盤 サイドカー (Scene JSON)")
     ap.add_argument("--data", default=os.path.join(_APP, "data"),
                     help="stars.bin 等のあるディレクトリ")
-    ap.add_argument("--lat", type=float, default=43.06)
-    ap.add_argument("--lon", type=float, default=141.35)
+    ap.add_argument("--lat", type=float, default=None,
+                    help="観測地の緯度。未指定なら 前回の GNSS 測位 → 既定（札幌 43.06）の順")
+    ap.add_argument("--lon", type=float, default=None,
+                    help="観測地の経度。未指定なら 前回の GNSS 測位 → 既定（札幌 141.35）の順")
+    ap.add_argument("--gnss", choices=["auto", "off"], default="auto",
+                    help="GNSS（Cap LoRa-1262）から位置と時刻を取る。auto=CardputerZero でのみ試す")
     ap.add_argument("--dt", default=None, help="ローカル日時 ISO（未指定なら現在時刻）")
     ap.add_argument("--tz", type=float, default=9.0)
     ap.add_argument("--mag-view", type=float, default=4.5)
@@ -504,6 +584,18 @@ def main() -> None:
     bstars = _bright_star_catalog(cat, groups)   # 1 等星（リストに追加・星座所属付き）
     dsos, _n, _m = load_dso(args.data)
 
+    # 標準ランチャーは ESC 長押しでプロセスグループへ SIGTERM を送る。後始末（GNSS 用に
+    # 入れた 5V 出力を戻す等）が必ず走るよう、SIGTERM／SIGHUP を通常終了に変換する。
+    import signal
+
+    def _terminate(*_):
+        raise SystemExit(0)
+
+    for _sig in (signal.SIGTERM, getattr(signal, "SIGHUP", signal.SIGTERM)):
+        signal.signal(_sig, _terminate)
+
+    loc = {"source": resolve_location(args)}
+    gsrc = make_gnss(args)
     hsrc = make_heading_source(args)
     bcache: dict = {"bodies": None, "t": None}   # 惑星・月の低頻度キャッシュ
     scache: dict = {"sky": None, "t": None}      # 恒星・星座線・DSO の alt/az キャッシュ
@@ -513,22 +605,25 @@ def main() -> None:
              "pzoom": 1.0, "pzrot": 0}                              # 惑星拡大の拡縮
     nav = StdinNav()   # UI（キーボード）からの操作を stdin で受ける（CZ 単体対応）
     try:
+        def one_frame():
+            gmeta = apply_gnss(args, gsrc, loc, scache, bcache)
+            frame = build_frame(args, cat, lines, dsos, cnames, groups, bstars,
+                                hsrc, bcache, scache, state, nav)
+            frame.setdefault("meta", {})["gnss"] = gmeta
+            return json.dumps(frame, separators=(",", ":")) + "\n"
+
         if args.interval and args.interval > 0:
             while True:
-                sys.stdout.write(json.dumps(
-                    build_frame(args, cat, lines, dsos, cnames, groups, bstars,
-                                hsrc, bcache, scache, state, nav),
-                    separators=(",", ":")) + "\n")
+                sys.stdout.write(one_frame())
                 sys.stdout.flush()
                 time.sleep(args.interval)
         else:
-            sys.stdout.write(json.dumps(
-                build_frame(args, cat, lines, dsos, cnames, groups, bstars,
-                            hsrc, bcache, scache, state, nav),
-                separators=(",", ":")) + "\n")
+            sys.stdout.write(one_frame())
     finally:
         if hsrc is not None:
             hsrc.close()
+        if gsrc is not None:
+            gsrc.close()          # 5V 出力を起動前の状態へ戻す
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@
 #   $PREFIX/lib/stellar-map/tools/render_scene.py   Scene 描画（UI が共用）
 #   $PREFIX/lib/stellar-map/sidecar/*.py            サイドカー（_APP/data=既定データ）
 #   $PREFIX/lib/stellar-map/data/*                  カタログ（stars.bin 等・raw は含めない）
-#   $PREFIX/lib/stellar-map/shared/{star_catalog,compass}/*  Python 名前空間パッケージ（PYTHONPATH 経由）
+#   $PREFIX/lib/stellar-map/shared/{star_catalog,compass,gnss_at6668}/*  Python 名前空間パッケージ（PYTHONPATH 経由）
 #   $PREFIX/lib/stellar-map/ephem_lite.py           惑星・月の軽量計算（依存なし・既定）
 #   $PREFIX/lib/stellar-map/ephem.py                惑星・月の高精度計算（skyfield と DE421 があれば使う）
 #   $PREFIX/lib/stellar-map/stellar-map             SDL2 UI バイナリ（CZ_UI=sdl でビルドした場合のみ）
@@ -24,7 +24,7 @@ install -D -m 0644 sidecar/heading_source.py   "$LIB/sidecar/heading_source.py"
 install -D -m 0644 tools/ephem.py              "$LIB/ephem.py"
 install -D -m 0644 tools/ephem_lite.py         "$LIB/ephem_lite.py"
 
-for pkg in star_catalog compass; do
+for pkg in star_catalog compass gnss_at6668; do
   for f in ../../shared/$pkg/*.py; do
     install -D -m 0644 "$f" "$LIB/shared/$pkg/$(basename "$f")"
   done

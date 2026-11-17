@@ -1,9 +1,11 @@
 {
   "_comment": "App16 星座盤 CardputerZero 実機用の設定例。実機の ~/.config/cardputerzero/stellar_map.json に置く（CLI 引数がこれを上書き）。較正値は個体・使用環境で変わるため、tools/calib_iio.py で実測して書き込むこと（下の数値は 2026-11-17 の実測例）。",
 
-  "lat": 43.06,
-  "lon": 141.35,
+  "_pos_comment": "lat／lon を書くと、GNSS が測位するまでの観測地としてこの値を使う（前回の測位より優先）。書かなければ 前回の GNSS 測位 → 既定（札幌 43.06, 141.35）の順。GNSS が測位すれば、どの場合も現在地に切り替わる。",
   "tz": 9.0,
+
+  "_gnss_comment": "auto=Cap LoRa-1262 の GNSS から現在地と時刻を取る（Cap 無しなら 20 秒で自動停止）。off=使わない。",
+  "gnss": "auto",
 
   "_mirror_comment": "true=地上から見上げた向き（星座が実際の形。北を向くと N が下・東が右）。false は天球を外から見た鏡像。実機では true を使う。",
   "mirror_ew": true,

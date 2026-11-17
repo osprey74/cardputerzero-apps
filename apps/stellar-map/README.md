@@ -156,6 +156,30 @@ python3 calib_iio.py --mode 3d --seconds 45 --write
   動かしている最中は方位の更新を止める（`accel_gate`）。
 - 2026-11-17 に実機で確認: 水平・傾けた状態・手持ちの角度（30〜45°）のいずれも、ずれは 4〜5° 程度。
 
+## 観測地と時刻（GNSS）
+
+Cap LoRa-1262 を付けた CardputerZero では、起動時に GNSS から現在地と時刻を取る（共通ドライバ
+[`shared/gnss_at6668`](../../shared/gnss_at6668/)・追加パッケージ不要）。
+
+- 起動すると本体の EXT 5V 出力を入れて Cap に給電し、`/dev/serial0`（115200bps）の NMEA を読む。
+  終了時に 5V 出力を起動前の状態へ戻す（標準ランチャーの ESC 長押し＝SIGTERM でも後始末する）。
+- 測位できたら観測地を現在地に切り替え、時刻も GNSS の UTC を使う（Wi-Fi の無い屋外で本体の時計が
+  ずれていても正しい星空になる）。測位結果は `~/.cache/cardputerzero/last_fix.json` に保存する。
+- **観測地の優先順位**: 測位中の GNSS ＞ `--lat/--lon`・設定ファイル ＞ 前回の測位 ＞ 既定（札幌）。
+- 20 秒待っても NMEA が来なければ Cap 無しとみなし、5V 出力を戻して GNSS を止める（星座盤は動き続ける）。
+- 標準の GPS アプリとは同時に使えない（`/dev/serial0` を取り合う）。無効にするには `--gnss off`（設定キー `gnss`）。
+
+情報パネルの表示:
+
+| 表示 | 意味 |
+| --- | --- |
+| `GPS fix 12 sat` | 測位中（数字は使用衛星数）。緯度・経度は現在地 |
+| `GPS search (last fix)` | 受信中・未測位。かっこ内は今使っている場所の由来 |
+| `pos: last fix` ／ `pos: config` ／ `pos: default` | GNSS なし。前回の測位／設定ファイル／既定（札幌 43.06, 141.35） |
+
+2026-11-17 に実機で確認: 起動から約 38 秒で測位、観測地と時刻の切替、前回の場所での起動、終了後に標準 GPS アプリが
+使えること。長く電源を切った直後は最初の NMEA まで 5 秒以上かかった例があり、待ち時間は 20 秒にしている。
+
 ## 惑星・月の計算（2 方式）
 
 | 方式 | モジュール | 依存 | 用途 |
@@ -189,7 +213,7 @@ python3 calib_iio.py --mode 3d --seconds 45 --write
 
 ```bash
 # 1) 開発機: ソース一式（scripts/pack_deb.sh・shared/{star_catalog,compass}・apps/stellar-map の
-#    packaging/ assets/ sidecar/ ui_fb/ data/ と tools/{ephem,ephem_lite,render_scene}.py）を実機へ送る
+#    packaging/ assets/ sidecar/ ui_fb/ data/ と tools/{ephem,ephem_lite,render_scene}.py。shared は gnss_at6668 も）を実機へ送る
 # 2) 実機: パッケージ生成
 bash scripts/pack_deb.sh apps/stellar-map        # -> apps/stellar-map/dist-cz/stellar-map_<ver>_arm64.deb
 # 3) 実機: 試算で他パッケージに影響しないことを確認してから導入
@@ -211,4 +235,5 @@ sudo apt install   ./apps/stellar-map/dist-cz/stellar-map_*.deb
 | フレームバッファ UI（`ui_fb`） | ✅ **CardputerZero 実機で動作確認済み**（2026-11-17・標準ランチャーから起動） |
 | SDL2 UI（`ui`・Rust） | ✅ uConsole で動作確認済み（CardputerZero の LCD には出ない） |
 | 内蔵 BMM150 による方位追従 | ✅ 実機で確認（2026-11-17・`calib_iio.py` で 3D 較正・傾き補正あり・ずれ 4〜5° 程度） |
-| RTC/NTP/GNSS 時刻・位置入力、HDMI 切替 | ⬜ 未対応（観測地の既定は札幌） |
+| GNSS による観測地と時刻 | ✅ 実機で確認（2026-11-17・Cap LoRa-1262・`shared/gnss_at6668`） |
+| HDMI 切替 | ⬜ 未対応 |

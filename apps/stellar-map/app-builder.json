@@ -1,6 +1,6 @@
 {
   "package_name": "stellar-map",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "app_name": "Stellar Map",
   "bin_name": "stellar-map",
   "description": "App16 offline planetarium (star map). Python sidecar + framebuffer UI, 320x170.",

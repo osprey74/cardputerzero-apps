@@ -48,6 +48,21 @@ def draw_square(d, x, y, side, col):
     d.rectangle(box, fill=col)
 
 
+def _gnss_line(g):
+    """情報パネルの GNSS 状態行 (文字列, 色)。meta に gnss が無い旧 Scene は従来表示。"""
+    if not g:
+        return "from Scene JSON", COL_LABEL
+    st, src = g.get("state"), g.get("source")
+    if st == "fix":
+        n = g.get("sats")
+        return (f"GPS fix {n} sat" if n is not None else "GPS fix"), (0, 200, 80)
+    tail = {"last": "last fix", "config": "config", "default": "default",
+            "gnss": "last fix"}.get(src, "")
+    if st == "search":
+        return f"GPS search ({tail})", (255, 165, 0)
+    return f"pos: {tail}", COL_LABEL
+
+
 def render_scene(scene: dict) -> Image.Image:
     w, h = scene.get("w", 320), scene.get("h", 170)
     img = Image.new("RGB", (w, h), COL_BG)
@@ -109,7 +124,7 @@ def render_scene(scene: dict) -> Image.Image:
         wax = "wax" if mo.get("waxing") else "wan"
         d.text((px, 108), f"Moon {mo.get('frac', 0) * 100:.0f}% {wax}",
                fill=(225, 225, 205), font=font_sm)
-    d.text((px, 126), "from Scene JSON", fill=COL_LABEL, font=font_sm)
+    d.text((px, 126), *_gnss_line(meta.get("gnss")), font=font_sm)
     d.text((px, 150), "HYG/OpenNGC/Stel/JPL", fill=COL_LABEL, font=font_sm)
     return img
 
