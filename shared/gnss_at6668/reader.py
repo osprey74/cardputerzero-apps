@@ -16,6 +16,11 @@
    電源の入れ直しや命令の送信では直らない。この状態では本リーダは `nodata` で停止する。
    届いているかは、動作中に `grep ttyS0 /proc/interrupts` の数が増えるかで確かめられる。
 終了時（`close()`）も 5V を起動前の状態へ戻す。pyserial は使わず termios で設定する。
+
+Grove ポートに挿した GPS ユニット（Unit GPS v1.1＝ATGM336H／AT6668・115200bps）も同じ
+`/dev/serial0` に出る（Grove と Cap-Bus は UART を共有。Grove の切替 `grove_fun` は 0＝UART）。
+この場合は `GnssReader(power_path=GROVE_5V)` として Grove 側の 5V を入れる。2026-11-18 に実機で、
+給電の 0.39 秒後から NMEA を途切れなく受信できることを確認した（Cap は外した状態）。
 """
 from __future__ import annotations
 
@@ -29,7 +34,8 @@ from typing import Optional
 
 from .nmea import NmeaParser
 
-EXT_5V = "/sys/class/leds/ext_5v_out/brightness"
+EXT_5V = "/sys/class/leds/ext_5v_out/brightness"        # Cap（EXT／Cap-Bus）への 5V
+GROVE_5V = "/sys/class/leds/grove_5v_out/brightness"    # Grove ポートへの 5V
 DEFAULT_PORT = "/dev/serial0"
 LAST_FIX = os.path.expanduser("~/.cache/cardputerzero/last_fix.json")
 

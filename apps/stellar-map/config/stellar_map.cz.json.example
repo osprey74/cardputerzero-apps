@@ -4,7 +4,7 @@
   "_pos_comment": "lat／lon を書くと、GNSS が測位するまでの観測地としてこの値を使う（前回の測位より優先）。書かなければ 前回の GNSS 測位 → 既定（札幌 43.06, 141.35）の順。GNSS が測位すれば、どの場合も現在地に切り替わる。",
   "tz": 9.0,
 
-  "_gnss_comment": "auto=Cap LoRa-1262 の GNSS から現在地と時刻を取る（Cap 無しなら 20 秒で自動停止）。off=使わない。",
+  "_gnss_comment": "auto=Cap LoRa-1262 の GNSS から現在地と時刻を取る（Cap 無しなら 20 秒で自動停止）。grove=Grove ポートに挿した GPS ユニット（Unit GPS v1.1）を使う。off=使わない。",
   "gnss": "auto",
 
   "_mirror_comment": "true=地上から見上げた向き（星座が実際の形。北を向くと N が下・東が右）。false は天球を外から見た鏡像。実機では true を使う。",

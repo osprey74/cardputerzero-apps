@@ -134,18 +134,20 @@ def make_gnss(args):
     """GNSS リーダを起動して返す（使わない・使えない場合は None）。
 
     --gnss auto（既定）は、CardputerZero 固有の 5V 出力制御とシリアルがある機体でだけ試す。
-    Cap LoRa-1262 が付いていなければ数秒で自動停止し、5V 出力も元に戻る。
+    Cap LoRa-1262 が付いていなければ 20 秒で自動停止し、5V 出力も元に戻る。
+    --gnss grove は、Grove ポートに挿した GPS ユニットを使う（Grove 側の 5V 出力を入れる）。
     """
     if getattr(args, "gnss", "auto") == "off" or args.dt:
         return None
     try:
-        from shared.gnss_at6668 import GnssReader, available
+        from shared.gnss_at6668 import EXT_5V, GROVE_5V, GnssReader, available
     except Exception as ex:  # noqa: BLE001
         print(f"# gnss disabled: {ex}", file=sys.stderr)
         return None
-    if not available():
+    power = GROVE_5V if args.gnss == "grove" else EXT_5V
+    if not available(power_path=power):
         return None
-    g = GnssReader().start()
+    g = GnssReader(power_path=power).start()
     _CLOCK["utc_fn"] = g.utc_now
     _CLOCK["tz"] = args.tz
     return g
@@ -525,8 +527,9 @@ def main() -> None:
                     help="観測地の緯度。未指定なら 前回の GNSS 測位 → 既定（札幌 43.06）の順")
     ap.add_argument("--lon", type=float, default=None,
                     help="観測地の経度。未指定なら 前回の GNSS 測位 → 既定（札幌 141.35）の順")
-    ap.add_argument("--gnss", choices=["auto", "off"], default="auto",
-                    help="GNSS（Cap LoRa-1262）から位置と時刻を取る。auto=CardputerZero でのみ試す")
+    ap.add_argument("--gnss", choices=["auto", "grove", "off"], default="auto",
+                    help="GNSS から位置と時刻を取る。auto=Cap LoRa-1262（CardputerZero でのみ試す）／"
+                         "grove=Grove ポートの GPS ユニット／off=使わない")
     ap.add_argument("--dt", default=None, help="ローカル日時 ISO（未指定なら現在時刻）")
     ap.add_argument("--tz", type=float, default=9.0)
     ap.add_argument("--mag-view", type=float, default=4.5)
