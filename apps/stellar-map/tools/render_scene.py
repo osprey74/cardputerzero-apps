@@ -60,6 +60,10 @@ def _gnss_line(g):
             "gnss": "last fix"}.get(src, "")
     if st == "search":
         return f"GPS search ({tail})", (255, 165, 0)
+    if st == "nodata":
+        if g.get("stalled"):                      # GPS からデータが来ない（Cap 無し・GPS の不調）
+            return f"GPS no data ({tail})", (255, 80, 80)
+        return f"GPS wait ({tail})", COL_LABEL    # 起動直後の受信待ち
     return f"pos: {tail}", COL_LABEL
 
 

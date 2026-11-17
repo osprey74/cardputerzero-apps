@@ -191,8 +191,13 @@ def apply_gnss(args, gsrc, loc, scache, bcache) -> dict:
             if bcache is not None:
                 bcache["bodies"] = bcache["t"] = None
         loc["source"] = "gnss"
+    if snap["state"] in ("search", "fix"):
+        loc["gnss_seen"] = True
+    # stalled: 待っても NMEA が来なかった、または届いていた NMEA が途絶えた（画面で警告する）。
+    # 起動直後の受信待ち（nodata・エラー無し）とは区別する。
+    stalled = snap["state"] == "nodata" and (bool(snap.get("error")) or loc.get("gnss_seen", False))
     return {"state": snap["state"], "source": loc["source"], "sats": snap.get("sats"),
-            "time": gsrc.utc_now() is not None}
+            "time": gsrc.utc_now() is not None, "stalled": stalled}
 
 
 def _get_bodies(args, bcache, dt_local):

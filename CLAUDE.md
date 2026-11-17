@@ -67,7 +67,7 @@ cardputerzero-apps/
 - **ターゲット**: `aarch64-unknown-linux-gnu`（クロスコンパイル）
 - **エミュレータ**: czdev (SDL2 ベース、320×170 LCD を PC 上で再現)
 - **デプロイ**: SSH + scp
-- **AppStore 登録**: cardputerzero.github.io への PR
+- **AppStore 登録**: 公式レジストリ（https://cardputer.cc/ ・開発者ポータル https://dev.cardputer.cc/）。本プロジェクトは非公開のローカル配布のみで、登録の予定は無い
 
 ## 開発環境
 
@@ -91,7 +91,7 @@ cardputerzero-apps/
 
 ### デバイス接続（共通）
 
-- SSH: `ssh pi@cardputerzero.local`（2026-11-17 実機で接続確認済み。ユーザー名 `pi` は初回セットアップウィザードで設定・SSH もウィザードで有効化。現状はパスワード認証で、鍵認証は未設定）
+- SSH: `ssh pi@cardputerzero.local`（2026-11-17 実機で接続確認済み。ユーザー名 `pi` は初回セットアップウィザードで設定・SSH もウィザードで有効化。2026-11-17 に Windows 開発機から公開鍵認証を設定済み。Windows では PowerShell の `ssh` を使う。Git Bash の `ssh` は鍵を使えず失敗する）
 - ポート: 22
 
 ## 開発コマンド（czdev）
@@ -182,7 +182,7 @@ cardputerzero-apps/
 
 - **実機到着済み（2026-11-17・本体＋Cap LoRa-1262＋Cap CC1101）**: 仕様の最終確定は実機検証で行う。初回起動はセットアップウィザード（ユーザー名・ネットワーク・SSH）。Cap はホットプラグ不可、Grove/EXT の 5V 出力は既定 OFF（Settings > ExtPort）
 - **⚠️ カメラ不具合（KS Update #15）の原因は Camera アプリと libcamera の版の食い違い**（2026-11-17 実機で特定）。工場出荷の組み合わせ（Camera 1.0.2＋libcamera 0.7.2+rpt20260817）を維持する。`apt upgrade` は実行しない。パッケージを入れる前に `apt-get -s install` の試算で `libcamera*`／`rpicam-apps*`／`python3-picamera2` が巻き込まれないことを確認する。KS 告知の手動手順（Camera 1.0.3）は現在は成立しない。詳細は HANDOFF §9.1「カメラ不具合の原因と対処」
-- **HANDOFF_cardputerzero.md §9** に列挙された未確認事項（Grove ピンアサイン、SX1262 技適番号、AT6668 と gpsd の互換性等）は実機到着後に検証する
+- **HANDOFF_cardputerzero.md §9** に列挙された未確認事項（Grove ピンアサイン、AT6668 と gpsd の互換性等）は実機で順次検証する。Cap の技適番号と認証条件、Cap のピン対応は 2026-11-17 に確定済み（HANDOFF §1.3）
 - 仕様の不整合が発生した場合は `HANDOFF_cardputerzero.md` を一次資料として更新する
 
 ## 参照ドキュメント
@@ -190,5 +190,5 @@ cardputerzero-apps/
 - [HANDOFF_cardputerzero.md](HANDOFF_cardputerzero.md) — 本プロジェクトの一次設計書
 - [M5Stack CardputerZero 公式](https://shop.m5stack.com/pages/m5-cardputerzero)
 - [CardputerZero-AppBuilder](https://github.com/m5stack/CardputerZero-AppBuilder)
-- [AppStore Hub](https://cardputerzero.github.io)
+- [CardputerZero 公式サイト（Hub / AppStore）](https://cardputer.cc/)
 - [BSAF Protocol](https://github.com/osprey74/bsaf-protocol)
