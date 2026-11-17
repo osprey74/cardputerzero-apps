@@ -96,6 +96,8 @@
 | 2026-11-17 | **実機の初回セットアップ完了・初回調査結果を §9.1 に追加**。ユーザー `pi`・`ssh pi@cardputerzero.local` で接続確認（鍵認証登録）。工場状態の microSD をイメージバックアップ済み（PC ローカル保管）。SSH 経由の読み取り調査で、OS が **Debian 13 (trixie)・Python 3.13.5**（Bookworm 前提は誤り）、OS から見えるメモリが **352MB**、Cap 用 SPI が `/dev/spidev0.1`（CS1＝GPIO7・ピン対応表の推定と一致）、I2C に BMM150（0x10）ほか、picamera2／rpicam-apps が導入済み、Camera 1.0.2（修正版未適用）であることを確認。標準の LoRa／SubG Chat アプリは送信設定が未確認のため送信操作を保留。 |
 | 2026-11-17 | **カメラ不具合を実機で再現し、原因を特定して復旧**。KS Update #15 の手動手順（Camera 1.0.3）を適用したところ Camera アプリが起動不能に。原因は Camera アプリと libcamera の版の食い違い（1.0.2⇔rpt20260817／1.0.3⇔rpt20261009／1.0.4⇔0.8.0）で、配布元が 11 月上旬に libcamera 0.8 系へ移行したため告知の手順が成立しなくなっていた。Camera 1.0.2 へ戻して復旧し、工場出荷の組み合わせを維持する方針に。§9.1 に「カメラ不具合の原因と対処」を新設、§3 App14 の注意書きを原因に即して改訂。 |
 | 2026-11-17 | **メモリ節約策を実測にもとづき検討し、`gpu_mem` を 128→64 に変更**。OS から見えるメモリが 352MB→415MB（+62MB）に増え、カメラ（プレビュー・撮影）の正常動作を確認。スワップが zram（メモリ内圧縮）であること、標準ランチャーの実使用が約 10MB にとどまることも判明し、独自ランチャーへの置き換えは見送り。§9.1 の初回調査結果に内訳を追記。 |
+| 2026-11-17 | **Cap LoRa-1262 の GPS を実機確認**。標準 GPS アプリで測位成功。GPS 出力は `/dev/serial0`・**115200bps**（従来記載の 9600 は誤り）、Cap の電源は EXT 5V 出力（`/sys/class/leds/ext_5v_out/brightness`）に依存し自作アプリ側で ON にする必要があること、IO エキスパンダ 0x43 は給電中のみ現れることを確認。§9.1 と §3 App01 のデバイスパスを更新。 |
+| 2026-11-17 | **Cap LoRa-1262 の SX1262 を実機で確認（送信なし）**。EXT 5V を ON にして GPIO26 でリセットし、`/dev/spidev0.1` で状態・識別文字列・同期語レジスタを読み取り。**RST=G26・BUSY=G22・NSS=G7・SPI0 の推定が確定**（IRQ=G23 は未検証）。リセット直後のエラー値から TCXO（DIO3 給電）構成の可能性を把握。§1.3 ピン対応表の確度と §9.1 を更新。 |
 
 ---
 
@@ -243,7 +245,7 @@ Cap CC1101 の実機ラベルに機種別のピン表があり、Cap-Bus のヘ�
 | 下段 6 | G13 | **G14**（UART TXD） | RF_SW0 | GPS RX |
 | 下段 7 | G15 | **G15**（UART RXD） | GDO0 | GPS TX |
 
-- **確度**: Cap CC1101 の Zero 列は実機ラベルの明記（写真読取）。Cap LoRa-1262 はラベルに ADV 用しか無く、**同じ位置対応を当てはめた推定**（§1.2 の EXT ピンマップと整合）。どちらも実機で応答を確認して確定とする（§9.1）
+- **確度**: Cap CC1101 の Zero 列は実機ラベルの明記（写真読取・実機での応答確認は未実施）。Cap LoRa-1262 はラベルに ADV 用しか無く同じ位置対応を当てはめたものだが、**2026-11-17 に実機で RST／BUSY／NSS／SPI／GPS UART を確認済み**（IRQ=G23 のみ未検証・§9.1）
 - Zero 側は Raspberry Pi 標準の **SPI0（`/dev/spidev0.x`）＋ I2C1 ＋ UART** に載る。CC1101 の CS（G22）は SPI0 のハードウェア CE ではないため GPIO 手動 CS で扱う
 - G14/G15 を Cap が使う点は変わらず、**Chain Encoder との排他は従来どおり**
 
@@ -1123,15 +1125,16 @@ def snr_to_dot_size(snr: int) -> int:
 #### デバイスパス (仮)
 
 ```python
-GPS_UART  = "/dev/ttyS0"   # AT6668 NMEA 出力（Zero: G14/G15 の UART。デバイス名は実機で要確認）
-GPS_BAUD  = 9600            # デフォルト (変更可: 115200)
+GPS_UART  = "/dev/serial0" # AT6668 NMEA 出力（→ ttyS0・実機確認済み 2026-11-17）
+EXT_5V    = "/sys/class/leds/ext_5v_out/brightness"  # 1 を書いて Cap に給電してから開く
+GPS_BAUD  = 115200          # 実機確認済み（2026-11-17）。9600 では受からない
 LOG_DIR   = "/mnt/sdcard/gps_logs"
 ```
 
 #### LoRa 位置共有 (拡張)
 
 ```python
-LORA_SPI  = "/dev/spidev0.1"   # SX1262（Zero では NSS=G7=SPI0 CE1・推定／§1.3 ピン対応表）
+LORA_SPI  = "/dev/spidev0.1"   # SX1262（NSS=G7=SPI0 CE1・RST=G26・BUSY=G22／実機確認済み 2026-11-17）
 LORA_FREQ = 922.0              # MHz（認証範囲 922.0〜923.4MHz の 8 波から選ぶ。旧記載 920.8 は認証外）
 # 送信条件は §1.3「Cap 技適 確定情報」: 125kHz/5mW 以下・1 回 0.4 秒未満・キャリアセンス必須
 # Meshtastic POSITION パケットで周囲ノードへブロードキャスト
@@ -4374,8 +4377,17 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [ ] Cap LoRa-1262 の SPI CE (Chip Enable) ピン番号（公式: LoRa_NSS=G5）
   - ✅ **実機ラベル（表側）確認（2026-11-17・実機写真）**: ラベルのピン表記は **Cardputer-ADV 用の 1 系統のみ**（Zero 行なし）。上段 RST=G3 / IRQ=G4 / BUSY=G6 / SCK=G40 / MOSI=G14 / MISO=G39 / NSS=G5、下段 5V IN / GND / 5V OUT / G8 SDA / G9 SCL / G13 RX / G15 TX。**PI4IO ADDR: 0x43**、BYPASS: EP0（エキスパンダ P0 経由と読める・機能は要確認）、GNSS は ATGM336H・アンテナ内蔵、表記 868〜923MHz
   - 🟡 **CardputerZero でのピン（推定・要実機確認）**: Cap CC1101 ラベルの ADV 行と Zero 行はヘッダ位置で 1 対 1 対応しており（G3→G26 / G4→G23 / G6→G22 / G40→G11 / G14→G10 / G39→G9 / G5→G7 / G8→G2 / G9→G3 / G13→G14 / G15→G15）、同じ Cap-Bus に挿す本 Cap にも適用すると **RST=G26 / IRQ(DIO1)=G23 / BUSY=G22 / SCK=G11 / MOSI=G10 / MISO=G9 / NSS=G7（SPI0 CE1）/ SDA=G2 / SCL=G3 / GPS は UART G14(TXD)・G15(RXD)**。§1.2 の EXT ピンマップ（Pin 8/10=G2/G3・Pin 12/14=G15/G14）とも整合。**本書中の LoRa_NSS=G5 等は ADV 用の番号**
-  - ⬜ 残: 実機で `/dev/spidev0.1` と GPIO22/23/26 で SX1262 が応答するか、GPS NMEA が `/dev/serial0` に出るかを確認（パッケージ導入を伴うためカメラ不具合の OTA 適用後）
-- [ ] AT6668 (ATGM336H-6N) と Linux gpsd の互換性テスト
+  - ✅ **実機で確定（2026-11-17・送信なしの状態読み取りのみ）**: EXT 5V を ON → GPIO26 でリセット → `/dev/spidev0.1`（モード 0・1MHz）で応答を確認。**RST=G26・BUSY=G22・NSS=G7（SPI0 CE1）・SCK/MOSI/MISO=G11/G10/G9 は確定**（リセット中に BUSY が H、解除後 L に戻る）。GetStatus＝STBY_RC、レジスタ 0x0320 の識別文字列「SX1261 V2D 2D02」（SX126x 系共通の文字列）、LoRa 同期語レジスタ 0x0740＝0x14 0x24（リセット既定値）。GPS NMEA も `/dev/serial0`・115200bps で確認済み
+  - ⬜ 残: **IRQ（DIO1）=G23 は未検証**（割り込みを発生させていないため）。リセット直後の GetDeviceErrors が 0x0020（XOSC 起動エラー）＝**TCXO を DIO3 で給電する構成の可能性**が高く、受信・送信の前に `SetDIO3AsTcxoCtrl` が必要と推定（電圧値は回路図で要確認）。RF スイッチ／BYPASS（エキスパンダ 0x43 の EP0）の制御も未調査
+- [x] **Cap LoRa-1262 の GPS を実機で確認（2026-11-17）**
+  - 標準の GPS アプリ（`m5cardputerzero-cap-lora-1262-gps`）で測位できることを確認（総司確認）
+  - **GPS の出力は `/dev/serial0`（`ttyS0`）・115200bps**。NMEA は GP／GL／GA／BD／GQ（QZSS）の各 GSV と GNGGA・GNRMC・GNGSA・GNVTG・GNZDA・GNGLL。9600bps では受からない（App01 の「デフォルト 9600」は誤り）
+  - **Cap の電源は EXT の 5V 出力に依存**する。`/sys/class/leds/ext_5v_out/brightness` に 1 を書くと給電され（`gpio` グループで書込可・sudo 不要）、0 で切れる。標準 GPS アプリは起動時に ON・終了時に OFF にする。**自作アプリも起動時に自分で ON にする必要がある**
+  - IO エキスパンダ PI4IOE5V6408（I2C 0x43）は Cap 給電中のみ現れる（ラベル表記と一致）
+  - GPS アプリ実行中は `/dev/serial0` が専有され、他プロセスからは「Device or resource busy」で開けない
+  - `pi` は dialout／spi／i2c／gpio グループ所属。`python3` の `spidev`・`pyserial`・`gpiod` 2.2.0 は導入済み
+  - ⬜ 残: 給電直後の NMEA に `$GPTXT,...,ANTENNA OPEN` が出る。標準アプリがエキスパンダ（0x43）経由でアンテナ／LNA 等を制御している可能性があり、自作アプリで同じ設定が要るかを要調査
+- [ ] AT6668 (ATGM336H-6N) と Linux gpsd の互換性テスト（gpsd は未導入。pyserial で NMEA を直接読む構成なら不要）
 - [ ] SX1262 レジスタ設定で日本の技適範囲内に出力制限する手順の検証
 - [x] **[Cap A]** Chain Encoder との排他確認済み（2026-06-19）: GPS の UART(G14/G15) が EXT-UART と同一ピンのため**併用不可**を確定
 
