@@ -19,6 +19,7 @@
 7. **Kickstarter で告知されたカメラ不具合の正体は、Camera アプリと libcamera の版の食い違い。** 告知の修正手順は、配布元の更新で成立しなくなっていた。
 8. **OS は Debian 13（trixie）、Python は 3.13。** Bookworm ではない。
 9. **到着当日の夜、Cap LoRa-1262 の GPS が黙った。原因は Cap と本体の間の接触不良だった。** ソフトウェアや電源の問題を疑って半日遠回りしたが、決め手は「受信線の割り込み回数を見ながら Cap を押す」という単純な確認だった（8.6 節）。
+10. **Grove ポートに GPS ユニットを挿すと、Cap と同じ `/dev/serial0` で読める。** Cap の交換を待つ間の代わりになり、「本体側は正常」という切り分けにもなった（8.7 節）。
 
 ---
 
@@ -556,6 +557,7 @@ CardputerZero と組み合わせて使う手元の M5Stack 製品も、同じ方
 - 比較のため、Cap CC1101 を同じ本体に付けて確認した。チップの識別番号を、Cap を押したり揺らしたりしながら約 2,800 回読んで、失敗は 0 回。標準の NFC アプリでカードも読めた。不具合は Cap LoRa-1262 に固有のものらしい。
 - 以上を写真付きで返信し、交換を依頼した（回答待ち）。
 - 基板上の GPS モジュールの印字は「ATGM336H」だった（8.1 節の構成と一致）。
+- 交換を待つ間、別の GPS ユニットを Grove ポートにつないで代わりにした。これで本体側は正常と分かった（8.7 節）。
 - 星座盤は、NMEA が届かないときに赤字で「GPS no data」と表示するようにした。それまでは、GPS を使っていないときと同じ表示で、見分けがつかなかった。画面に出ている緯度・経度は前回の測位の値で、GPS が動いていなくても表示される。これを「測位できている」と読み違えたことも、切り分けが遅れた一因になった。
 
 **記事で使えそうな教訓**
@@ -563,6 +565,51 @@ CardputerZero と組み合わせて使う手元の M5Stack 製品も、同じ方
 - 「I2C は応答するのに UART だけ黙る」は、接触不良でも起きる。Cap が認識されていることは、すべての端子がつながっていることを意味しない。
 - ソフトウェアで説明をつけようとする前に、触って変わるかを確かめる。割り込み回数のように、触りながら見られる指標があると早い。
 - 一度直った手順（挿し直し）が、原因の裏づけになるとは限らない。接触不良は、たまたま直ることがある。
+
+### 8.7 Grove ポートの GPS ユニットで代替する【実測】
+
+Cap の交換を待つ間、手元の Unit GPS v1.1（Unit C6L に付けていたもの）を CardputerZero の Grove ポートにつないだ。
+
+**なぜそのまま使えるか**
+
+- CardputerZero の Grove ポートと Cap の端子（Cap-Bus）は、同じ UART（GPIO14／GPIO15、`/dev/serial0`）を共有している。【公式】（回路図）
+- Unit GPS v1.1 の中身は、Cap と同じ系統のモジュール（ATGM336H、AT6668）で、通信速度も同じ 115200bps。
+- つまり、Cap の GPS 用に書いたプログラムが、給電する出力を変えるだけで動く。
+
+**手順**
+
+1. 本体の電源を切り、Cap を外して、GPS ユニットを Grove ポートに挿す。
+2. Grove の動作モードは既定のまま（`grove_fun` が 0＝UART）。切り替えは不要だった。
+3. Grove の 5V 出力を入れる。Cap 用とは別の出力で、既定は「切」。`gpio` グループなら `sudo` 不要。
+
+   ```bash
+   echo 1 > /sys/class/leds/grove_5v_out/brightness
+   ```
+
+4. `/dev/serial0` を 115200bps で読む。
+
+**結果**
+
+| 項目 | 結果 |
+|---|---|
+| 給電から最初のデータまで | 0.39 秒 |
+| 30 秒間の受信（本体に触れずに） | 17,471 バイト、壊れた行は 0 |
+| 受信した衛星系 | GPS、GLONASS、Galileo、BeiDou、みちびき（QZSS） |
+| 自作の星座盤での測位 | 起動の 1 秒後に受信開始、約 30 秒後に測位（5 衛星、窓際） |
+| 送受信の線の向き | そのままで合っていた（どちらも M5Stack 標準の Grove の UART） |
+
+- GPS ユニットが起動時に出す文から、中身が分かる: `HW=ATGM336H`、`IC=AT6668`、`SW=URANUS6,V6.3.2.0`。
+
+**分かったこと**
+
+- 本体側の UART は正常。Cap では押さえていないと続かなかった受信が、Grove 経由では触れずに続いた。GPS の不具合は Cap LoRa-1262 側にあると判断できる。
+- Cap が無くても、Grove の GPS ユニットで GPS を使うアプリを作れる。
+
+**注意点**
+
+- Cap LoRa-1262 と Grove の GPS ユニットは、同じ通信線を使う。同時には使えない。
+- 標準の GPS アプリが Grove の GPS ユニットで動くかは試していない。【推定】Cap 用の 5V 出力しか入れないため、そのままでは動かない可能性がある。
+- Unit GPS v1.1 の信号の電圧（3.3V かどうか）は、公式ページに記載が無かった。3.3V の ESP32 系の本体に直結して使う製品なので 3.3V と見てつないだ。
 
 ---
 
@@ -642,6 +689,7 @@ CardputerZero と組み合わせて使う手元の M5Stack 製品も、同じ方
 - 屋外での LoRa の到達距離
 - Meshtastic のプリセット名と設定値の対応
 - GPS の接触不良の原因箇所（はんだは目視で異常なし。本体側の UART 端子が正常かは、交換品が届くまで分からない）、LoRa（SX1262）への影響、交換の可否
+- 標準の GPS アプリが、Grove の GPS ユニットで動くか
 - GPS モジュール（AT6668）が CASIC の `$PCAS10` 命令に対応しているか（参照した仕様書は同じメーカーの別のチップ向け。接触不良の状態で送ったため、応答が無かったことからは判断できない）
 
 ### 手元にある素材
@@ -662,6 +710,8 @@ CardputerZero と組み合わせて使う手元の M5Stack 製品も、同じ方
 - [M5Stack Docs: CardputerZero Image Burning Guide](https://docs.m5stack.com/en/compute/cardputerzero/image)
 - [M5Stack Docs: Cap LoRa-1262](https://docs.m5stack.com/en/cap/Cap_LoRa-1262)
 - [M5Stack Docs: Cap CC1101](https://docs.m5stack.com/en/cap/Cap_CC1101)
+- [M5Stack Docs: Unit GPS v1.1](https://docs.m5stack.com/en/unit/Unit-GPS%20v1.1)
+- [回路図: CardputerZero V0.3](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1243/C154-CardputerZERO_SCHE_PRJ_V0.3_20260430.pdf)（Grove と Cap-Bus の UART 共有）
 - [回路図: Cap LoRa-1262 V1.1](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1208/U214-sche-Cap-LoRa1262_SCH_V1.1_20251029_2025_11_07_22_53_19.pdf)
 - [回路図: Stamp LoRa-1262 Mini](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1208/NEW-1262-SCH_A1-Lora_2025_08_27_10_58_52.pdf)
 - [CASIC Multimode Satellite Navigation Receiver Protocol Specification（杭州中科微電子。Espruino 掲載の英訳版）](https://espruino.com/files/CASIC_en.pdf)（`$PCAS10` 命令の書式）
