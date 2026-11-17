@@ -9,7 +9,7 @@ CardputerZero (Raspberry Pi CM0 / Linux) 向けの**オフライン星座盤**�
 > 実機（uConsole・2026-07-20）でのライブ表示。地磁気（BMM150）で自機の向きを画面上に固定して
 > 全天図を回転（方式A・N/S/E/W が現在の向きに追従）、惑星（Mercury/Jupiter/Venus）と月相を表示。
 
-## アーキテクチャ（Python サイドカー ＋ Rust/LVGL UI）
+## アーキテクチャ（Python サイドカー ＋ 薄い UI）
 
 天体計算・投影・色/サイズ決定は**すべて Python 側**で行い、320×170 の**デバイス座標
 プリミティブ（Scene）**に落として JSON で渡す。UI（Rust/LVGL）は Scene を受け取り
@@ -30,7 +30,11 @@ CardputerZero (Raspberry Pi CM0 / Linux) 向けの**オフライン星座盤**�
 - **サイドカー** [`sidecar/stellar_sidecar.py`](sidecar/stellar_sidecar.py): Scene を JSON Lines で stdout 出力。
 - **前処理/検証** [`tools/`](tools/): データ取込ツール群と PC 検証レンダラ
   （`render_catalog.py` = 直接描画 / `render_scene.py` = Scene JSON から描画してプロトコル検証）。
-- **UI** [`ui/`](ui/): czdev/LVGL の Rust アプリ（**scaffold・czdev 到着後にビルド**）。
+- **UI（CardputerZero 実機）** [`ui_fb/stellar_fb.py`](ui_fb/stellar_fb.py): **フレームバッファ直描画**の Python UI。
+  実機の LCD は `/dev/fb0`（320×170・RGB565）へ直接描く構成で SDL/Wayland が使えないため、
+  Scene を `tools/render_scene.py` で描いて RGB565 で書き込む。キーボードは evdev（`tca8418c`）を直接読む。
+  依存は工場出荷イメージに入っている Pillow と numpy のみ。
+- **UI（SDL2・検証用）** [`ui/`](ui/): Rust＋SDL2 版。uConsole での先行検証に使用。**CardputerZero の LCD には出ない**。
 
 ## Scene JSON プロトコル（サイドカー → UI の契約）
 
@@ -72,7 +76,7 @@ python sidecar/stellar_sidecar.py --dt 2026-07-08T03:30 | python tools/render_sc
 python tools/render_catalog.py --shape square --no-aa
 ```
 
-## UI キー割当（実機 SDL2）
+## UI キー割当（`ui_fb`・`ui` 共通）
 
 | キー | 動作 |
 | --- | --- |
@@ -81,6 +85,7 @@ python tools/render_catalog.py --shape square --no-aa
 | `P` | 惑星・月の名前 表示 ON/OFF（既定 ON） |
 | `C` | 星座名 表示 ON/OFF（既定 OFF・低解像度での混雑回避） |
 | `S` | スクリーンショット PNG 保存（`STELLAR_SHOTS_DIR` → `$HOME/stellar_shots`） |
+| `Q` | 終了（`ui_fb` のみ。標準ランチャーの ESC 長押しでも終了できる） |
 
 ## Chain Encoder 操作（星座 / 惑星・月 のリスト・拡大表示）
 
@@ -120,7 +125,7 @@ Chain Encoder が無くてもキーボードで同じ状態遷移ができる（
 | --- | --- |
 | `Enter` | 一段深く（星座盤→星座リスト / リスト→拡大表示） |
 | `Tab` | 星座盤→惑星・月・1等星リスト |
-| `↑` / `↓` | リストでカーソル移動 / 拡大表示で拡大・縮小（↑=拡大） |
+| `↑` / `↓` | リストでカーソル移動 / 拡大表示で拡大・縮小（↑=拡大）。CardputerZero では `fn`＋`F` / `fn`＋`X` |
 | `Esc` | 一段戻る（拡大→リスト→星座盤） |
 
 レイヤトグル `L`/`D`/`P`/`C`・スクショ `S` はどちらの運用でも有効。
@@ -128,15 +133,32 @@ Chain Encoder が無くてもキーボードで同じ状態遷移ができる（
 方位は地磁気（BMM150）で自機の向きを画面上に固定（方式A）。個体・取付依存の較正／姿勢
 オフセットは `~/.config/cardputerzero/stellar_map.json`（例 `config/stellar_map.json.example`）。
 
+## CardputerZero 実機への導入
+
+`.deb` は実機上で生成できる（Python のみでコンパイル不要・`dpkg-deb` は実機に入っている）。
+
+```bash
+# 1) 開発機: ソース一式（scripts/pack_deb.sh・shared/{star_catalog,compass}・apps/stellar-map の
+#    packaging/ assets/ sidecar/ ui_fb/ data/ と tools/{ephem,render_scene}.py）を実機へ送る
+# 2) 実機: パッケージ生成
+bash scripts/pack_deb.sh apps/stellar-map        # -> apps/stellar-map/dist-cz/stellar-map_<ver>_arm64.deb
+# 3) 実機: 試算で他パッケージに影響しないことを確認してから導入
+apt-get -s install ./apps/stellar-map/dist-cz/stellar-map_*.deb
+sudo apt install   ./apps/stellar-map/dist-cz/stellar-map_*.deb
+# アプリ一覧に出ない場合: systemctl --user restart APPLaunch   / 削除: sudo apt remove stellar-map
+```
+
+- 標準ランチャーの一覧から「Stellar Map」を起動する。**SSH から直接起動するとランチャーの表示・キー処理と重なる**ので、動作確認はランチャー経由で行う。
+- 2026-11-17 に実機で確認: アイコン表示・描画・星座リスト／惑星 1 等星リスト／拡大・ESC 長押しと `Q` での終了。UI 約 34MB＋サイドカー約 21MB。
+
 ## 状態
 
 | 部位 | 状態 |
 | --- | --- |
 | データ取込（HYG/OpenNGC/星座線） | ✅ 完了（PC 検証済み） |
-| 天体計算（Skyfield 惑星/月/月相） | ✅ 完了（PC 検証済み） |
-| Scene プロトコル＋サイドカー | ✅ 完了（`render_scene.py` で PC 実証） |
-| Rust/LVGL UI | 🚧 **scaffold**（czdev 未導入・実機未到着のためビルド未）。`ui/` にプリミティブ描画の骨組み |
-| RTC/NTP/GNSS 時刻・位置入力、HDMI 切替、BMM150 方位較正 | ⬜ 実機到着後 |
-
-> czdev（SDL2 エミュレータ / AppBuilder）は Kickstarter 配布物で未入手。到着後に `ui/` の
-> LVGL 描画呼び出しを czdev API に合わせて確定し、`czdev run`（PC エミュレータ）→ 実機の順で検証する。
+| 天体計算（Skyfield 惑星/月/月相） | ✅ 完了（PC・uConsole 検証済み）／CardputerZero 実機は skyfield 未導入のため非表示 |
+| Scene プロトコル＋サイドカー | ✅ 完了（PC・uConsole・CardputerZero 実機） |
+| フレームバッファ UI（`ui_fb`） | ✅ **CardputerZero 実機で動作確認済み**（2026-11-17・標準ランチャーから起動） |
+| SDL2 UI（`ui`・Rust） | ✅ uConsole で動作確認済み（CardputerZero の LCD には出ない） |
+| 内蔵 BMM150 による方位追従 | ⬜ 未対応（実機では北向き固定。IIO から読める状態） |
+| RTC/NTP/GNSS 時刻・位置入力、HDMI 切替 | ⬜ 未対応（観測地の既定は札幌） |

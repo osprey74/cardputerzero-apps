@@ -54,10 +54,10 @@ if [ -f packaging/postinst ]; then
 fi
 
 # APPLaunch 登録用 .desktop
-# ⚠️ APPLaunch が読む正確なパス/形式は実機未確認（HANDOFF §9 TODO）。
-#    暫定で XDG .desktop を $INSTALL_PREFIX/share/applications に置く。
+# APPLaunch は $INSTALL_PREFIX/applications/*.desktop を読む（2026-11-17 実機確認）。
+# Icon は $INSTALL_PREFIX からの相対パス（例: share/images/<name>.png・100x100 RGBA）。
 if [ -n "${APP_NAME:-}" ]; then
-  DESK="$STAGE$INSTALL_PREFIX/share/applications/$PKG_NAME.desktop"
+  DESK="$STAGE$INSTALL_PREFIX/applications/$PKG_NAME.desktop"
   mkdir -p "$(dirname "$DESK")"
   cat > "$DESK" <<EOF
 [Desktop Entry]
@@ -68,6 +68,7 @@ Icon=${APP_ICON:-$PKG_NAME}
 Terminal=${APP_TERMINAL:-false}
 Categories=Utility;
 EOF
+  chmod 0644 "$DESK"
 fi
 
 OUT_DIR="${DEB_OUT:-$APP_DIR/dist-cz}"

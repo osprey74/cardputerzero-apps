@@ -12,6 +12,7 @@ Rust/LVGL 側の実装が妥当だと確認できる。描画は実機方針ど�
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import sys
 from pathlib import Path
@@ -22,6 +23,18 @@ COL_BG = (0, 0, 0)
 COL_ACCENT = (0, 220, 255)
 COL_TEXT = (235, 235, 235)
 COL_LABEL = (150, 150, 150)
+
+
+@functools.lru_cache(maxsize=1)
+def _fonts():
+    """等幅フォントを一度だけ読み込む（Windows=Consolas / Linux・実機=DejaVu Sans Mono）。"""
+    for name in ("consola.ttf", "DejaVuSansMono.ttf"):
+        try:
+            return ImageFont.truetype(name, 11), ImageFont.truetype(name, 9)
+        except OSError:
+            continue
+    f = ImageFont.load_default()
+    return f, f
 
 
 def draw_square(d, x, y, side, col):
@@ -40,11 +53,7 @@ def render_scene(scene: dict) -> Image.Image:
     img = Image.new("RGB", (w, h), COL_BG)
     d = ImageDraw.Draw(img)
     d.fontmode = "1"          # 実機同様 AA 無し（bilevel）文字
-    try:
-        font = ImageFont.truetype("consola.ttf", 11)
-        font_sm = ImageFont.truetype("consola.ttf", 9)
-    except OSError:
-        font = font_sm = ImageFont.load_default()
+    font, font_sm = _fonts()
 
     for x, y, w, h, r, g, b in scene.get("rects", []):     # 塗り矩形（背景・最初に）
         d.rectangle([x, y, x + w - 1, y + h - 1], fill=(r, g, b))

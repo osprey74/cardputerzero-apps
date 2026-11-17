@@ -1,7 +1,8 @@
 #!/bin/sh
-# Stellar Map ランチャー: SDL2 UI がサイドカー(Python)を子プロセス起動して Scene を描く。
-# APPLaunch からはこのラッパーが起動される（APP_EXEC）。
+# Stellar Map ランチャー: フレームバッファ UI がサイドカー(Python)を子プロセス起動して Scene を描く。
+# APPLaunch からはこのラッパーが起動される（APP_EXEC）。APPLaunch は外部アプリの実行中、
+# 自身のキーボード処理を止めて待機し、ESC 長押しでアプリを終了させる。
 LIB=/usr/share/APPLaunch/lib/stellar-map
 export PYTHONPATH="$LIB:${PYTHONPATH:-}"
 export STELLAR_SIDECAR="$LIB/sidecar/stellar_sidecar.py"
-exec "$LIB/stellar-map" "$@"
+exec /usr/bin/python3 "$LIB/ui_fb/stellar_fb.py" "$@"

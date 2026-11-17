@@ -101,6 +101,7 @@
 | 2026-11-17 | **Cap CC1101 の両チップを実機で確認し、CS の取り違えを訂正**。CC1101＝`/dev/spidev0.1`（CS=G7・VERSION 0x14）、ST25R3916＝CS=G22（手動 CS・IC Identity 0x2A）で応答。ラベル写真の読取で CC_CS と NFC_CS を逆に記載していたため、§1.3 ピン対応表・§3 App03／App04・§9.1 を訂正。取り違えた状態での最初の読み取りで CC1101 に意図しないレジスタ書き込みが 2 件発生したが、送信ストローブは発行しておらず電波は出していない。EXT 5V を切っても CC1101 の状態が残る挙動を確認し、初期化時の SRES を必須と記載。 |
 | 2026-11-17 | **Cap LoRa-1262 の公式回路図（Cap V1.1／Stamp LoRa-1262 Mini）を読解し §9.1 に追記**。TCXO は 3.0V・DIO3 給電、RF スイッチの電源は IO エキスパンダ 0x43 の P0（High 必須）で送受切替は DIO2、Cap の電源は Cap-Bus の 5VOUT、GPS 側は LNA 常時 ON でエキスパンダ制御不要（`ANTENNA OPEN` 通知は異常でないと推定）であることを確認。 |
 | 2026-11-17 | **Cap LoRa-1262 で C6L の Nostos ビーコンを実受信（受信のみ）**。IRQ（DIO1）=G23 を確定し全ピンが実機で確定。回路図どおりの初期化（EXT 5V・エキスパンダ P0 High・TCXO 3.0V・DIO2 RF スイッチ）で 923.0MHz／125kHz／SF9／同期語 0x3A を受信し、10 分間で 7 通を欠けなく受信（CRC すべて正常・遮蔽物なしで −73〜−79dBm）。CardputerZero で C6L ビーコンを受ける経路がハードウェアとして成立。§9.1 に初期化手順と結果を記録。 |
+| 2026-11-17 | **App16 星座盤を CardputerZero 実機へ組み込み、標準ランチャーから起動して動作確認**。LCD は `/dev/fb0` 直描画・キーボードは evdev 直読みで SDL2 が使えないと判明し、フレームバッファ UI `ui_fb/stellar_fb.py` を新設。`.deb` を実機上で生成して導入し、アイコン表示・描画・キー操作・ESC 長押し／Q での終了を確認（UI＋サイドカーで約 55MB）。§4.2.1 に標準ランチャーの実機仕様（登録パス・アイコン・起動と終了の挙動）を新設、`scripts/pack_deb.sh` の登録ファイル配置を修正。惑星・月と方位追従は未対応。 |
 
 ---
 
@@ -4034,6 +4035,23 @@ czdev upload   # m5stack/CardputerZeroRepository へ提出 (CI 検証 → 公開
 # 公開後、エンドユーザは「apt install <app-id>」または Launcher AppStore から取得
 ```
 
+#### 4.2.1 標準ランチャー（APPLaunch）の実機仕様（2026-11-17 調査・App16 で動作確認）
+
+| 項目 | 実機で確認した内容 |
+|---|---|
+| ランチャー本体 | `/usr/share/APPLaunch/bin/M5CardputerZero-APPLaunch`。**systemd のユーザーサービス `APPLaunch.service`** として動く（再起動は `systemctl --user restart APPLaunch`・sudo 不要） |
+| 画面 | **`/dev/fb0` へ直接描画**（panel-mipi-dbi・320×170・16bpp RGB565・stride 640）。SDL/Wayland/X は使わない。標準アプリも SDL や DRM のライブラリをリンクしていない |
+| キーボード | **evdev を直接読む**（`tca8418c`＝`/dev/input/by-path/platform-3f804000.i2c-event`）。キーマップは `/usr/share/keymaps/tca8418_keypad_m5stack_keymap.map` |
+| アプリの登録 | **`/usr/share/APPLaunch/applications/<name>.desktop`**（`Name`／`Exec`／`Icon`／`Terminal`／`Type`）。`Icon` は `/usr/share/APPLaunch` からの相対パス（例 `share/images/<name>.png`・100×100 または 90×90 の RGBA PNG） |
+| 外部アプリの起動 | `Exec` を子プロセスとして起動し、**自身のキーボード処理を停止（`keyboard_pause`）してプロセスグループの終了を待つ**。evdev は排他取得せず子と共有。終了すると `keyboard_resume` して復帰 |
+| 終了 | **ESC 長押しでランチャーがアプリを終了**させてホームへ戻る。アプリ側の自主終了でも復帰する |
+| 権限 | 既定は `pi` 権限で起動。root が必要な標準アプリは `Exec=/usr/bin/sudo -n -- <bin>`＋`/etc/sudoers.d/` の個別許可で対応している |
+
+- **含意**: 自作アプリは「フレームバッファへ直接描き、evdev を直接読む」作りにする。**SDL2 のウィンドウは LCD に出ない**（uConsole で検証した SDL2 版 UI はそのままでは使えない）
+- ランチャーを経由せず SSH 等から直接起動すると、ランチャーが描画とキー処理を続けるため、**ステータス表示の重なりとキーの二重処理**が起きる。動作確認はランチャーから起動して行う
+- `scripts/pack_deb.sh` は上記の配置（`applications/` と `share/images/`）で `.deb` を生成する。開発機に `dpkg-deb` が無い場合は、ソース一式を実機へ送り実機上で `bash scripts/pack_deb.sh apps/<app>` を実行すればよい（Python アプリはコンパイル不要）
+- 導入前に **`apt-get -s install <deb>` の試算**で、他パッケージ（特にカメラ関連）が巻き込まれないことを確認する
+
 ---
 
 ## 5. リポジトリ構成
@@ -4530,7 +4548,12 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 - [x] **[App 16]** 惑星・月の名前トグル＋星座名トグル（2026-07-20・uConsole）。惑星・月名は既存 `labels` を UI `P` キーで（既定 ON）。星座名は `load_constellation_names`（constellation_lines.json の iau/name/pairs から構成星 HIP の球面重心 RA/Dec を算出）→Scene 独立配列 `cnames`（IAU 略号）→UI `C` キーで（既定 OFF・混雑回避）。`render_scene.py` 対応・UI 再ビルド済。実機で 36 星座名＋惑星名を確認。**UI キー割当: L=星座線 / D=DSO / P=惑星月名 / C=星座名**
 - [x] **[App 16]** 恒星投影の時間キャッシュ＋星座線/DSO 切替（2026-07-20・uConsole）。`scene.py` を `compute_sky`(alt/az・heading 非依存・`--sky-interval` 秒キャッシュ)＋`build_scene`(投影・毎フレーム)に分離＝毎フレーム **63→4.8ms(約13倍)** で heading 回転が滑らかに。DSO を Scene 独立配列 `dso` に分離、UI に SDL キーボード追加＝`L`星座線/`D`DSO の ON/OFF トグル（最新フレーム即再描画）。`render_scene.py` も dso 対応。UI 再ビルド済。⚠️ トグルの実キー操作は物理キーボードで要目視確認（xdotool 無しのため遠隔注入不可）
 - [x] **[App 16]** 惑星・月をライブ UI で有効化（2026-07-20・uConsole）。Skyfield 1.54 導入＋DE421 自動DL、launcher の `--no-planets` 除去。Skyfield が重い(~65ms)ため惑星・月は `--bodies-interval`(既定10s)キャッシュ・恒星＋heading 回転は毎フレーム。`render_scene.py` で planets up:3＋Moon 描画確認。⚠️ 実 X では scrot/CZ_SCREENSHOT が使えず描画確認は render_scene(Pillow)で。残: **恒星投影も alt/az を時間キャッシュ**すれば heading 回転が更に軽くなる（現状 ~3.8fps・恒星投影律速）
-- [ ] **[App 16]** czdev 到着後: `ui/draw_scene()` の LVGL 描画実装（塗り矩形＋線＋1bpp フォント）＋ czdev エミュレータ／実機での描画・性能検証
+- [x] **[App 16]** **CardputerZero 実機に組み込み、標準ランチャーから起動して動作確認（2026-11-17）**。LCD が `/dev/fb0` 直描画・キーボードが evdev 直読みの構成（§4.2.1）と判明したため、SDL2 版 `ui/` の代わりに **フレームバッファ UI `ui_fb/stellar_fb.py`（Python・Pillow＋numpy・描画は `tools/render_scene.py` を共用）**を新設。サイドカーを子プロセス起動し Scene JSON を RGB565 で `/dev/fb0` へ書く。キーは Enter／Tab／↑↓（fn＋F／fn＋X）／Esc をサイドカーへ送り、L／D／P／C のレイヤ切替・S のスクリーンショット・Q の終了を UI 側で処理
+  - `.deb`（`stellar-map_0.1.0-osprey74-2_arm64`）を実機上で生成して導入。依存は工場出荷イメージに導入済みの `python3`・`python3-pil`・`python3-numpy` のみで、試算上も他パッケージの変更なし
+  - **結果（総司確認）**: アプリ一覧にアイコン表示／ステータス表示の重なりなし／星座リスト・惑星 1 等星リスト・拡大表示・各キー操作が正常／ESC 長押しと Q で終了可
+  - **実測**: UI 約 34MB＋サイドカー約 21MB（RSS）・CPU は 1 コアの約 18%＋13%・0.5 秒間隔で約 2 フレーム／秒
+  - ⬜ 残: 惑星・月（skyfield 未導入のため非表示）／内蔵 BMM150 による方位追従（IIO に `bmm150`・`bmi270` として見えている。`HeadingSource` の追加と較正が必要）／観測地の設定（既定は札幌）／GNSS・RTC 連携／Rust への移植（フレームバッファ直描画版・配布方針 §2.7.6 の「Rust 第一」に合わせる場合）
+- [ ] **[App 16]** （旧 TODO・方針変更）czdev／LVGL による `ui/draw_scene()` 実装。上記のとおり実機は fb 直描画のため、LVGL を使うなら fbdev バックエンド前提で再検討
 - [ ] **[App 16]** RX8130CE RTC（`/dev/rtc`）＋ NTP（`systemd-timesyncd`）＋ AT6668 GNSS UTC の時刻取得系を確立（`shared/gnss_at6668/` を App 01 と共有）
 - [ ] **[App 16]** HDMI 接続検出（`/sys/class/drm/*/status`）→ LCD ⇔ 1080p フルスクリーン・プラネタリウムの自動レイアウト切替
 - [ ] **[App 16・要較正]** 本体内蔵 BMM150 の方位較正（ハード/ソフトアイアン＋加速度による傾き補正）で heading を実用精度に。**【2026-07-19 訂正】CardputerZero 単体で BMM150 を持つため CoreS3 流用・ジャイロ相対追従フォールバックは不要**

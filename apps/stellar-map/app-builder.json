@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "app_name": "Stellar Map",
   "bin_name": "stellar-map",
-  "description": "App16 offline planetarium (star map). Python sidecar + SDL2 UI, 320x170.",
+  "description": "App16 offline planetarium (star map). Python sidecar + framebuffer UI, 320x170.",
   "runtime": "legacy-deb-only",
   "caps": ["keyboard", "filesystem"]
 }
