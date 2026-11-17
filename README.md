@@ -75,7 +75,7 @@ Each app's full feature checklist is in [HANDOFF §3](./HANDOFF_cardputerzero.md
 - **UI Framework**: [LVGL](https://lvgl.io/) via [CardputerZero-AppBuilder](https://github.com/m5stack/CardputerZero-AppBuilder) (`czdev` CLI)
 - **Target Triple**: `aarch64-unknown-linux-gnu`
 - **Emulator**: `czdev run` (SDL2-based, reproduces the 320×170 LCD on a development machine)
-- **Deployment**: SSH + `scp` to the device (the username is chosen in the first-boot setup)
+- **Deployment**: SSH + `scp` to `pi@cardputerzero.local` (the username is the one chosen in the first-boot setup)
 - **App Distribution**: `czdev upload` to the official Debian apt repository at [m5stack/CardputerZeroRepository](https://github.com/m5stack/CardputerZeroRepository) — end users install via `apt install`
 - **Remote Development**: Tailscale VPN ↔ home Mac Mini for running full Claude models off-device (the 512MB RAM is too small for local LLM hosting)
 

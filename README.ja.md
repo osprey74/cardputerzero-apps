@@ -75,7 +75,7 @@ Cap A と Cap B は同じ上部スロットを使うため同時装着不可。
 - **UI フレームワーク**: [LVGL](https://lvgl.io/) を [CardputerZero-AppBuilder](https://github.com/m5stack/CardputerZero-AppBuilder)（`czdev` CLI）経由で利用
 - **ターゲットトリプル**: `aarch64-unknown-linux-gnu`
 - **エミュレータ**: `czdev run`（SDL2 ベース、開発機上で 320×170 LCD を再現）
-- **デプロイ**: SSH + `scp` 経由で実機へ転送（ユーザー名は初回セットアップで設定）
+- **デプロイ**: SSH + `scp` 経由で `pi@cardputerzero.local` へ転送（ユーザー名は初回セットアップで設定したもの）
 - **アプリ配布**: `czdev upload` で公式 Debian apt リポジトリ [m5stack/CardputerZeroRepository](https://github.com/m5stack/CardputerZeroRepository) に投稿、エンドユーザは `apt install` で取得
 - **リモート開発**: Tailscale VPN 経由で自宅 Mac Mini に接続しフル Claude モデルをリモート実行（CardputerZero の 512MB RAM ではローカル実行困難なため）
 

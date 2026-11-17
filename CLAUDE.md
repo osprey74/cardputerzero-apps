@@ -91,7 +91,7 @@ cardputerzero-apps/
 
 ### デバイス接続（共通）
 
-- SSH: `ssh <user>@<IP>`（ユーザー名は初回セットアップウィザードで設定・SSH もウィザードで有効化。IP は IP Panel / Settings で確認。`pi@cardputerzero.local` は到着前の仮定で未検証）
+- SSH: `ssh pi@cardputerzero.local`（2026-11-17 実機で接続確認済み。ユーザー名 `pi` は初回セットアップウィザードで設定・SSH もウィザードで有効化。現状はパスワード認証で、鍵認証は未設定）
 - ポート: 22
 
 ## 開発コマンド（czdev）

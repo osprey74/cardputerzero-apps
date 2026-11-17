@@ -93,6 +93,7 @@
 | 2026-11-17 | **本体（Raspberry Pi Compute Module 0）の技適を照合し §1.3 に追記**。工事設計認証 020-260249（令和8年9月28日・Raspberry Pi Limited・第2条第19号・登録証明機関 TAC）。2.4GHz 帯の Wi-Fi（2412〜2472MHz）と Bluetooth のみで 5GHz 帯の記載なし。試験成績書の認証アンテナ 3 種の 1 つに「CardputerZero」FPC アンテナ（0.071dBi）が明記されており、内蔵 Wi-Fi／BT は出荷状態で国内使用可。 |
 | 2026-11-17 | **C6L の現行ファームを確認し記述を確定**。C6L は Nostos の自作ビーコン（923.0MHz・125kHz・+6dBm・キャリアセンス）で稼働中＝認証条件内で、旧 Meshtastic 設定（13dBm・LongFast）の是正は完了済みと判明（総司確認）。§1.3・§3 App02 の「要是正」を「解消済み」に改め、Meshtastic 前提のゲートウェイ構成は認証条件内の設定が確認できるまで保留と明記。本体の技適番号表示（020-260249）も確認済みに更新。 |
 | 2026-11-17 | **CoreS3 の技適を照合し §1.6 に追記**。工事設計認証 219-239073（令和5年3月13日・第2条第19号・2.4GHz BLE／Wi-Fi・内蔵メタルアンテナ 2.46dBi）。本プロジェクトは USB CDC が第一推奨経路のため無線は必須でない。これで本体・Cap 2 種・C6L・PaperMono・CoreS3 の 6 機種の照合が完了。 |
+| 2026-11-17 | **実機の初回セットアップ完了・初回調査結果を §9.1 に追加**。ユーザー `pi`・`ssh pi@cardputerzero.local` で接続確認（鍵認証登録）。工場状態の microSD をイメージバックアップ済み（PC ローカル保管）。SSH 経由の読み取り調査で、OS が **Debian 13 (trixie)・Python 3.13.5**（Bookworm 前提は誤り）、OS から見えるメモリが **352MB**、Cap 用 SPI が `/dev/spidev0.1`（CS1＝GPIO7・ピン対応表の推定と一致）、I2C に BMM150（0x10）ほか、picamera2／rpicam-apps が導入済み、Camera 1.0.2（修正版未適用）であることを確認。標準の LoRa／SubG Chat アプリは送信設定が未確認のため送信操作を保留。 |
 
 ---
 
@@ -4330,6 +4331,27 @@ CardputerZero 向けアプリ群。Rust (czdev/LVGL) + Python で実装。
 > が真の構成。回路図の文字解像度に依存した推測より、実機表面のラベルを最優先とする。
 
 ### 9.1 ハードウェア検証（実機到着後）
+
+#### 実機 初回調査結果（2026-11-17・SSH 経由・読み取りのみ／Cap 非装着・追加パッケージ無し）
+
+| 項目 | 実測 | 従来の想定との差 |
+|---|---|---|
+| OS | **Debian GNU/Linux 13 (trixie)**・kernel 6.18.39+rpt-rpi-v8・aarch64 | 本書の「Bookworm」前提は誤り。パッケージ名・Python 版の前提を trixie に読み替える |
+| モデル表記 | Raspberry Pi Compute Module 0 Rev 1.0 | — |
+| Python | **3.13.5** | wheel の有無（aarch64・cp313）を各ライブラリで要確認 |
+| メモリ | OS から見える合計 **352MB**（`gpu_mem=128`）・起動直後の空き約 110MB・スワップ 351MB（うち約 100MB 使用中） | 「512MB」をそのまま使えない。**常駐サイドカー＋UI は合計 100MB 前後が上限の目安** |
+| ストレージ | microSD 29GB・使用 5.9GB | — |
+| SSH | `ssh pi@cardputerzero.local` で接続可（鍵認証登録済み）・`sudo` はパスワード必須 | 自動化スクリプトで sudo を使う箇所は要対話 |
+| SPI | `/dev/spidev0.1` のみ。SPI0 CS0＝GPIO8 は LCD が使用、**CS1＝GPIO7 が Cap 用** | §1.3 ピン対応表の推定（NSS／NFC_CS＝G7）と一致 |
+| LCD 制御 | GPIO24＝enable・GPIO25＝dc・SPI0 CS0 | — |
+| UART | `/dev/serial0` → `/dev/ttyS0`（`enable_uart=1`）。`ttyAMA*` は無し | App01 の GPS デバイスは `/dev/serial0` を使う |
+| I2C | `/dev/i2c-1` に **0x10（BMM150）・0x32（RTC）・0x34（キーボード）・0x4f（不明）・0x55（BQ27220）・0x68（BMI270）**、いずれもカーネルドライバが使用中 | BMM150 搭載を実機で確認（KS 版）。0x4f の正体は未確認。BQ27220 のアドレスは 0x55 |
+| その他 GPIO | GPIO4＝`grove_fun`（Grove 切替と推定）・GPIO6＝irq・GPIO12＝IR 送信・GPIO13＝IR 受信・GPIO17＝ヘッドホン検出 | — |
+| カメラ | `dtoverlay=imx219`・`/dev/video0` あり。**`python3-picamera2` 0.3.37・`rpicam-apps` 1.13.0・libcamera 0.7.2 が導入済み** | App14 で追加が要るのは QR デコード（pyzbar 等）のみ |
+| カメラ関連アプリ | `camera` 1.0.2-m5stack1・`factorytest` 1.0.0-m5stack1 | **KS Update #15 の修正版（Camera 1.0.3／FactoryTest 1.0.2）は未適用**。現状カメラは正常動作（総司確認） |
+| Wi-Fi 規制域 | `iw reg get` は **JP**（cmdline には `regdom=AE` の記載があるが実効値は JP） | 国内設定で動作 |
+| 標準アプリ | applaunch 0.6.105、Cap 用に `cap-lora-1262` 1.0.1・`cap-lora-1262-gps` 1.0.0・`cap-cc1101-nfc` 1.0.1・`cap-cc1101-subg-chat` 1.0.1 ほか | **LoRa アプリと SubG Chat は送信機能を持つ**。周波数・出力の設定値がバイナリから読み取れず認証条件内か未確認のため、**確認できるまで送信操作はしない** |
+| 開発ツール | gcc・`i2c-tools` あり／cargo・gpsd は無し | Rust は PC でクロスビルドして転送する前提を維持 |
 
 #### Cap A: Cap LoRa-1262
 
