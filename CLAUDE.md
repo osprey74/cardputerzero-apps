@@ -4,7 +4,7 @@
 
 ## プロジェクト概要
 
-M5Stack CardputerZero 向けに開発するアプリ群のモノレポ。Rust (czdev / LVGL) を主軸に、必要に応じて Python サイドカーを組み合わせる。詳細仕様は [HANDOFF_cardputerzero.md](HANDOFF_cardputerzero.md) を参照。
+M5Stack CardputerZero 向けに開発するアプリ群のモノレポ。方針は Rust 第一（HANDOFF §2.7.6）だが、2026-11-19 時点の実装済みアプリはすべて Python（`/dev/fb0` 直描画のフレームバッファ UI・共通部品 `shared/fb_ui`）で作っている。詳細仕様は [HANDOFF_cardputerzero.md](HANDOFF_cardputerzero.md) を参照。
 
 ## ターゲットデバイス
 
@@ -86,12 +86,12 @@ cardputerzero-apps/
 
 ## 技術スタック
 
-- **言語**: Rust (czdev / LVGL バインディング) + Python (周辺ツール・サイドカー)
-- **UI フレームワーク**: LVGL (Light and Versatile Graphics Library)
-- **ビルドツール**: czdev CLI (CardputerZero-AppBuilder)
-- **ターゲット**: `aarch64-unknown-linux-gnu`（クロスコンパイル）
-- **エミュレータ**: czdev (SDL2 ベース、320×170 LCD を PC 上で再現)
-- **デプロイ**: SSH + scp
+- **言語**: 方針は Rust 第一・C フォールバック（HANDOFF §2.7.6）。ただし開発機にも実機にも aarch64 Linux 向けの Rust ビルド環境がまだ無く、**実装済みのアプリ（App01・07・11・16）はすべて Python**（2026-11-19 総司様の判断で例外として記録）。依存は工場出荷イメージにある Python 3.13・Pillow・numpy のみとし、`apt` での追加導入を避ける
+- **UI**: LVGL・SDL2 は使わない。LCD は `/dev/fb0` へ直接描画（320×170・RGB565）、キーボードは evdev（`tca8418c`）を直接読む（HANDOFF §4.2.1）。共通部品は `shared/fb_ui`（日本語は Noto Sans CJK・F/X/C/Z の単独押しもカーソル扱い）。標準ランチャー自体は LVGL 製
+- **ランタイム**: `legacy-deb-only`（単体起動。`lvgl-dlopen` は不採用）。登録は `/usr/share/APPLaunch/applications/<name>.desktop`
+- **パッケージ**: `scripts/pack_deb.sh apps/<app>` で `.deb` を作る（`packaging/{meta.env,build.sh,stage.sh,launcher.sh,postinst}`）。開発機に `dpkg-deb` が無いため実機上で実行する。czdev CLI（CardputerZero-AppBuilder）は使っていない
+- **画面の確認**: czdev の SDL2 エミュレータは使わない。各アプリの `--headless --script "…"`（LCD とキーボードに触れずに動かして PNG を保存）と `--demo`（疑似データ）で、PC でも実機の SSH からでも確かめる
+- **デプロイ**: SSH + scp で実機へ送り、実機上で `.deb` を作る。`sudo` にパスワードが要るため、`apt install` は総司様に実行してもらう
 - **AppStore 登録**: 公式レジストリ（https://cardputer.cc/ ・開発者ポータル https://dev.cardputer.cc/）。本プロジェクトは非公開のローカル配布のみで、登録の予定は無い
 
 ## 開発環境
@@ -119,12 +119,13 @@ cardputerzero-apps/
 - SSH: `ssh pi@cardputerzero.local`（2026-11-17 実機で接続確認済み。ユーザー名 `pi` は初回セットアップウィザードで設定・SSH もウィザードで有効化。2026-11-17 に Windows 開発機から公開鍵認証を設定済み。Windows では PowerShell の `ssh` を使う。Git Bash の `ssh` は鍵を使えず失敗する）
 - ポート: 22
 
-## 開発コマンド（czdev）
+## 開発コマンド
 
-- ビルド: `czdev build`
-- エミュレータ実行: `czdev run`
-- デプロイ: `./scripts/deploy.sh <app-name>`（実装予定）
-- テスト: `cargo test`
+- テスト: `python -m unittest discover -s apps/<app>/tests`（GNSS ドライバは `python shared/gnss_at6668/tests/test_nmea.py`）
+- 画面の確認: `python apps/<app>/src/<main>.py --headless --script "2 down; 3 shot /tmp/a.png; 4 quit"`（`--demo` があるアプリは疑似データで PC でも動く）
+- `.deb` の作成（実機上）: `bash scripts/pack_deb.sh apps/<app>` → 試算 `apt-get -s install ./apps/<app>/dist-cz/*.deb`（カメラ関連が巻き込まれないことを確認）
+- 導入（総司様が実行）: `ssh -t pi@cardputerzero.local "sudo apt install ./<deb のパス>"`
+- Rust の雛形（`templates/rust-*`）を使う場合のみ `cargo build` / `cargo test`。`scripts/deploy.sh` は `sudo` を使うため、そのままでは非対話で動かない
 
 ## アーキテクチャ原則
 
@@ -183,7 +184,7 @@ cardputerzero-apps/
 
 ## Documentation
 
-- **docs_to_update**: `README.md` / `README.ja.md`（未作成、Kickstarter 到着後に整備）
+- **docs_to_update**: `README.md` / `README.ja.md`（作成済み。ただし 2026-11-17 時点の内容で、アプリの実装状況は未反映）。アプリ単位の説明は各 `apps/<app>/README.md`
 - **doc_pairs**: `README.md` ⇔ `README.ja.md`
 - **primary_spec**: [HANDOFF_cardputerzero.md](HANDOFF_cardputerzero.md)（一次情報・設計書、仕様変更時はこちらを正とする）
 
