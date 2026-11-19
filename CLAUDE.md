@@ -30,7 +30,8 @@ M5Stack CardputerZero 向けに開発するアプリ群のモノレポ。Rust (c
 | 04 | `subghz-sniffer` | ★★★☆☆ | CC1101 Sub-GHz 受信解析 |
 | 05 | `bsaf-client` | ★★★★☆ | BSAF v1 防災アラート受信 |
 | 06 | `edge-ai` | ★★★☆☆ | 軽量 LLM オフラインアシスタント |
-| 07 | `wifi-analyzer` | ★★★☆☆ | Wi-Fi 環境解析 |
+| 07 | `wifi-analyzer` | ★★★☆☆ | Wi-Fi 環境解析（0.1.0 実装済み・Python） |
+| 11 | `lan-scanner` | ★★★★☆ | 接続中サブネットの機器発見・ポート確認（0.1.0 実装済み・Python） |
 | 13 | `tester` | ★★★★☆ | INA226 DC 電圧/電流テスター (Grove I2C) |
 | 14 | `qr-toolkit` | ★★★★☆ | IMX219 カメラによる QR 読取・解析・構造学習（標準版限定） |
 | 15 | `ncir-thermometer` | ★★★☆☆ | MLX90614 非接触温度センサ（PaHUB CH1 / 業務点検・PC サーマル・料理補助） |

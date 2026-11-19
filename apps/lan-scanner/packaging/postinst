@@ -1,0 +1,9 @@
+#!/bin/sh
+# postinst — 表示/入力デバイスへのアクセス権を付与（実機 LCD 直描画時に必要）。
+set -e
+for grp in video input render; do
+    if getent group "$grp" >/dev/null 2>&1 && id -u pi >/dev/null 2>&1; then
+        usermod -aG "$grp" pi || true
+    fi
+done
+exit 0

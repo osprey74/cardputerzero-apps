@@ -113,6 +113,7 @@
 | 2026-11-18 | **Grove ポートの GPS ユニットで受信を確認し、星座盤を対応**（パッケージ 0.1.6）。Unit GPS v1.1 を Grove に挿すと、Cap と同じ `/dev/serial0` に NMEA が途切れなく届いた。本体側の UART は正常で、GPS の不具合は Cap LoRa-1262 側と判断。`shared/gnss_at6668` に Grove 側の 5V 出力（`GROVE_5V`）を追加し、星座盤に `--gnss grove`（設定キー `gnss`）を追加。 |
 | 2026-11-18 | **Cap LoRa-1262 の交換が決定**。M5Stack から不良として交換品を送るとの回答があった（到着待ち）。到着後の確認項目を §9.1 に記録。 |
 | 2026-11-19 | **Cap LoRa-1262 の交換品は手配中、故障品は返送不要**。M5Stack から、発送したら追跡番号を知らせるとの連絡があった。故障品は返送しなくてよく、手元に残す（§9.1）。 |
+| 2026-11-19 | **App07 Wi-Fi アナライザーと App11 LAN スキャナーを実装（各 0.1.0・Python）**。言語は総司様の判断で Python（§2.7.6 に例外として記録）。画面とキー入力の共通部品 `shared/fb_ui/` を新設（`/dev/fb0` 直描画・evdev 直読み・Noto Sans CJK・PC や SSH から試せる `--headless`／`--script`）。Wi-Fi は `nmcli`（`pi` 権限で再スキャン可）で一覧・2.4GHz チャンネルマップ・信号グラフ（接続中は dBm を 1 秒ごと）・CSV 記録。LAN は標準ライブラリだけで ICMP＋ARP の発見・mDNS／DNS の名前・OUI のメーカー名・TCP 接続確認・JSON／CSV 保存と前回との差分。どちらも `apt` での追加導入なし。実機でヘッドレス実行し動作を確認、`.deb` を実機で生成して導入し、ランチャーから起動して動作を確認（総司確認）。CardputerZero のカーソルは Fn＋F/X/C/Z（↑↓→←）のため、`shared/fb_ui` で F/X/C/Z の単独押しもカーソルとして扱うよう変更し、LAN の 1〜1024 番のポート確認は A キーへ移した（0.1.1・実機で確認）。 |
 
 ---
 
@@ -949,6 +950,7 @@ APP_ICON=share/images/demo-sysdash.png
   - **Rust を第一候補**（workspace/CLAUDE.md 主軸・既存資産）。framebuffer/SDL2 を直接叩くスタンドアロン ELF を `legacy-deb-only` で配布。
   - **C はフォールバック**（公式 example が最多。Rust の aarch64 クロス + 描画ライブラリが難航した場合）。
   - **本質的に Python なサイドカー**（App16 Skyfield・App14 picamera2/pyzbar・App13 検証スクリプト等）は従来どおり **Python（`legacy-deb-only` Python）** で継続。SysDashboard 等 Python example の成立実績あり。
+  - **例外（2026-11-19 総司様決定）: App07 `wifi-analyzer`・App11 `lan-scanner` は Python で作る**。理由: 開発機にも実機にも aarch64 Linux 向けの Rust ビルド環境がまだ無いこと、星座盤で実証済みのフレームバッファ UI（Pillow＋numpy）と実機の日本語フォント（Noto Sans CJK）を使えば日本語の SSID やホスト名も表示できること、処理の中心が nmcli・ICMP・TCP 接続で計算が軽いこと。画面とキー入力の共通部品は `shared/fb_ui/` に切り出した。
 - 開発反復: czdev SDL2 エミュレータに依存せず、**実機（到着まで uConsole / QEMU aarch64 を代替）へ SSH デプロイして実行確認**する。
 
 **■ 標準雛形【実機実証済み 2026-07-08】: `templates/`（3 種）**
@@ -1644,8 +1646,9 @@ Linux の `iw` / `hostapd` / `aircrack-ng` 系ツールを活用した Wi-Fi 環
 
 #### 機能一覧
 
-- [ ] 周辺 AP スキャン・チャンネルマップ表示
-- [ ] RSSI グラフ (時系列)
+- [x] 周辺 AP スキャン・チャンネルマップ表示（2026-11-19・0.1.0。`nmcli` を `pi` 権限で再スキャン。一覧＝信号・ch・SSID・暗号方式／チャンネル＝2.4GHz 帯の占有帯域を台形で重ね描き）
+- [x] RSSI グラフ (時系列)（2026-11-19・0.1.0。接続中の AP は `/proc/net/wireless` の dBm を 1 秒ごと、それ以外は nmcli の相対値 % をスキャンごと・直近 10 分）
+- [x] CSV 記録（2026-11-19・0.1.0。L キーで開始・停止、`~/wifi_logs/`）
 - [ ] WPA ハンドシェイクキャプチャ (自己所有 AP のみ)
 - [ ] アクセスポイントモード (Wi-Fi ホットスポット化)
 - [ ] Wireshark リモート連携 (SSH 経由)
@@ -2630,33 +2633,39 @@ Wi-Fi と有線 LAN の両インターフェースを持つ CardputerZero は、
 
 #### 機能一覧
 
+> **2026-11-19 実装（0.1.0・Python）**: nmap・arp-scan・avahi は工場出荷イメージに無く、`apt` を避けるため標準ライブラリだけで作った（`src/netscan.py`）。ICMP は ping ソケット（`net.ipv4.ping_group_range` が全グループ許可のため `pi` のまま送れる）、ARP は ICMP 送信で埋まった `ip -j neigh` の表を読む。対象は本機がつながっているサブネットだけ（/22 より広いときは本機を含む /24 に絞る）。実機の自宅 LAN で 23 台を検出（ICMP 17・ARP のみ 5・本機 1）、走査は約 15 秒、mDNS の名前は 9 台で取得。
+>
+> - 発見: `ip neigh` に載るのは ICMP を送ってから解決できた機器なので、ICMP に応えない機器も ARP で拾える（`arp-scan` 相当）
+> - OS 推定・サービスのバージョン検出・SYN スキャンは root と nmap が要るため対象外。ポートは TCP の接続確認（`-sT` 相当）だけ
+> - OUI 表は `tools/build_oui.py` で IEEE の公開一覧から生成し `data/oui.tsv.gz`（約 4 万件・394KB）を同梱。ローカル管理ビットの立った MAC は「ランダム化 MAC」と表示
+
 **ホスト発見**
-- [ ] ARP スキャン (`arp-scan`) による高速ホスト一覧取得
-- [ ] ICMP Ping スイープ (`nmap -sn`) によるサブネット全体スキャン
-- [ ] ホスト名 (mDNS / NetBIOS / DNS) 解決・表示
-- [ ] MAC アドレスベースのベンダー名解決 (OUI データベース)
+- [x] ARP スキャン (`arp-scan`) による高速ホスト一覧取得（ICMP 送信後の ARP 表で代替・2026-11-19）
+- [x] ICMP Ping スイープ (`nmap -sn`) によるサブネット全体スキャン（ping ソケットで 2 周・2026-11-19）
+- [x] ホスト名 (mDNS / NetBIOS / DNS) 解決・表示（mDNS の逆引き PTR と逆引き DNS。NetBIOS は未対応・2026-11-19）
+- [x] MAC アドレスベースのベンダー名解決 (OUI データベース)（2026-11-19）
 
 **詳細調査**
-- [ ] OS フィンガープリント (`nmap -O`)
-- [ ] 開放ポートスキャン (`nmap -sS` / `-sT`)
-- [ ] サービス・バージョン検出 (`nmap -sV`)
-- [ ] よく使うポートのクイックスキャンプリセット
+- [ ] OS フィンガープリント (`nmap -O`)（root と nmap が要るため保留）
+- [x] 開放ポートスキャン (`nmap -sS` / `-sT`)（TCP 接続確認＝`-sT` 相当のみ。詳細画面で Enter＝主要ポート、A＝1〜1024 番・2026-11-19）
+- [ ] サービス・バージョン検出 (`nmap -sV`)（保留。ポート番号から `/etc/services` の名前を表示するだけ）
+- [x] よく使うポートのクイックスキャンプリセット（下記に FTP・SMTP・DNS・SMB・印刷・RTSP 等を足した 27 ポート・2026-11-19）
   - Web: 80/443/8080/8443
   - 管理: 22/23/3389/5900
   - DB: 3306/5432/1433/6379
   - IoT: 1883/8883 (MQTT), 502 (Modbus)
 
 **結果管理**
-- [ ] LCD 一覧表示 (IP・MAC・ホスト名・OS・主要ポート)
-- [ ] JSON / CSV 保存 (microSD → `/mnt/sdcard/lan_scans/`)
-- [ ] スキャン履歴比較 (前回との差分ハイライト)
+- [x] LCD 一覧表示 (IP・MAC・ホスト名・OS・主要ポート)（一覧＝IP・名前またはメーカー・開いたポート数、詳細＝MAC・メーカー・mDNS・DNS・応答時間・ポート。OS は無し・2026-11-19）
+- [x] JSON / CSV 保存（`~/lan_scans/scan_<日時>.{json,csv}`。CardputerZero は microSD がルートなので専用マウントは無い・2026-11-19）
+- [x] スキャン履歴比較 (前回との差分ハイライト)（同じネットワークの直前の結果と MAC で照合し、新規に ● を付け、見出しに +新規 -消失 の台数・2026-11-19）
 - [ ] Tailscale 経由で Mac Mini へ結果を自動転送
 
 **UI (LCD / HDMI)**
-- [ ] スキャン対象 CIDR 入力 (例: `192.168.1.0/24`)
+- [ ] スキャン対象 CIDR 入力 (例: `192.168.1.0/24`)（現状は接続中の I/F から自動決定）
 - [ ] プリセット選択: [クイック] [標準] [詳細] [カスタム]
-- [ ] リアルタイム進捗表示 (発見ホスト数・残り時間)
-- [ ] ホスト詳細ドリルダウン画面
+- [x] リアルタイム進捗表示 (発見ホスト数・残り時間)（段階 ICMP→ARP→名前→保存・進捗バー・発見台数。残り時間は無し・2026-11-19）
+- [x] ホスト詳細ドリルダウン画面（2026-11-19）
 
 **物理入力 (Chain Encoder 連携)**
 - [ ] Chain Encoder（`shared/input_encoder/` 経由）でホストリスト送り

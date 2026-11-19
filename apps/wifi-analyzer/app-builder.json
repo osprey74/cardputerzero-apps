@@ -1,0 +1,9 @@
+{
+  "package_name": "wifi-analyzer",
+  "version": "0.1.1",
+  "app_name": "Wi-Fi Analyzer",
+  "bin_name": "wifi-analyzer",
+  "description": "App07 Wi-Fi analyzer: nearby AP list, 2.4GHz channel map and signal graph (nmcli, receive only). Framebuffer UI, 320x170.",
+  "runtime": "legacy-deb-only",
+  "caps": ["keyboard", "network", "filesystem"]
+}

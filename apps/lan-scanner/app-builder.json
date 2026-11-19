@@ -1,0 +1,9 @@
+{
+  "package_name": "lan-scanner",
+  "version": "0.1.1",
+  "app_name": "LAN Scanner",
+  "bin_name": "lan-scanner",
+  "description": "App11 LAN scanner: host discovery (ICMP+ARP), mDNS/DNS names, OUI vendors and TCP port check on the connected subnet. Framebuffer UI, 320x170.",
+  "runtime": "legacy-deb-only",
+  "caps": ["keyboard", "network", "filesystem"]
+}
