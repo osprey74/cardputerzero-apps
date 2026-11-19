@@ -1,13 +1,54 @@
-"""NMEA 0183 の最小パーサ（RMC・GGA）。外部依存なし。
+"""NMEA 0183 の最小パーサ（RMC・GGA・GSA・GSV）。外部依存なし。
 
-Cap LoRa-1262 の GP-02（ATGM336H／AT6668）は 115200bps で GN/GP/GL/GA/BD/GQ 各トーカーの
-文を出す。位置・時刻・測位状態に必要な RMC と GGA だけを解釈し、それ以外は無視する。
+Cap LoRa-1262 の GP-02（ATGM336H／AT6668）や Grove の Unit GPS v1.1 は 115200bps で
+GN/GP/GL/GA/BD/GQ 各トーカーの文を出す。位置・時刻・測位状態（RMC・GGA）と、
+衛星の情報（GSA＝測位に使っている衛星と 2D/3D、GSV＝見えている衛星の仰角・方位・SNR）を
+解釈し、それ以外は無視する。
+
+実機の出力（2026-11-19・Unit GPS v1.1）は NMEA 4.1 形式で、GSV の末尾に信号 ID、
+GSA の末尾に衛星系 ID（1=GPS 2=GLONASS 3=Galileo 4=BeiDou 5=QZSS）が付く。
+GSA は衛星系ごとに 1 秒 5 本、GSV のトーカーは GP/GL/GA/BD/GQ（GQ＝みちびき）。
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
+
+# 衛星系の 1 文字記号（G=GPS Q=QZSS R=GLONASS E=Galileo B=BeiDou S=SBAS）
+TALKER_SYS = {"GP": "G", "GQ": "Q", "QZ": "Q", "GL": "R", "GA": "E", "GB": "B", "BD": "B"}
+GSA_SYSID = {1: "G", 2: "R", 3: "E", 4: "B", 5: "Q"}
+SAT_TTL = 5.0                         # これより長く GSV/GSA に出てこない衛星は捨てる[秒]
+
+
+def sat_system(talker: str, prn: int) -> str:
+    """トーカーと PRN から衛星系の記号を決める（GP の 33〜64 は SBAS、193〜202 は QZSS）。"""
+    s = TALKER_SYS.get(talker)
+    if s == "G" or s is None:
+        if 193 <= prn <= 202:
+            return "Q"
+        if 33 <= prn <= 64:
+            return "S"
+        if s is None and 65 <= prn <= 96:
+            return "R"
+        return "G"
+    return s
+
+
+@dataclass
+class Sat:
+    """見えている衛星 1 機。"""
+    sys: str                          # G/Q/R/E/B/S
+    prn: int
+    elev: Optional[int]               # 仰角 [度]
+    azim: Optional[int]               # 方位 [度]（北=0・東=90）
+    snr: Optional[int]                # C/N0 [dBHz]（追尾していなければ None）
+    seen: float = 0.0                 # 最後に GSV で見た時刻（monotonic）
+
+    @property
+    def key(self) -> str:
+        return f"{self.sys}{self.prn:02d}"
 
 
 @dataclass
@@ -20,6 +61,9 @@ class Fix:
     sats: Optional[int] = None        # 測位に使っている衛星数（GGA）
     hdop: Optional[float] = None
     utc: Optional[datetime] = None    # UTC（naive）。日付は RMC から
+    speed_kmh: Optional[float] = None # 対地速度 [km/h]（RMC）
+    course: Optional[float] = None    # 進行方向 [度]（RMC・止まっているときは不定）
+    mode: int = 1                     # 1=未測位 2=2D 3=3D（GSA）
 
 
 def checksum_ok(line: str) -> bool:
@@ -56,9 +100,12 @@ class NmeaParser:
     def __init__(self):
         self.fix = Fix()
         self.sentences = 0            # チェックサムが通った文の数（「データが来ている」判定用）
+        self.sats: dict[str, Sat] = {}       # 見えている衛星（キー "G07" など）
+        self.used: dict[str, float] = {}     # 測位に使っている衛星のキー → 最後に GSA で見た時刻
+        self._mode_seen: dict[str, tuple[int, float]] = {}   # 衛星系ごとの GSA の 2D/3D
 
-    def feed(self, line: str) -> Optional[str]:
-        """1 行を解釈する。解釈した文の種別（"RMC"／"GGA"）か、それ以外は None を返す。"""
+    def feed(self, line: str, now: Optional[float] = None) -> Optional[str]:
+        """1 行を解釈する。解釈した文の種別（"RMC"／"GGA"／"GSA"／"GSV"）か、それ以外は None を返す。"""
         line = line.strip()
         if not checksum_ok(line):
             return None
@@ -71,7 +118,70 @@ class NmeaParser:
         if kind == "GGA" and len(f) >= 10:
             self._gga(f)
             return "GGA"
+        if kind == "GSA" and len(f) >= 18:
+            self._gsa(f, time.monotonic() if now is None else now)
+            return "GSA"
+        if kind == "GSV" and len(f) >= 4:
+            self._gsv(f, time.monotonic() if now is None else now)
+            return "GSV"
         return None
+
+    def satellites(self, now: Optional[float] = None) -> list[Sat]:
+        """見えている衛星（古いものは除く）。"""
+        now = time.monotonic() if now is None else now
+        for k in [k for k, s in self.sats.items() if now - s.seen > SAT_TTL]:
+            del self.sats[k]
+        for k in [k for k, t in self.used.items() if now - t > SAT_TTL]:
+            del self.used[k]
+        return list(self.sats.values())
+
+    def _gsa(self, f, now: float) -> None:
+        # $xxGSA,A,mode,prn×12,pdop,hdop,vdop[,sysid]
+        try:
+            mode = int(f[2] or 1)
+        except ValueError:
+            mode = 1
+        sysid = None
+        if len(f) >= 19 and f[18]:
+            try:
+                sysid = GSA_SYSID.get(int(f[18], 16))
+            except ValueError:
+                sysid = None
+        talker = f[0][:2]
+        tag = sysid or talker
+        self._mode_seen[tag] = (mode, now)
+        self.fix.mode = max((m for m, t in self._mode_seen.values() if now - t <= SAT_TTL), default=1)
+        for p in f[3:15]:
+            if not p:
+                continue
+            try:
+                prn = int(p)
+            except ValueError:
+                continue
+            self.used[f"{sysid or sat_system(talker, prn)}{prn:02d}"] = now
+
+    def _gsv(self, f, now: float) -> None:
+        # $xxGSV,総数,番号,衛星数,{prn,仰角,方位,snr}×最大4[,信号 ID]
+        talker = f[0][:2]
+        body = f[4:]
+        if len(body) % 4 == 1:            # NMEA 4.1 の信号 ID
+            body = body[:-1]
+        for i in range(0, len(body) - 3, 4):
+            prn_s, el, az, snr = body[i:i + 4]
+            try:
+                prn = int(prn_s)
+            except ValueError:
+                continue
+            def num(v):
+                try:
+                    return int(float(v)) if v != "" else None
+                except ValueError:
+                    return None
+            s = Sat(sat_system(talker, prn), prn, num(el), num(az), num(snr), now)
+            old = self.sats.get(s.key)
+            if old is not None and s.snr is None and old.snr is not None and now - old.seen < 1.5:
+                s.snr = old.snr               # 同じ周期内の別信号（L5 等）で SNR が空なら前の値を残す
+            self.sats[s.key] = s
 
     def _rmc(self, f) -> None:
         # $xxRMC,hhmmss.sss,A,ddmm.mmmm,N,dddmm.mmmm,E,speed,course,ddmmyy,...
@@ -90,6 +200,16 @@ class NmeaParser:
             lat, lon = _deg(f[3], f[4]), _deg(f[5], f[6])
             if lat is not None and lon is not None:
                 self.fix.lat, self.fix.lon = lat, lon
+            try:
+                self.fix.speed_kmh = float(f[7]) * 1.852 if f[7] else None
+            except ValueError:
+                self.fix.speed_kmh = None
+            try:
+                self.fix.course = float(f[8]) if f[8] else None
+            except ValueError:
+                self.fix.course = None
+        else:
+            self.fix.speed_kmh = self.fix.course = None
         self.fix.valid = valid and self.fix.lat is not None
 
     def _gga(self, f) -> None:

@@ -96,7 +96,9 @@ class GnssReader:
 
     def __init__(self, port: str = DEFAULT_PORT, baud: int = 115200,
                  power_path: Optional[str] = EXT_5V, probe_timeout: float = 20.0,
-                 save_interval: float = 300.0, last_fix_path: str = LAST_FIX):
+                 save_interval: float = 300.0, last_fix_path: str = LAST_FIX, on_rmc=None):
+        """on_rmc: RMC を受けるたびに読み取りスレッドから呼ぶ関数（引数は snapshot() と同じ辞書）。"""
+        self._on_rmc = on_rmc
         self._port, self._baud = port, baud
         self._power_path = power_path
         self._probe_timeout = probe_timeout
@@ -180,6 +182,11 @@ class GnssReader:
                                 t_last_data = now
                             if kind:
                                 self._publish(parser, now)
+                                if kind == "RMC" and self._on_rmc is not None:
+                                    try:
+                                        self._on_rmc(self.snapshot())
+                                    except Exception as ex:  # noqa: BLE001
+                                        self._error = f"on_rmc: {ex}"
                 if t_last_data is None:
                     if now - t_start > self._probe_timeout:
                         self._error = "NMEA が来ない（Cap LoRa-1262 が付いていない？）"
@@ -202,16 +209,22 @@ class GnssReader:
 
     def _publish(self, parser: NmeaParser, now: float) -> None:
         fx = parser.fix
+        sky = parser.satellites(now)
+        used = set(parser.used)
         with self._lock:
             self._state = "fix" if fx.valid else "search"
             self._fix = {"lat": fx.lat, "lon": fx.lon, "alt": fx.alt,
-                         "sats": fx.sats, "hdop": fx.hdop}
+                         "sats": fx.sats, "hdop": fx.hdop, "speed_kmh": fx.speed_kmh,
+                         "course": fx.course, "mode": fx.mode, "utc": fx.utc,
+                         "sky": [{"key": s.key, "sys": s.sys, "prn": s.prn, "elev": s.elev,
+                                  "azim": s.azim, "snr": s.snr, "used": s.key in used} for s in sky]}
             if fx.utc is not None and fx.utc != self._utc:
                 self._utc, self._utc_mono = fx.utc, now
 
     # ---- 取得 ----
     def snapshot(self) -> dict:
-        """{"state","lat","lon","alt","sats","hdop","error"}（位置は測位中のみ有効）。"""
+        """{"state","lat","lon","alt","sats","hdop","speed_kmh","course","mode","utc","sky","error"}
+        （位置は測位中のみ有効。sky は見えている衛星の辞書のリスト）。"""
         with self._lock:
             d = dict(self._fix)
             d["state"] = self._state
@@ -224,6 +237,10 @@ class GnssReader:
             if self._utc is None:
                 return None
             return self._utc + timedelta(seconds=time.monotonic() - self._utc_mono)
+
+    def alive(self) -> bool:
+        """読み取りスレッドが動いているか（NMEA が来ずに諦めた場合は False）。"""
+        return self._thread is not None and self._thread.is_alive()
 
     def close(self) -> None:
         self._stop.set()

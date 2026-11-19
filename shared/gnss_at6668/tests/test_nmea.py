@@ -73,10 +73,51 @@ def test_gga_sats_alt_and_no_fix():
 def test_other_sentences_counted_but_ignored():
     p = NmeaParser()
     assert p.feed(_s("GPTXT,01,01,01,ANTENNA OPEN")) is None
-    assert p.feed(_s("GPGSV,1,1,00")) is None
+    assert p.feed(_s("GNZDA,010203.000,17,11,2026,00,00")) is None
     assert p.sentences == 2
     assert p.feed("$GPTXT,01,01,01,ANTENNA OPEN*00") is None      # チェックサム不一致
     assert p.sentences == 2
+
+
+def test_rmc_speed_and_course():
+    p = NmeaParser()
+    p.feed(_s("GNRMC,010203.000,A,3530.0000,N,13945.0000,E,10.0,270.5,171126,,,A"))
+    assert abs(p.fix.speed_kmh - 18.52) < 1e-9 and abs(p.fix.course - 270.5) < 1e-9
+    p.feed(_s("GNRMC,010204.000,V,,,,,,,171126,,,N"))
+    assert p.fix.speed_kmh is None and p.fix.course is None
+
+
+def test_gsv_systems_and_signal_id():
+    # 実機（Unit GPS v1.1）と同じ NMEA 4.1 形式: 末尾に信号 ID
+    p = NmeaParser()
+    assert p.feed(_s("GPGSV,1,1,03,07,45,120,38,15,10,300,,194,60,200,41,1"), now=100.0) == "GSV"
+    p.feed(_s("GLGSV,1,1,01,72,30,045,29,1"), now=100.0)
+    p.feed(_s("GQGSV,1,1,01,02,70,180,44,1"), now=100.0)
+    p.feed(_s("BDGSV,1,1,01,23,20,090,,1"), now=100.0)
+    sats = {s.key: s for s in p.satellites(now=100.5)}
+    assert set(sats) == {"G07", "G15", "Q194", "R72", "Q02", "B23"}
+    assert sats["G07"].elev == 45 and sats["G07"].azim == 120 and sats["G07"].snr == 38
+    assert sats["G15"].snr is None and sats["B23"].snr is None
+    assert p.satellites(now=106.0) == []                      # 5 秒より古い衛星は消える
+
+
+def test_gsv_without_signal_id_and_empty():
+    p = NmeaParser()
+    p.feed(_s("GAGSV,1,1,02,04,55,010,35,11,05,250,22"), now=1.0)
+    assert {s.key for s in p.satellites(now=1.0)} == {"E04", "E11"}
+    assert p.feed(_s("GPGSV,1,1,00,1"), now=1.0) == "GSV"     # 衛星なし（冷えた起動直後の実機出力）
+
+
+def test_gsa_mode_and_used_with_sysid():
+    p = NmeaParser()
+    p.feed(_s("GNGSA,A,3,07,15,,,,,,,,,,,1.8,0.9,1.5,1"), now=10.0)
+    p.feed(_s("GNGSA,A,3,72,,,,,,,,,,,,1.8,0.9,1.5,2"), now=10.0)
+    p.feed(_s("GNGSA,A,1,,,,,,,,,,,,,25.5,25.5,25.5,4"), now=10.0)
+    assert p.fix.mode == 3
+    assert set(p.used) == {"G07", "G15", "R72"}
+    p2 = NmeaParser()
+    p2.feed(_s("GNGSA,A,1,,,,,,,,,,,,,25.5,25.5,25.5,1"), now=1.0)
+    assert p2.fix.mode == 1 and not p2.used
 
 
 # -- pytest 無しでも走る簡易ランナー --------------------------------------

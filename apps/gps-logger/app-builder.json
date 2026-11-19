@@ -1,0 +1,9 @@
+{
+  "package_name": "gps-logger",
+  "version": "0.1.0",
+  "app_name": "GPS Logger",
+  "bin_name": "gps-logger",
+  "description": "App01 GPS logger: GPX 1.1 track recording, speed/distance stats, sky plot and track view (Cap LoRa-1262 GPS or Grove GPS unit, receive only). Framebuffer UI, 320x170.",
+  "runtime": "legacy-deb-only",
+  "caps": ["keyboard", "filesystem"]
+}

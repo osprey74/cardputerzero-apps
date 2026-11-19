@@ -24,7 +24,7 @@ M5Stack CardputerZero 向けに開発するアプリ群のモノレポ。Rust (c
 
 | ID | アプリ | 優先度 | 主機能 |
 |---|---|---|---|
-| 01 | `gps-logger` | ★★★★★ | AT6668 GNSS による GPX ロガー |
+| 01 | `gps-logger` | ★★★★★ | AT6668 GNSS による GPX ロガー（0.1.0 実装済み・Python） |
 | 02 | `lora-mesh-node` | ★★★★☆ | SX1262 + Meshtastic 互換ノード |
 | 03 | `nfc-toolkit` | ★★★★☆ | ST25R3916 による NFC 学習ツール |
 | 04 | `subghz-sniffer` | ★★★☆☆ | CC1101 Sub-GHz 受信解析 |

@@ -6,6 +6,7 @@
     on_key(code, repeat) -> bool    キー押下。再描画が要れば True、終了なら "quit"
     tick() -> bool                  定期処理（約 0.1 秒ごと）。再描画が要れば True
     close()                         終了時の後始末（スレッド停止など）
+    want_quit() -> bool             （任意）Q を押したとき。False なら終了しない（確認表示など）
 
 共通キー: Q＝終了、S＝スクリーンショット（~/<app>_shots/）。
 カーソル: F／X／C／Z の単独押しを ↑／↓／→／← として渡す（Fn との組み合わせと同じ扱い）。
@@ -245,6 +246,8 @@ def run(app, args) -> None:
         if getattr(app, "letter_cursor", True):
             code = LETTER_CURSOR.get(code, code)
         if code == KEY["q"] and not repeat:
+            if hasattr(app, "want_quit") and not app.want_quit():   # 記録中の確認など
+                return True
             stop["flag"] = True
             return False
         if code == KEY["s"] and not repeat and getattr(app, "global_shot", True):
