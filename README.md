@@ -4,9 +4,9 @@
 
 [日本語版 README はこちら](./README.ja.md)
 
-This repository hosts 11 planned applications for the CardputerZero — from a GPS logger with sky-plot visualization to a Meshtastic LoRa node, an NFC/Sub-GHz security toolkit, an off-grid BSAF disaster-alert receiver, an SDR wideband receiver, and a LAN diagnostics tool.
+This repository hosts 15 planned applications for the CardputerZero — from a GPS logger with sky-plot visualization to a Meshtastic LoRa node, an NFC/Sub-GHz security toolkit, an off-grid BSAF disaster-alert receiver, an SDR wideband receiver, a LAN diagnostics tool and an offline star map.
 
-> **Status (2026-11-17): hardware arrived, verification started.** The CardputerZero, Cap LoRa-1262 and Cap CC1101 have arrived, and their Japanese radio certifications have been checked against the official database. This repository contains the design specification and some early implementations. Implementation of each app will proceed once the open items in [HANDOFF §9](./HANDOFF_cardputerzero.md#9-既知の未確認事項todo) are verified on the device.
+> **Status (2026-11-19): 4 apps running on the device.** The GPS logger (App 01), Wi-Fi analyzer (App 07), LAN scanner (App 11) and star map (App 16) are implemented, packaged as `.deb`, and launched from the standard launcher on a real CardputerZero. The remaining apps are at the design or prototype stage; open items are tracked in [HANDOFF §9](./HANDOFF_cardputerzero.md#9-既知の未確認事項todo). The apps are distributed locally and are not published to the official AppStore.
 
 ---
 
@@ -22,7 +22,7 @@ This repository hosts 11 planned applications for the CardputerZero — from a G
 | Wired | 10/100M Ethernet |
 | USB | USB-C × 2 (Host/Slave switchable), USB-A × 1 |
 | Camera | Sony IMX219 8MP (standard edition only) |
-| OS | Raspberry Pi OS (Debian Linux) |
+| OS | Raspberry Pi OS (Debian 13 trixie, Python 3.13 on the factory image) |
 | Launcher | LVGL-based GUI launcher |
 | AppStore | Debian `.deb` apt repository via [CardputerZeroRepository](https://github.com/m5stack/CardputerZeroRepository) |
 
@@ -37,7 +37,7 @@ Full hardware spec is in [HANDOFF §1](./HANDOFF_cardputerzero.md#1-ハードウ
 | NFC | — | ST25R3916 (ISO 14443A/B, FeliCa, ISO 15693) |
 | Primary apps | App 01 / 02 / 05 | App 03 / 04 |
 
-Cap A and Cap B share the same top-slot connector and cannot be mounted simultaneously.
+Cap A and Cap B share the same top-slot connector and cannot be mounted simultaneously. Caps are not hot-pluggable; power off before swapping. The GPS logger and the star map can also use an M5Stack Unit GPS v1.1 on the Grove port instead of the Cap's GNSS.
 
 ### Companion Hardware (recommended add-ons)
 
@@ -49,103 +49,110 @@ Cap A and Cap B share the same top-slot connector and cannot be mounted simultan
 
 ---
 
-## Planned Applications
+## Applications
 
-| ID | App | Priority | Hardware | Primary Function |
-|---|---|---|---|---|
-| 01 | `gps-logger` | ★★★★★ | Cap A | GPX track logger + sky plot view of visible GNSS satellites |
-| 02 | `lora-mesh-node` | ★★★★☆ | Cap A + C6L gateway | Meshtastic-compatible off-grid messaging node |
-| 03 | `nfc-toolkit` | ★★★★☆ | Cap B | NFC card learning tool (ISO 14443A/B, FeliCa, ISO 15693) |
-| 04 | `subghz-sniffer` | ★★★☆☆ | Cap B | Sub-GHz signal analyzer (receive-only in Japan) |
-| 05 | `bsaf-client` | ★★★★☆ | Cap A + Wi-Fi | Two-channel ([BSAF v1](https://github.com/osprey74/bsaf-protocol)) disaster alert receiver (MQTT primary, LoRa fallback) |
-| 06 | `edge-ai` | ★★★☆☆ | Built-in | Offline LLM assistant (quantized 1B-parameter models) |
-| 07 | `wifi-analyzer` | ★★★☆☆ | Built-in | Wi-Fi environment scanner and analyzer |
-| 08 | `nfc-checkpoint` | ★★★☆☆ | Cap A + Cap B | NFC tag + GPS waypoint checkpoint logger |
-| 09 | `nfc-lora-auth` | ★★☆☆☆ | Cap A + Cap B | Off-grid badge auth PoC (NFC scan → LoRa relay) |
-| 10 | `sdr-receiver` | ★★★★☆ | RTL-SDR V4 | Wideband SDR receiver + integrated spectrum monitor (FM / ADS-B / AIS / NOAA APT / rtl_433) |
-| 11 | `lan-scanner` | ★★★★☆ | Built-in | Pocket-sized network diagnostics tool (nmap / arp-scan, Wi-Fi + Ethernet) |
+| ID | App | Priority | Hardware | Primary Function | Status |
+|---|---|---|---|---|---|
+| 01 | [`gps-logger`](./apps/gps-logger/) | ★★★★★ | Cap A or Grove GPS | GPX 1.1 track logger with speed/distance stats, sky plot of visible GNSS satellites and track view | **v0.1.0** |
+| 02 | `lora-mesh-node` | ★★★★☆ | Cap A + C6L gateway | Meshtastic-compatible off-grid messaging node | Receive test tools only |
+| 03 | `nfc-toolkit` | ★★★★☆ | Cap B | NFC card learning tool (ISO 14443A/B, FeliCa, ISO 15693) | Planned |
+| 04 | `subghz-sniffer` | ★★★☆☆ | Cap B | Sub-GHz signal analyzer (receive-only in Japan) | Planned |
+| 05 | `bsaf-client` | ★★★★☆ | Cap A + Wi-Fi | Two-channel ([BSAF v1](https://github.com/osprey74/bsaf-protocol)) disaster alert receiver (MQTT primary, LoRa fallback) | Planned |
+| 06 | `edge-ai` | ★★★☆☆ | Built-in | Offline LLM assistant (quantized 1B-parameter models) | Planned |
+| 07 | [`wifi-analyzer`](./apps/wifi-analyzer/) | ★★★☆☆ | Built-in | Nearby access-point list, 2.4 GHz channel map and signal graph (receive-only) | **v0.1.1** |
+| 08 | `nfc-checkpoint` | ★★★☆☆ | Cap A + Cap B | NFC tag + GPS waypoint checkpoint logger | Planned |
+| 09 | `nfc-lora-auth` | ★★☆☆☆ | Cap A + Cap B | Off-grid badge auth PoC (NFC scan → LoRa relay) | Planned |
+| 10 | `sdr-receiver` | ★★★★☆ | RTL-SDR V4 | Wideband SDR receiver + integrated spectrum monitor (FM / ADS-B / AIS / NOAA APT / rtl_433) | Prototype (on uConsole) |
+| 11 | [`lan-scanner`](./apps/lan-scanner/) | ★★★★☆ | Built-in | Host discovery (ICMP + ARP), mDNS/DNS names, vendor lookup and TCP port check on the connected subnet | **v0.1.1** |
+| 13 | `tester` | ★★★★☆ | INA226 (Grove I2C) | DC voltage/current tester | Planned |
+| 14 | `qr-toolkit` | ★★★★☆ | Built-in camera (standard edition) | QR code reader and structure analyzer | Planned |
+| 15 | `ncir_thermometer` | ★★★☆☆ | MLX90614 + PaHUB (Grove) | Non-contact thermometer | Python PoC |
+| 16 | [`stellar-map`](./apps/stellar-map/) | ★★★☆☆ | Built-in (GNSS optional) | Offline star map with planets and the Moon | **v0.1.6** |
 
-Each app's full feature checklist is in [HANDOFF §3](./HANDOFF_cardputerzero.md#3-アプリ開発仕様).
+App 12 was merged into App 10. Each app's full feature checklist is in [HANDOFF §3](./HANDOFF_cardputerzero.md#3-アプリ開発仕様).
 
 ---
 
 ## Tech Stack
 
-- **Language**: Rust (primary), Python (sidecars and tooling)
-- **UI Framework**: [LVGL](https://lvgl.io/) via [CardputerZero-AppBuilder](https://github.com/m5stack/CardputerZero-AppBuilder) (`czdev` CLI)
-- **Target Triple**: `aarch64-unknown-linux-gnu`
-- **Emulator**: `czdev run` (SDL2-based, reproduces the 320×170 LCD on a development machine)
-- **Deployment**: SSH + `scp` to `pi@cardputerzero.local` (the username is the one chosen in the first-boot setup)
-- **App Distribution**: `czdev upload` to the official Debian apt repository at [m5stack/CardputerZeroRepository](https://github.com/m5stack/CardputerZeroRepository) — end users install via `apt install`
+- **Language**: The project policy prefers Rust, but the apps implemented so far are written in **Python**, because no aarch64 Linux Rust toolchain is set up yet. They depend only on what the factory image already provides (Python 3.13, Pillow, numpy), so nothing extra is installed with `apt`
+- **UI**: Each app draws directly to the framebuffer (`/dev/fb0`, 320×170 RGB565) and reads the keyboard from evdev — the same way the standard launcher and its apps work. SDL2 windows do not appear on the LCD. The shared UI code is in [`shared/fb_ui`](./shared/fb_ui/) (Japanese text via Noto Sans CJK)
+- **Runtime**: `legacy-deb-only` — each app is a standalone program registered with the launcher through `/usr/share/APPLaunch/applications/<name>.desktop`
+- **Packaging**: [`scripts/pack_deb.sh`](./scripts/pack_deb.sh) builds a `.deb` from each app's `packaging/` directory. It needs `dpkg-deb`, so it is run on the device itself
+- **Preview and testing**: Apps support `--headless` and `--script` (run without touching the LCD or keyboard and save PNG screenshots), and some support `--demo` (synthetic data), so screens can be checked on a PC or over SSH. The `czdev` emulator is not used
+- **App Distribution**: Local only — `.deb` packages are installed with `apt install` on the developer's own device. They are not published to the official AppStore
 - **Remote Development**: Tailscale VPN ↔ home Mac Mini for running full Claude models off-device (the 512MB RAM is too small for local LLM hosting)
 
 ---
 
 ## Repository Structure
 
-```
+```text
 cardputerzero-apps/
 ├── CLAUDE.md
-├── HANDOFF_cardputerzero.md   # Primary design specification
-├── apps/
-│   ├── gps-logger/            # App 01 [Cap A]
-│   ├── lora-mesh-node/        # App 02 [Cap A]
-│   ├── nfc-toolkit/           # App 03 [Cap B]
-│   ├── subghz-sniffer/        # App 04 [Cap B]
-│   ├── bsaf-client/           # App 05 [Cap A + Wi-Fi]
-│   ├── edge-ai/               # App 06 [built-in]
-│   ├── wifi-analyzer/         # App 07 [built-in]
-│   ├── nfc-checkpoint/        # App 08 [Cap A + Cap B alternating]
-│   ├── nfc-lora-auth/         # App 09 [Cap A + Cap B alternating]
-│   ├── sdr-receiver/          # App 10 [RTL-SDR USB]
-│   └── lan-scanner/           # App 11 [built-in Wi-Fi / Ethernet]
+├── HANDOFF_cardputerzero.md     # Primary design specification
+├── apps/                        # one directory per app: src/, packaging/, app-builder.json, README.md
+│   ├── gps-logger/              # App 01  v0.1.0
+│   ├── lora-mesh-node/          # App 02  receive test tools
+│   ├── nfc-toolkit/             # App 03
+│   ├── subghz-sniffer/          # App 04
+│   ├── bsaf-client/             # App 05
+│   ├── edge-ai/                 # App 06
+│   ├── wifi-analyzer/           # App 07  v0.1.1
+│   ├── nfc-checkpoint/          # App 08
+│   ├── nfc-lora-auth/           # App 09
+│   ├── sdr-receiver/            # App 10  prototype
+│   ├── lan-scanner/             # App 11  v0.1.1
+│   ├── tester/                  # App 13
+│   ├── ncir_thermometer/        # App 15  Python PoC
+│   └── stellar-map/             # App 16  v0.1.6
 ├── shared/
-│   ├── lora_sx1262/           # SX1262 LoRa driver [Cap A]
-│   ├── gnss_at6668/           # AT6668 GNSS driver [Cap A]
-│   ├── nfc_st25r3916/         # ST25R3916 NFC driver [Cap B]
-│   ├── rf_cc1101/             # CC1101 Sub-GHz driver [Cap B]
-│   ├── input_encoder/         # Chain Encoder shared input driver [Grove UART]
-│   └── ui_theme/              # Shared LVGL theme
-└── scripts/
-    ├── setup_device.sh        # initial device setup
-    ├── setup_rtlsdr.sh        # RTL-SDR V4 driver setup (App 10)
-    ├── swap_cap_a.sh          # Cap A device path helper
-    ├── swap_cap_b.sh          # Cap B device path helper
-    └── deploy_all.sh          # bulk deploy helper
+│   ├── fb_ui/                   # framebuffer UI + evdev keyboard (Python)
+│   ├── gnss_at6668/             # GNSS driver: 5V power control for Cap/Grove, NMEA RMC/GGA/GSA/GSV
+│   ├── star_catalog/            # star catalog and projection (App 16)
+│   ├── compass/                 # heading (BMM150 etc.)
+│   ├── cores3_bridge/           # USB CDC link to the CoreS3 front end
+│   ├── lora_sx1262/             # SX1262 LoRa driver (planned)
+│   ├── nfc_st25r3916/           # ST25R3916 NFC driver (planned)
+│   ├── rf_cc1101/               # CC1101 Sub-GHz driver (planned)
+│   ├── input_encoder/           # Chain Encoder input (planned)
+│   └── ui_theme/                # shared theme (planned)
+├── templates/                   # starter templates (rust-fb-app / rust-sdl2-app / python-sidecar-app)
+├── firmware/                    # CoreS3 firmware (front end, level, timer)
+├── scripts/                     # pack_deb.sh (.deb builder), deploy.sh, setup scripts
+├── assets/                      # diagrams (SVG)
+└── docs/                        # notes and certification documents
 ```
 
 ---
 
 ## Getting Started
 
-> ⚠️ Implementation has not started. The steps below describe the planned development workflow once the hardware arrives.
+### Preview an app on a PC
 
-### Development Machine
-
-This project officially supports macOS, Linux, and **Windows 11 via MSYS2 MINGW64** (per AppBuilder's `DESKTOP_DEV.md`).
+The UI code needs only Python 3 and Pillow + numpy. Apps with `--demo` run on a PC with synthetic data:
 
 ```bash
-# 1. Install Rust toolchain
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-rustup target add aarch64-unknown-linux-gnu
-
-# 2. Install SDL2 for the czdev emulator
-#    macOS:        brew install sdl2 sdl2_image sdl2_mixer
-#    Linux:        sudo apt install libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev
-#    Windows 11:   pacman -S mingw-w64-x86_64-SDL2 mingw-w64-x86_64-SDL2_image mingw-w64-x86_64-SDL2_mixer
-#                  (run inside the MSYS2 MINGW64 shell)
-
-# 3. Clone and build CardputerZero-AppBuilder
-git clone --recursive https://github.com/m5stack/CardputerZero-AppBuilder.git
-cd CardputerZero-AppBuilder
-cargo build --release -p czdev
-export PATH="$PATH:$(pwd)/target/release"
-
-# 4. Smoke-test the emulator
-czdev run examples/hello_cz
+pip install pillow numpy
+python apps/gps-logger/src/gps_logger.py --demo --headless \
+  --script "4 enter; 30 shot /tmp/dash.png; 30.5 2; 31 shot /tmp/sky.png; 32 quit"
+python -m unittest discover -s apps/gps-logger/tests
 ```
 
-Full setup including device-side initialization (gpsd, SPI, UART enablement) is documented in [HANDOFF §6](./HANDOFF_cardputerzero.md#6-開発環境セットアップ).
+### Build and install on the device
+
+```bash
+# copy the repository (or the app, shared/ and scripts/) to the device, then on the device:
+bash scripts/pack_deb.sh apps/gps-logger
+apt-get -s install ./apps/gps-logger/dist-cz/*.deb    # dry run: check nothing else changes
+sudo apt install ./apps/gps-logger/dist-cz/*.deb
+```
+
+The app then appears in the standard launcher. Long-press ESC to exit. On the keyboard, the cursor keys are Fn + F/X/C/Z; the apps also accept F/X/C/Z without Fn. See each app's README for its keys and options.
+
+> Do not run `apt upgrade` on the device: the built-in Camera app depends on the exact libcamera version shipped in the factory image ([HANDOFF §9.1](./HANDOFF_cardputerzero.md#9-既知の未確認事項todo)).
+
+Device-side notes (first-boot wizard, SSH, launcher internals) are in [HANDOFF §4.2.1](./HANDOFF_cardputerzero.md) and [HANDOFF §6](./HANDOFF_cardputerzero.md#6-開発環境セットアップ).
 
 ---
 
