@@ -20,44 +20,68 @@ M5Stack CardputerZero 向けに開発するアプリ群のモノレポ。Rust (c
 - **AppStore**: 公式サイト https://cardputer.cc/ （Hub / AppStore & Registry・Web エミュレータ `/emulator/`）／開発者ポータル https://dev.cardputer.cc/ ／apt リポジトリ https://github.com/m5stack/CardputerZeroRepository
   - 配布は `.deb`・メタは `app-builder.json`（`app.yaml` は非公式・旧）。レジストリはパッケージ名**先着順**（名前照合は `-` `_` `.` を無視）。ショップ掲載はスクショ 320×170 PNG 最大6・正方形 PNG アイコン。SDK/Kernel docs は公式に "coming soon"（2026-08-13 時点）
 
-## アプリ一覧（予定）
+## アプリ一覧
 
-| ID | アプリ | 優先度 | 主機能 |
-|---|---|---|---|
-| 01 | `gps-logger` | ★★★★★ | AT6668 GNSS による GPX ロガー（0.1.0 実装済み・Python） |
-| 02 | `lora-mesh-node` | ★★★★☆ | SX1262 + Meshtastic 互換ノード |
-| 03 | `nfc-toolkit` | ★★★★☆ | ST25R3916 による NFC 学習ツール |
-| 04 | `subghz-sniffer` | ★★★☆☆ | CC1101 Sub-GHz 受信解析 |
-| 05 | `bsaf-client` | ★★★★☆ | BSAF v1 防災アラート受信 |
-| 06 | `edge-ai` | ★★★☆☆ | 軽量 LLM オフラインアシスタント |
-| 07 | `wifi-analyzer` | ★★★☆☆ | Wi-Fi 環境解析（0.1.0 実装済み・Python） |
-| 11 | `lan-scanner` | ★★★★☆ | 接続中サブネットの機器発見・ポート確認（0.1.0 実装済み・Python） |
-| 13 | `tester` | ★★★★☆ | INA226 DC 電圧/電流テスター (Grove I2C) |
-| 14 | `qr-toolkit` | ★★★★☆ | IMX219 カメラによる QR 読取・解析・構造学習（標準版限定） |
-| 15 | `ncir-thermometer` | ★★★☆☆ | MLX90614 非接触温度センサ（PaHUB CH1 / 業務点検・PC サーマル・料理補助） |
-| 16 | `stellar-map` | ★★★☆☆ | オフライン星座盤（Skyfield＋HYG／内蔵 RTC・GNSS・NTP／HDMI プラネタリウム） |
+一次資料は HANDOFF §3（各アプリの仕様と機能一覧）。App12 は App10 に統合したため欠番（2026-06-07）。
+
+| ID | アプリ | 優先度 | 主機能 | 現状（2026-11-19） |
+|---|---|---|---|---|
+| 01 | `gps-logger` | ★★★★★ | AT6668 GNSS による GPX ロガー（天球図・軌跡・統計） | 0.1.0 実装済み・Python・実機で測位確認 |
+| 02 | `lora-mesh-node` | ★★★★☆ | SX1262 + Meshtastic 互換ノード | 受信確認ツールのみ（Cap LoRa-1262 の交換品待ち） |
+| 03 | `nfc-toolkit` | ★★★★☆ | ST25R3916 による NFC 学習ツール（Cap CC1101） | 未着手 |
+| 04 | `subghz-sniffer` | ★★★☆☆ | CC1101 Sub-GHz 受信解析（Cap CC1101） | 未着手 |
+| 05 | `bsaf-client` | ★★★★☆ | BSAF v1 防災アラート受信 | 未着手 |
+| 06 | `edge-ai` | ★★★☆☆ | 軽量 LLM オフラインアシスタント | 未着手 |
+| 07 | `wifi-analyzer` | ★★★☆☆ | Wi-Fi 環境解析（AP 一覧・チャンネルマップ・信号グラフ） | 0.1.1 実装済み・Python |
+| 08 | `nfc-checkpoint` | ★★★☆☆ | NFC タグ × GPS 座標のチェックポイント記録（Cap 2 種を差し替え） | 未着手 |
+| 09 | `nfc-lora-auth` | ★★☆☆☆ | NFC × LoRa オフグリッド認証 PoC（研究・学習用途） | 未着手 |
+| 10 | `sdr-receiver` | ★★★★☆ | RTL-SDR V4 による広帯域受信（旧 App12 統合・BCL ログモード） | uConsole で試作中 |
+| 11 | `lan-scanner` | ★★★★☆ | 接続中サブネットの機器発見・ポート確認 | 0.1.1 実装済み・Python |
+| 13 | `tester` | ★★★★☆ | INA226 DC 電圧/電流テスター (Grove I2C) | ほぼ未着手 |
+| 14 | `qr-toolkit` | ★★★★☆ | IMX219 カメラによる QR 読取・解析・構造学習（標準版限定） | 未着手（フォルダ未作成） |
+| 15 | `ncir_thermometer` | ★★★☆☆ | MLX90614 非接触温度センサ（PaHUB CH1 / 業務点検・PC サーマル・料理補助） | Python の PoC あり |
+| 16 | `stellar-map` | ★★★☆☆ | オフライン星座盤（Skyfield＋HYG／内蔵 RTC・GNSS・NTP／HDMI プラネタリウム） | 0.1.6 実装済み・Python・実機で動作確認 |
 
 ## 想定リポジトリ構成
 
-```
+2026-11-19 時点の実際の構成。`（空）` は `.gitkeep` だけの予定地。
+
+```text
 cardputerzero-apps/
 ├── CLAUDE.md
-├── HANDOFF_cardputerzero.md
-├── apps/
-│   ├── gps-logger/
-│   ├── lora-mesh-node/
-│   ├── nfc-toolkit/
-│   ├── subghz-sniffer/
-│   ├── bsaf-client/
-│   ├── edge-ai/
-│   └── wifi-analyzer/
+├── HANDOFF_cardputerzero.md     # 一次設計書
+├── README.md / README.ja.md
+├── apps/                        # アプリごとに src/・packaging/・app-builder.json・README.md
+│   ├── gps-logger/              # App01 0.1.0（Python）
+│   ├── lora-mesh-node/          # App02 受信確認ツール（tools/）
+│   ├── nfc-toolkit/             # App03（空）
+│   ├── subghz-sniffer/          # App04（空）
+│   ├── bsaf-client/             # App05（空）
+│   ├── edge-ai/                 # App06（空）
+│   ├── wifi-analyzer/           # App07 0.1.1（Python）
+│   ├── nfc-checkpoint/          # App08（空）
+│   ├── nfc-lora-auth/           # App09（空）
+│   ├── sdr-receiver/            # App10 uConsole で試作中
+│   ├── lan-scanner/             # App11 0.1.1（Python・data/oui.tsv.gz）
+│   ├── tester/                  # App13
+│   ├── ncir_thermometer/        # App15 Python PoC
+│   └── stellar-map/             # App16 0.1.6（Python サイドカー＋fb UI）
 ├── shared/
-│   ├── lora_sx1262/      # SX1262 共通ドライバ
-│   ├── gnss_at6668/      # AT6668 共通ドライバ
-│   └── ui_theme/         # osprey74 カラーの共通 UI テーマ
-└── scripts/
-    ├── setup_device.sh
-    └── deploy_all.sh
+│   ├── fb_ui/                   # /dev/fb0 直描画・evdev 入力の共通 UI（Python）
+│   ├── gnss_at6668/             # GNSS ドライバ（Cap／Grove の 5V 制御・NMEA RMC/GGA/GSA/GSV）
+│   ├── star_catalog/            # App16 の星表と投影
+│   ├── compass/                 # 方位（BMM150 等）
+│   ├── cores3_bridge/           # CoreS3 フロントエンドとの USB CDC 連携
+│   ├── lora_sx1262/             # SX1262 共通ドライバ（空）
+│   ├── nfc_st25r3916/           # ST25R3916 共通ドライバ（空）
+│   ├── rf_cc1101/               # CC1101 共通ドライバ（空）
+│   ├── input_encoder/           # Chain Encoder 入力（空）
+│   └── ui_theme/                # 共通 UI テーマ（空・配色は当面 fb_ui の THEME）
+├── templates/                   # 新規アプリの雛形（rust-fb-app / rust-sdl2-app / python-sidecar-app）
+├── firmware/                    # CoreS3 用（cores3-frontend / cores3-level / cores3-timer）
+├── scripts/                     # pack_deb.sh（.deb 生成）・deploy.sh・setup_*.sh・uConsole 用ほか
+├── assets/                      # 構成図（SVG）
+└── docs/                        # 記事用資料・Cap の技適資料
 ```
 
 ## 技術スタック
